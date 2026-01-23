@@ -530,6 +530,42 @@ except ImportError:
     print("⚠️ IndexTTS2 not available. Some features will be disabled.")
 
 # ===== CONVERSATION MODE FUNCTIONS =====
+def detect_language(text: str, default="en") -> str:
+    # Devanagari → Hindi
+    if re.search(r'[\u0900-\u097F]', text):
+        return "hi"
+    
+    # Arabic
+    if re.search(r'[\u0600-\u06FF]', text):
+        return "ar"
+    
+    # Japanese (Hiragana + Katakana)
+    if re.search(r'[\u3040-\u30FF]', text):
+        return "ja"
+    
+    # Chinese
+    if re.search(r'[\u4E00-\u9FFF]', text):
+        return "zh"
+    
+    # Korean
+    if re.search(r'[\uAC00-\uD7AF]', text):
+        return "ko"
+    
+    # Russian / Cyrillic
+    if re.search(r'[\u0400-\u04FF]', text):
+        return "ru"
+    
+    # Greek
+    if re.search(r'[\u0370-\u03FF]', text):
+        return "el"
+    
+    # Hebrew
+    if re.search(r'[\u0590-\u05FF]', text):
+        return "he"
+    
+    # Latin script → default (English, French, Spanish, etc.)
+    return default
+
 def parse_conversation_script(script_text):
     """Parse conversation script in Speaker: Text format."""
     try:
@@ -687,9 +723,11 @@ def generate_conversation_audio_simple(
                     )
                 elif selected_engine == 'Chatterbox Multilingual':
                     print(f"🌍 Using Chatterbox Multilingual for {speaker}")
+                    lang = detect_language(text)
+                    print(f"🌍 Multilingual detected language: {lang}")
                     result = generate_chatterbox_multilingual_tts(
                         text,
-                        "en",  # language_id - default to English, could be made configurable
+                        lang,  # language_id - auto-detected
                         ref_audio or '',
                         0.5,   # exaggeration
                         0.8,   # temperature
