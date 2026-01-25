@@ -116,3 +116,6 @@ sortedcontainers
 
 # Chatterbox-turbo
 pyloudnorm
+
+# Qwen-TTS
+sox

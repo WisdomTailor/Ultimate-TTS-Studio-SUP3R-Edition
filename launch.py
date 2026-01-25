@@ -216,6 +216,24 @@ except ImportError:
     CHATTERBOX_TURBO_AVAILABLE = False
     print("⚠️ Chatterbox Turbo not available. Some features will be disabled.")
 
+# Qwen TTS imports
+try:
+    with suppress_specific_warnings():
+        from qwen_tts_handler import (
+            get_qwen_tts_handler, init_qwen_tts, unload_qwen_tts, get_qwen_tts_status,
+            generate_qwen_voice_design_tts, generate_qwen_voice_clone_tts, generate_qwen_custom_voice_tts,
+            transcribe_qwen_audio, QWEN_TTS_AVAILABLE as _QWEN_AVAILABLE,
+            QWEN_TTS_MODELS, QWEN_SPEAKERS, QWEN_LANGUAGES
+        )
+    QWEN_TTS_AVAILABLE = _QWEN_AVAILABLE
+    print("✅ Qwen TTS handler loaded")
+except ImportError:
+    QWEN_TTS_AVAILABLE = False
+    QWEN_TTS_MODELS = {}
+    QWEN_SPEAKERS = []
+    QWEN_LANGUAGES = []
+    print("⚠️ Qwen TTS not available. Some features will be disabled.")
+
 # ===== VOXCPM MODEL MANAGEMENT =====
 def init_voxcpm_model():
     """Initialize VoxCPM model"""
@@ -390,6 +408,42 @@ def unload_indextts2_model():
         return message
     except Exception as e:
         return f"⚠️ Error unloading IndexTTS2: {str(e)}"
+
+# ===== QWEN TTS MODEL MANAGEMENT =====
+def init_qwen_tts_model(model_type: str = "Base", model_size: str = "1.7B"):
+    """Initialize Qwen TTS model"""
+    if not QWEN_TTS_AVAILABLE:
+        return False, "❌ Qwen TTS not available"
+    
+    try:
+        MODEL_STATUS['qwen_tts'] = {'loading': True}
+        success, message = init_qwen_tts(model_type, model_size)
+        if success:
+            MODEL_STATUS['qwen_tts'] = {'loaded': True, 'loading': False, 'model_type': model_type, 'model_size': model_size}
+            return True, f"✅ Qwen TTS {model_type} ({model_size}) loaded successfully"
+        else:
+            MODEL_STATUS['qwen_tts']['loading'] = False
+            return False, message
+    except Exception as e:
+        MODEL_STATUS['qwen_tts']['loading'] = False
+        return False, f"❌ Error loading Qwen TTS: {str(e)}"
+
+def unload_qwen_tts_model(model_type: str = None, model_size: str = None):
+    """Unload Qwen TTS model"""
+    try:
+        message = unload_qwen_tts(model_type, model_size)
+        MODEL_STATUS['qwen_tts'] = {'loaded': False, 'loading': False}
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        return message
+    except Exception as e:
+        return f"⚠️ Error unloading Qwen TTS: {str(e)}"
 
 # eBook Converter imports
 try:
@@ -654,6 +708,7 @@ def create_default_speaker_settings(speakers):
 def generate_conversation_audio_simple(
     conversation_script,
     voice_samples,  # List of voice sample file paths
+    ref_texts=None,  # List of reference texts for each speaker (for Qwen TTS)
     selected_engine="chatterbox",
     conversation_pause_duration=0.8,
     speaker_transition_pause=0.3,
@@ -678,8 +733,13 @@ def generate_conversation_audio_simple(
         speakers = get_speaker_names_from_script(conversation_script)
         print(f"🎤 Found speakers: {speakers}")
         
-        # Map speakers to voice samples and generate consistent seeds
+        # Initialize ref_texts if not provided
+        if ref_texts is None:
+            ref_texts = [None] * 5
+        
+        # Map speakers to voice samples, reference texts, and generate consistent seeds
         speaker_voice_map = {}
+        speaker_ref_text_map = {}
         speaker_seed_map = {}
         for i, speaker in enumerate(speakers):
             if i < len(voice_samples) and voice_samples[i] is not None:
@@ -687,7 +747,15 @@ def generate_conversation_audio_simple(
                 print(f"🎤 {speaker} -> {voice_samples[i]}")
             else:
                 speaker_voice_map[speaker] = None
-                print(f"🎤 {speaker} -> No voice sample")
+                print(f"� {speaker} -> No voice sample")
+            
+            # Map reference text for this speaker
+            if i < len(ref_texts) and ref_texts[i] is not None and ref_texts[i].strip():
+                speaker_ref_text_map[speaker] = ref_texts[i].strip()
+                print(f"📝 {speaker} -> ref_text: {ref_texts[i][:30]}...")
+            else:
+                speaker_ref_text_map[speaker] = None
+                print(f"📝 {speaker} -> No reference text")
             
             # Generate a consistent seed for each speaker
             speaker_seed_map[speaker] = np.random.randint(0, 2147483647)
@@ -891,6 +959,51 @@ def generate_conversation_audio_simple(
                         speaker_seed,  # Use consistent seed per speaker
                         effects_settings,
                         audio_format
+                    )
+                elif selected_engine == 'Qwen Voice Clone':
+                    print(f"🎙️ Using Qwen Voice Clone for {speaker}")
+                    
+                    # Get pre-provided reference text for this speaker (from UI transcribe button)
+                    ref_text = speaker_ref_text_map.get(speaker)
+                    
+                    # If no pre-provided ref_text, try auto-transcribe as fallback
+                    if not ref_text and ref_audio and QWEN_TTS_AVAILABLE:
+                        try:
+                            print(f"🎤 Auto-transcribing reference audio for {speaker}...")
+                            ref_text = transcribe_qwen_audio(ref_audio)
+                            if ref_text:
+                                print(f"📝 Transcribed: {ref_text[:50]}...")
+                            else:
+                                print("⚠️ No transcription result, using x-vector only mode")
+                        except Exception as e:
+                            print(f"⚠️ Transcription failed for {speaker}: {e}")
+                            ref_text = None
+                    elif ref_text:
+                        print(f"📝 Using pre-provided ref_text for {speaker}: {ref_text[:50]}...")
+                    
+                    # Use consistent seed for this speaker
+                    speaker_seed = speaker_seed_map.get(speaker, None)
+                    print(f"🎲 Using consistent seed {speaker_seed} for {speaker}")
+                    
+                    # Get the currently loaded model size from MODEL_STATUS
+                    qwen_model_size = "0.6B"  # Default to smaller model
+                    if MODEL_STATUS.get('qwen_tts', {}).get('loaded'):
+                        qwen_model_size = MODEL_STATUS['qwen_tts'].get('model_size', '0.6B')
+                    print(f"🎭 Using Qwen model size: {qwen_model_size}")
+                    
+                    result = generate_qwen_voice_clone_tts(
+                        text,
+                        ref_audio,
+                        ref_text or "",
+                        "Auto",  # language
+                        ref_text is None or ref_text == "",  # use_xvector_only
+                        qwen_model_size,  # Use currently loaded model size
+                        200,     # max_chunk_chars
+                        0.0,     # chunk_gap
+                        speaker_seed,  # seed
+                        effects_settings,
+                        audio_format,
+                        skip_file_saving=True
                     )
                 else:
                     return None, f"❌ Unsupported TTS engine: {selected_engine}"
@@ -1990,7 +2103,9 @@ MODEL_STATUS = {
     'indextts2': {'loaded': False, 'loading': False},
     'f5_tts': {'loaded': False, 'loading': False, 'models': {}},
     'higgs_audio': {'loaded': False, 'loading': False},
-    'kitten_tts': {'loaded': False, 'loading': False}
+    'kitten_tts': {'loaded': False, 'loading': False},
+    'qwen_tts': {'loaded': False, 'loading': False},
+    'voxcpm': {'loaded': False, 'loading': False}
 }
 
 def init_chatterbox():
@@ -4234,6 +4349,13 @@ def convert_ebook_to_audiobook(
     higgs_ras_win_max_num_repeat: int = 2,
     # KittenTTS parameters
     kitten_voice: str = "expr-voice-2-f",
+    # Qwen TTS parameters
+    qwen_ref_audio: str = None,
+    qwen_ref_text: str = "",
+    qwen_language: str = "Auto",
+    qwen_xvector_only: bool = False,
+    qwen_clone_model_size: str = "1.7B",
+    qwen_seed: int = -1,
     # Effects parameters
     gain_db: float = 0,
     enable_eq: bool = False,
@@ -4315,6 +4437,13 @@ def convert_ebook_to_audiobook(
         fish_chunk_reference_audio = fish_ref_audio
         fish_chunk_reference_text = fish_ref_text
         
+        # For Qwen TTS: generate a consistent seed for the entire audiobook if seed is -1
+        audiobook_qwen_seed = qwen_seed
+        if tts_engine == "Qwen Voice Clone" and audiobook_qwen_seed == -1:
+            import random
+            audiobook_qwen_seed = random.randint(0, 2147483647)
+            print(f"🎭 Using consistent seed {audiobook_qwen_seed} for entire audiobook voice consistency")
+        
         
         for i, chunk in enumerate(text_chunks):
             print(f"Processing chunk {i+1}/{total_chunks}: {chunk['title']}")
@@ -4392,6 +4521,14 @@ def convert_ebook_to_audiobook(
                 # Use selected voice for eBook conversion
                 audio_result, status = generate_kitten_tts(
                     chunk['content'], kitten_voice, effects_settings, "wav", skip_file_saving=True
+                )
+            elif tts_engine == "Qwen Voice Clone":
+                # Use Qwen Voice Clone for eBook conversion
+                audio_result, status = generate_qwen_voice_clone_tts(
+                    chunk['content'], qwen_ref_audio, qwen_ref_text, qwen_language,
+                    qwen_xvector_only, qwen_clone_model_size, max_chunk_length,
+                    0.0,  # chunk_gap handled by ebook converter
+                    audiobook_qwen_seed, effects_settings, "wav", skip_file_saving=True
                 )
             else:
                 return None, f"❌ Invalid TTS engine: {tts_engine}"
@@ -4853,6 +4990,20 @@ def generate_unified_tts(
     voxcpm_retry_badcase_max_times: int = 3,
     voxcpm_retry_badcase_ratio_threshold: float = 6.0,
     voxcpm_seed: int = None,
+    # Qwen TTS parameters
+    qwen_mode: str = "voice_clone",
+    qwen_voice_description: str = "",
+    qwen_ref_audio: str = None,
+    qwen_ref_text: str = "",
+    qwen_xvector_only: bool = False,
+    qwen_clone_model_size: str = "1.7B",
+    qwen_chunk_size: int = 200,
+    qwen_chunk_gap: float = 0.0,
+    qwen_speaker: str = "Ryan",
+    qwen_custom_model_size: str = "1.7B",
+    qwen_style_instruct: str = "",
+    qwen_language: str = "Auto",
+    qwen_seed: int = -1,
     # Effects parameters
     gain_db: float = 0,
     enable_eq: bool = False,
@@ -4961,6 +5112,22 @@ def generate_unified_tts(
             voxcpm_retry_badcase, voxcpm_retry_badcase_max_times,
             voxcpm_retry_badcase_ratio_threshold, voxcpm_seed,
             effects_settings, audio_format
+        )
+    elif tts_engine == "Qwen Voice Design":
+        return generate_qwen_voice_design_tts(
+            text_input, qwen_language, qwen_voice_description, qwen_seed,
+            effects_settings, audio_format
+        )
+    elif tts_engine == "Qwen Voice Clone":
+        return generate_qwen_voice_clone_tts(
+            text_input, qwen_ref_audio, qwen_ref_text, qwen_language,
+            qwen_xvector_only, qwen_clone_model_size, qwen_chunk_size,
+            qwen_chunk_gap, qwen_seed, effects_settings, audio_format
+        )
+    elif tts_engine == "Qwen Custom Voice":
+        return generate_qwen_custom_voice_tts(
+            text_input, qwen_speaker, qwen_language, qwen_style_instruct,
+            qwen_custom_model_size, qwen_seed, effects_settings, audio_format
         )
     else:
         return None, "❌ Invalid TTS engine selected"
@@ -6118,6 +6285,80 @@ def create_gradio_interface():
                     f5_model_status = gr.Markdown(visible=False, value="")
                     f5_download_status = gr.Textbox(visible=False, value="")
             
+            # Qwen TTS Management in collapsible accordion
+            with gr.Accordion("🎙️ Qwen TTS Model Management", open=False, elem_classes=["fade-in"]):
+                if QWEN_TTS_AVAILABLE:
+                    qwen_model_status = gr.Markdown(
+                        value="Loading model status...",
+                        elem_classes=["fade-in"]
+                    )
+                    
+                    with gr.Row():
+                        qwen_model_type = gr.Dropdown(
+                            choices=["Base", "VoiceDesign", "CustomVoice"],
+                            value="Base",
+                            label="🎯 Model Type",
+                            info="Base=Voice Clone, VoiceDesign=Create voices, CustomVoice=Predefined speakers",
+                            elem_classes=["fade-in"]
+                        )
+                        qwen_model_size = gr.Dropdown(
+                            choices=["0.6B", "1.7B"],
+                            value="1.7B",
+                            label="📊 Model Size",
+                            elem_classes=["fade-in"]
+                        )
+                    
+                    with gr.Row():
+                        qwen_download_btn = gr.Button(
+                            "📥 Download Model",
+                            variant="secondary",
+                            elem_classes=["fade-in"]
+                        )
+                        load_qwen_btn = gr.Button(
+                            "🚀 Load Model",
+                            variant="primary",
+                            elem_classes=["fade-in"]
+                        )
+                        unload_qwen_btn = gr.Button(
+                            "🗑️ Unload Model",
+                            variant="secondary",
+                            elem_classes=["fade-in"]
+                        )
+                    
+                    qwen_download_status = gr.Textbox(
+                        label="📊 Status",
+                        interactive=False,
+                        elem_classes=["fade-in"],
+                        visible=True
+                    )
+                    
+                    qwen_status = gr.Markdown(
+                        value="⭕ Not loaded",
+                        visible=False  # Hidden, used for internal state
+                    )
+                    
+                    gr.Markdown("""
+                    <div style='margin-top: 10px; padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
+                        <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
+                            <strong>📋 Model Info:</strong><br/>
+                            • <strong>Base (Voice Clone):</strong> 0.6B or 1.7B - Clone voices from reference audio ✅ Supports chunking<br/>
+                            • <strong>VoiceDesign:</strong> 1.7B only - Create voices from text descriptions<br/>
+                            • <strong>CustomVoice:</strong> 0.6B or 1.7B - Use predefined speakers (Aiden, Dylan, Eric, etc.)
+                        </p>
+                    </div>
+                    """)
+                else:
+                    gr.Markdown("⚠️ Qwen TTS not available - check qwen_tts module and transformers version")
+                    # Create dummy components
+                    qwen_model_type = gr.Dropdown(visible=False, value="Base", choices=["Base"])
+                    qwen_model_size = gr.Dropdown(visible=False, value="1.7B", choices=["1.7B"])
+                    qwen_download_btn = gr.Button(visible=False)
+                    load_qwen_btn = gr.Button(visible=False)
+                    unload_qwen_btn = gr.Button(visible=False)
+                    qwen_model_status = gr.Markdown(visible=False, value="")
+                    qwen_download_status = gr.Textbox(visible=False, value="")
+                    qwen_status = gr.Markdown(visible=False, value="❌ Not available")
+            
             with gr.Row():
                 # ChatterboxTTS Management - Compact
                 with gr.Column():
@@ -6502,27 +6743,56 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             with gr.Row():
                                 with gr.Column(elem_classes=["conversation-voice-grid"]):
                                     # Voice sample uploads for non-Kokoro engines
-                                    speaker_1_audio = gr.Audio(
-                                        sources=["upload", "microphone"],
-                                        type="filepath",
-                                        label="🎤 Speaker 1 Voice Sample",
-                                        visible=False,
-                                        elem_classes=["fade-in"]
-                                    )
-                                    speaker_2_audio = gr.Audio(
-                                        sources=["upload", "microphone"],
-                                        type="filepath",
-                                        label="🎤 Speaker 2 Voice Sample",
-                                        visible=False,
-                                        elem_classes=["fade-in"]
-                                    )
-                                    speaker_3_audio = gr.Audio(
-                                        sources=["upload", "microphone"],
-                                        type="filepath",
-                                        label="🎤 Speaker 3 Voice Sample",
-                                        visible=False,
-                                        elem_classes=["fade-in"]
-                                    )
+                                    # Speaker 1
+                                    with gr.Group(visible=False, elem_classes=["fade-in"]) as speaker_1_group:
+                                        gr.Markdown("**🎤 Speaker 1**")
+                                        speaker_1_audio = gr.Audio(
+                                            sources=["upload", "microphone"],
+                                            type="filepath",
+                                            label="Voice Sample",
+                                            elem_classes=["fade-in"]
+                                        )
+                                        with gr.Row():
+                                            speaker_1_transcribe_btn = gr.Button("📝 Transcribe", size="sm", scale=1)
+                                        speaker_1_ref_text = gr.Textbox(
+                                            label="Reference Text (auto-filled or manual)",
+                                            placeholder="Transcribed text will appear here...",
+                                            lines=2
+                                        )
+                                    
+                                    # Speaker 2
+                                    with gr.Group(visible=False, elem_classes=["fade-in"]) as speaker_2_group:
+                                        gr.Markdown("**🎤 Speaker 2**")
+                                        speaker_2_audio = gr.Audio(
+                                            sources=["upload", "microphone"],
+                                            type="filepath",
+                                            label="Voice Sample",
+                                            elem_classes=["fade-in"]
+                                        )
+                                        with gr.Row():
+                                            speaker_2_transcribe_btn = gr.Button("📝 Transcribe", size="sm", scale=1)
+                                        speaker_2_ref_text = gr.Textbox(
+                                            label="Reference Text (auto-filled or manual)",
+                                            placeholder="Transcribed text will appear here...",
+                                            lines=2
+                                        )
+                                    
+                                    # Speaker 3
+                                    with gr.Group(visible=False, elem_classes=["fade-in"]) as speaker_3_group:
+                                        gr.Markdown("**🎤 Speaker 3**")
+                                        speaker_3_audio = gr.Audio(
+                                            sources=["upload", "microphone"],
+                                            type="filepath",
+                                            label="Voice Sample",
+                                            elem_classes=["fade-in"]
+                                        )
+                                        with gr.Row():
+                                            speaker_3_transcribe_btn = gr.Button("📝 Transcribe", size="sm", scale=1)
+                                        speaker_3_ref_text = gr.Textbox(
+                                            label="Reference Text (auto-filled or manual)",
+                                            placeholder="Transcribed text will appear here...",
+                                            lines=2
+                                        )
                                     
                                     # Kokoro voice selection radio buttons for each speaker (in accordions)
                                     with gr.Accordion("🗣️ Speaker 1 Kokoro Voice", open=False, visible=False, elem_classes=["fade-in"]) as speaker_1_kokoro_accordion:
@@ -6553,20 +6823,39 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         )
                                 
                                 with gr.Column(elem_classes=["conversation-voice-grid"]):
-                                    speaker_4_audio = gr.Audio(
-                                        sources=["upload", "microphone"],
-                                        type="filepath",
-                                        label="🎤 Speaker 4 Voice Sample",
-                                        visible=False,
-                                        elem_classes=["fade-in"]
-                                    )
-                                    speaker_5_audio = gr.Audio(
-                                        sources=["upload", "microphone"],
-                                        type="filepath",
-                                        label="🎤 Speaker 5 Voice Sample",
-                                        visible=False,
-                                        elem_classes=["fade-in"]
-                                    )
+                                    # Speaker 4
+                                    with gr.Group(visible=False, elem_classes=["fade-in"]) as speaker_4_group:
+                                        gr.Markdown("**🎤 Speaker 4**")
+                                        speaker_4_audio = gr.Audio(
+                                            sources=["upload", "microphone"],
+                                            type="filepath",
+                                            label="Voice Sample",
+                                            elem_classes=["fade-in"]
+                                        )
+                                        with gr.Row():
+                                            speaker_4_transcribe_btn = gr.Button("📝 Transcribe", size="sm", scale=1)
+                                        speaker_4_ref_text = gr.Textbox(
+                                            label="Reference Text (auto-filled or manual)",
+                                            placeholder="Transcribed text will appear here...",
+                                            lines=2
+                                        )
+                                    
+                                    # Speaker 5
+                                    with gr.Group(visible=False, elem_classes=["fade-in"]) as speaker_5_group:
+                                        gr.Markdown("**🎤 Speaker 5**")
+                                        speaker_5_audio = gr.Audio(
+                                            sources=["upload", "microphone"],
+                                            type="filepath",
+                                            label="Voice Sample",
+                                            elem_classes=["fade-in"]
+                                        )
+                                        with gr.Row():
+                                            speaker_5_transcribe_btn = gr.Button("📝 Transcribe", size="sm", scale=1)
+                                        speaker_5_ref_text = gr.Textbox(
+                                            label="Reference Text (auto-filled or manual)",
+                                            placeholder="Transcribed text will appear here...",
+                                            lines=2
+                                        )
                                     
                                     # More Kokoro voice selection radio buttons (in accordions)
                                     with gr.Accordion("🗣️ Speaker 4 Kokoro Voice", open=False, visible=False, elem_classes=["fade-in"]) as speaker_4_kokoro_accordion:
@@ -6966,9 +7255,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             ("🎯 IndexTTS2", "IndexTTS2"),
                                             ("🎵 F5-TTS", "F5-TTS"),
                                             ("🎙️ Higgs Audio", "Higgs Audio"),
-                                            ("🐱 KittenTTS", "KittenTTS")
+                                            ("🐱 KittenTTS", "KittenTTS"),
+                                            ("🎙️ Qwen Voice Clone", "Qwen Voice Clone")
                                         ],
-                                        value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "KittenTTS",
+                                        value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "KittenTTS" if KITTEN_TTS_AVAILABLE else "Qwen Voice Clone",
                                         label="🎯 TTS Engine for Audiobook",
                                         elem_classes=["fade-in"]
                                     )
@@ -7330,9 +7620,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         ("🎵 F5-TTS - Flow Matching TTS", "F5-TTS"),
                         ("🎙️ Higgs Audio - Advanced Multimodal TTS", "Higgs Audio"),
                         ("🎤 VoxCPM - Voice Cloning TTS", "VoxCPM"),
-                        ("🐱 KittenTTS - Mini Model TTS", "KittenTTS")
+                        ("🐱 KittenTTS - Mini Model TTS", "KittenTTS"),
+                        ("🎨 Qwen Voice Design - Create Voices", "Qwen Voice Design"),
+                        ("🎭 Qwen Voice Clone - Clone Voices", "Qwen Voice Clone"),
+                        ("🗣️ Qwen Custom Voice - Predefined Speakers", "Qwen Custom Voice")
                     ],
-                    value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "VoxCPM" if VOXCPM_AVAILABLE else "KittenTTS",
+                    value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "VoxCPM" if VOXCPM_AVAILABLE else "KittenTTS" if KITTEN_TTS_AVAILABLE else "Qwen Voice Clone",
                     label="🎯 Select TTS Engine",
                     info="Choose your preferred text-to-speech engine (auto-selects when you load a model)",
                     elem_classes=["fade-in"]
@@ -8358,6 +8651,155 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         gr.Markdown("<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🐱 KittenTTS** - ⚠️ Not available - please install with: `pip install https://github.com/KittenML/KittenTTS/releases/download/0.1/kittentts-0.1.0-py3-none-any.whl`</div>")
                         # Create dummy component
                         kitten_voice = gr.Dropdown(visible=False, choices=["expr-voice-2-f"], value="expr-voice-2-f")
+            
+            # Qwen TTS Tab
+            with gr.TabItem("🎙️ Qwen TTS", id="qwen_tab"):
+                if QWEN_TTS_AVAILABLE:
+                    with gr.Group() as qwen_tts_controls:
+                        gr.Markdown("**🎙️ Qwen3-TTS - Advanced Text-to-Speech**")
+                        gr.Markdown("*💡 Three modes: Voice Design (create voices from descriptions), Voice Clone (clone from audio), Custom Voice (predefined speakers)*", elem_classes=["fade-in"])
+                        
+                        # Mode selection
+                        with gr.Row():
+                            qwen_mode = gr.Radio(
+                                label="🎯 TTS Mode",
+                                choices=[
+                                    ("🎨 Voice Design", "voice_design"),
+                                    ("🎭 Voice Clone", "voice_clone"),
+                                    ("🗣️ Custom Voice", "custom_voice")
+                                ],
+                                value="voice_clone",
+                                info="Voice Clone supports chunking, conversation mode, and ebook mode",
+                                elem_classes=["fade-in"]
+                            )
+                        
+                        # Currently loaded model status
+                        qwen_loaded_model_status = gr.Markdown(
+                            value="📦 **Loaded Model:** None - Load a model from Models tab first",
+                            elem_classes=["fade-in"]
+                        )
+                        
+                        # Voice Design controls (visible when voice_design mode selected)
+                        with gr.Group(visible=False) as qwen_voice_design_group:
+                            gr.Markdown("**🎨 Voice Design Mode** - Create unique voices from natural language descriptions")
+                            gr.Markdown("*⚠️ Only works in Text to Speech mode (no chunking)*")
+                            qwen_voice_description = gr.Textbox(
+                                label="🎭 Voice Description",
+                                placeholder="Describe the voice you want, e.g., 'Speak in an incredulous tone, but with a hint of panic beginning to creep into your voice.'",
+                                lines=3,
+                                elem_classes=["fade-in"]
+                            )
+                        
+                        # Voice Clone controls (visible when voice_clone mode selected)
+                        with gr.Group(visible=True) as qwen_voice_clone_group:
+                            gr.Markdown("**🎭 Voice Clone Mode** - Clone voice from reference audio")
+                            gr.Markdown("*✅ Supports chunking, conversation mode, and ebook mode*")
+                            with gr.Row():
+                                qwen_ref_audio = gr.Audio(
+                                    label="🎤 Reference Audio",
+                                    type="filepath",
+                                    sources=["upload", "microphone"],
+                                    elem_classes=["fade-in"]
+                                )
+                            with gr.Row():
+                                qwen_ref_text = gr.Textbox(
+                                    label="📝 Reference Text",
+                                    placeholder="Transcript of the reference audio (or click Transcribe)...",
+                                    lines=2,
+                                    scale=3,
+                                    elem_classes=["fade-in"]
+                                )
+                                qwen_transcribe_btn = gr.Button("🎤 Transcribe", scale=1, elem_classes=["fade-in"])
+                            qwen_xvector_only = gr.Checkbox(
+                                label="X-vector only (no text needed, lower quality)",
+                                value=False,
+                                elem_classes=["fade-in"]
+                            )
+                            with gr.Row():
+                                qwen_clone_model_size = gr.Dropdown(
+                                    label="Model Size",
+                                    choices=["0.6B", "1.7B"],
+                                    value="1.7B",
+                                    elem_classes=["fade-in"]
+                                )
+                                qwen_chunk_size = gr.Slider(
+                                    label="Chunk Size",
+                                    minimum=50,
+                                    maximum=500,
+                                    value=200,
+                                    step=10,
+                                    elem_classes=["fade-in"]
+                                )
+                                qwen_chunk_gap = gr.Slider(
+                                    label="Chunk Gap (s)",
+                                    minimum=0.0,
+                                    maximum=3.0,
+                                    value=0.0,
+                                    step=0.01,
+                                    elem_classes=["fade-in"]
+                                )
+                        
+                        # Custom Voice controls (visible when custom_voice mode selected)
+                        with gr.Group(visible=False) as qwen_custom_voice_group:
+                            gr.Markdown("**🗣️ Custom Voice Mode** - Use predefined speakers with style instructions")
+                            gr.Markdown("*⚠️ Only works in Text to Speech mode (no chunking)*")
+                            qwen_speaker = gr.Radio(
+                                label="👤 Speaker",
+                                choices=QWEN_SPEAKERS if QWEN_TTS_AVAILABLE else ["Ryan"],
+                                value="Ryan",
+                                elem_classes=["fade-in"]
+                            )
+                            with gr.Row():
+                                qwen_custom_model_size = gr.Dropdown(
+                                    label="Model Size",
+                                    choices=["0.6B", "1.7B"],
+                                    value="1.7B",
+                                    elem_classes=["fade-in"]
+                                )
+                            qwen_style_instruct = gr.Textbox(
+                                label="🎭 Style Instruction (Optional, 1.7B only)",
+                                placeholder="e.g., Speak in a cheerful and energetic tone",
+                                lines=2,
+                                elem_classes=["fade-in"]
+                            )
+                        
+                        # Common settings
+                        with gr.Row():
+                            qwen_language = gr.Dropdown(
+                                label="🌍 Language",
+                                choices=QWEN_LANGUAGES if QWEN_TTS_AVAILABLE else ["Auto"],
+                                value="Auto",
+                                elem_classes=["fade-in"]
+                            )
+                            qwen_seed = gr.Number(
+                                label="🎲 Seed (-1 = Auto)",
+                                value=-1,
+                                precision=0,
+                                elem_classes=["fade-in"]
+                            )
+                else:
+                    # Placeholder when Qwen TTS is not available
+                    with gr.Group():
+                        gr.Markdown("<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🎙️ Qwen TTS** - ⚠️ Not available - please check qwen_tts module installation</div>")
+                        # Create dummy components
+                        qwen_mode = gr.Radio(visible=False, choices=["voice_clone"], value="voice_clone")
+                        qwen_loaded_model_status = gr.Markdown(visible=False, value="")
+                        qwen_voice_description = gr.Textbox(visible=False, value="")
+                        qwen_ref_audio = gr.Audio(visible=False)
+                        qwen_ref_text = gr.Textbox(visible=False, value="")
+                        qwen_transcribe_btn = gr.Button(visible=False)
+                        qwen_xvector_only = gr.Checkbox(visible=False, value=False)
+                        qwen_clone_model_size = gr.Dropdown(visible=False, choices=["1.7B"], value="1.7B")
+                        qwen_chunk_size = gr.Slider(visible=False, value=200)
+                        qwen_chunk_gap = gr.Slider(visible=False, value=0.0)
+                        qwen_speaker = gr.Radio(visible=False, choices=["Ryan"], value="Ryan")
+                        qwen_custom_model_size = gr.Dropdown(visible=False, choices=["1.7B"], value="1.7B")
+                        qwen_style_instruct = gr.Textbox(visible=False, value="")
+                        qwen_language = gr.Dropdown(visible=False, choices=["Auto"], value="Auto")
+                        qwen_seed = gr.Number(visible=False, value=-1)
+                        qwen_voice_design_group = gr.Group(visible=False)
+                        qwen_voice_clone_group = gr.Group(visible=False)
+                        qwen_custom_voice_group = gr.Group(visible=False)
         
 
         
@@ -8680,6 +9122,117 @@ Alice: I went to Japan. It was absolutely incredible!""",
             # Don't change engine selection when unloading
             return indextts2_status_text
         
+        # Qwen TTS management functions
+        def handle_load_qwen(model_type, model_size):
+            """Load selected Qwen TTS model."""
+            success, message = init_qwen_tts_model(model_type, model_size)
+            loaded_display = get_qwen_loaded_model_display()
+            if success:
+                qwen_status_text = "✅ Loaded"
+                status_msg = f"✅ {model_type} ({model_size}) loaded successfully"
+                # Auto-select appropriate Qwen engine when loaded
+                if model_type == "Base":
+                    selected_engine = "Qwen Voice Clone"
+                    selected_mode = "voice_clone"
+                    # Show/hide the right groups
+                    design_visible = gr.update(visible=False)
+                    clone_visible = gr.update(visible=True)
+                    custom_visible = gr.update(visible=False)
+                elif model_type == "VoiceDesign":
+                    selected_engine = "Qwen Voice Design"
+                    selected_mode = "voice_design"
+                    design_visible = gr.update(visible=True)
+                    clone_visible = gr.update(visible=False)
+                    custom_visible = gr.update(visible=False)
+                else:  # CustomVoice
+                    selected_engine = "Qwen Custom Voice"
+                    selected_mode = "custom_voice"
+                    design_visible = gr.update(visible=False)
+                    clone_visible = gr.update(visible=False)
+                    custom_visible = gr.update(visible=True)
+                # Auto-switch to Qwen TTS tab
+                selected_tab = gr.update(selected="qwen_tab")
+                # Update the model size dropdowns to match loaded model
+                clone_size_update = gr.update(value=model_size)
+                custom_size_update = gr.update(value=model_size)
+                mode_update = gr.update(value=selected_mode)
+            else:
+                qwen_status_text = "❌ Failed to load"
+                status_msg = message
+                selected_engine = gr.update()  # No change to current selection
+                selected_tab = gr.update()  # No tab change
+                clone_size_update = gr.update()  # No change
+                custom_size_update = gr.update()  # No change
+                mode_update = gr.update()  # No change
+                design_visible = gr.update()
+                clone_visible = gr.update()
+                custom_visible = gr.update()
+            
+            if EBOOK_CONVERTER_AVAILABLE:
+                return qwen_status_text, status_msg, selected_engine, selected_engine, selected_tab, loaded_display, clone_size_update, custom_size_update, mode_update, design_visible, clone_visible, custom_visible
+            else:
+                return qwen_status_text, status_msg, selected_engine, selected_tab, loaded_display, clone_size_update, custom_size_update, mode_update, design_visible, clone_visible, custom_visible
+
+        def handle_unload_qwen():
+            message = unload_qwen_tts_model()
+            qwen_status_text = "⭕ Not loaded"
+            status_msg = message
+            loaded_display = get_qwen_loaded_model_display()
+            return qwen_status_text, status_msg, loaded_display
+        
+        def handle_qwen_download(model_type, model_size):
+            """Download selected Qwen TTS model."""
+            if not QWEN_TTS_AVAILABLE:
+                return "❌ Qwen TTS not available", "❌ Qwen TTS not available"
+            
+            handler = get_qwen_tts_handler()
+            success, message = handler.download_model(model_type, model_size)
+            # Return both download status and updated model status
+            return message, handler.get_downloaded_models_status()
+        
+        def update_qwen_model_status():
+            """Update Qwen TTS model status display."""
+            if not QWEN_TTS_AVAILABLE:
+                return "❌ Qwen TTS not available"
+            
+            handler = get_qwen_tts_handler()
+            return handler.get_downloaded_models_status()
+        
+        def get_qwen_loaded_model_display():
+            """Get the currently loaded Qwen TTS model for display."""
+            if not QWEN_TTS_AVAILABLE:
+                return "📦 **Loaded Model:** ❌ Qwen TTS not available"
+            
+            handler = get_qwen_tts_handler()
+            if handler.current_model_key:
+                model_type, model_size = handler.current_model_key
+                return f"📦 **Loaded Model:** ✅ {model_type} ({model_size})"
+            else:
+                return "📦 **Loaded Model:** ⚠️ None - Load a model from Models tab first"
+        
+        def update_qwen_size_choices(model_type):
+            """Update available sizes based on model type."""
+            if model_type == "VoiceDesign":
+                return gr.update(choices=["1.7B"], value="1.7B")
+            else:
+                return gr.update(choices=["0.6B", "1.7B"], value="1.7B")
+        
+        def handle_qwen_mode_change(mode):
+            """Handle Qwen TTS mode change to show/hide appropriate controls."""
+            if mode == "voice_design":
+                return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False)
+            elif mode == "voice_clone":
+                return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False)
+            elif mode == "custom_voice":
+                return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
+            return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False)
+        
+        def handle_qwen_transcribe(audio):
+            """Handle Qwen TTS audio transcription."""
+            if not QWEN_TTS_AVAILABLE:
+                return "❌ Qwen TTS not available"
+            return transcribe_qwen_audio(audio)
+        
         def _normalize_emotion_mode(mode_input):
             """Normalize Radio input into one of: audio_reference, vector_control, text_description.
 
@@ -8927,6 +9480,43 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 outputs=[kitten_status]
             )
         
+        # Qwen TTS management
+        if QWEN_TTS_AVAILABLE:
+            # Load button - pass model type and size
+            load_qwen_btn.click(
+                fn=handle_load_qwen,
+                inputs=[qwen_model_type, qwen_model_size],
+                outputs=[qwen_status, qwen_download_status, tts_engine, ebook_tts_engine, engine_tabs, qwen_loaded_model_status, qwen_clone_model_size, qwen_custom_model_size, qwen_mode, qwen_voice_design_group, qwen_voice_clone_group, qwen_custom_voice_group] if EBOOK_CONVERTER_AVAILABLE else [qwen_status, qwen_download_status, tts_engine, engine_tabs, qwen_loaded_model_status, qwen_clone_model_size, qwen_custom_model_size, qwen_mode, qwen_voice_design_group, qwen_voice_clone_group, qwen_custom_voice_group]
+            )
+            # Unload button
+            unload_qwen_btn.click(
+                fn=handle_unload_qwen,
+                outputs=[qwen_status, qwen_download_status, qwen_loaded_model_status]
+            )
+            # Download button - updates both download status and model status
+            qwen_download_btn.click(
+                fn=handle_qwen_download,
+                inputs=[qwen_model_type, qwen_model_size],
+                outputs=[qwen_download_status, qwen_model_status]
+            )
+            # Model type change - update available sizes
+            qwen_model_type.change(
+                fn=update_qwen_size_choices,
+                inputs=[qwen_model_type],
+                outputs=[qwen_model_size]
+            )
+            # Mode change handler (in engine settings tab)
+            qwen_mode.change(
+                fn=handle_qwen_mode_change,
+                inputs=[qwen_mode],
+                outputs=[qwen_voice_design_group, qwen_voice_clone_group, qwen_custom_voice_group]
+            )
+            # Transcribe button handler
+            qwen_transcribe_btn.click(
+                fn=handle_qwen_transcribe,
+                inputs=[qwen_ref_audio],
+                outputs=[qwen_ref_text]
+            )
 
         
         # F5-TTS management functions
@@ -9046,6 +9636,17 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 fn=handle_f5_unload,
                 outputs=[f5_download_status, f5_model_status]
             )
+        
+        # Qwen TTS initial status update
+        if QWEN_TTS_AVAILABLE:
+            demo.load(
+                fn=update_qwen_model_status,
+                outputs=[qwen_model_status]
+            )
+            demo.load(
+                fn=get_qwen_loaded_model_display,
+                outputs=[qwen_loaded_model_status]
+            )
 
         # Cleanup management
         clear_temp_btn.click(
@@ -9083,6 +9684,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 voxcpm_ref_audio, voxcpm_ref_text, voxcpm_cfg_value, voxcpm_inference_timesteps,
                 voxcpm_normalize, voxcpm_denoise, voxcpm_retry_badcase, voxcpm_retry_badcase_max_times,
                 voxcpm_retry_badcase_ratio_threshold, voxcpm_seed,
+                qwen_mode, qwen_voice_description, qwen_ref_audio, qwen_ref_text, qwen_xvector_only,
+                qwen_clone_model_size, qwen_chunk_size, qwen_chunk_gap, qwen_speaker, qwen_custom_model_size,
+                qwen_style_instruct, qwen_language, qwen_seed,
                 gain_db, enable_eq, eq_bass, eq_mid, eq_treble,
                 enable_reverb, reverb_room, reverb_damping, reverb_wet,
                 enable_echo, echo_delay, echo_decay,
@@ -9179,8 +9783,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 
                 for i in range(5):
                     if i < len(speakers):
-                        # Show audio upload and IndexTTS2 emotion accordion with speaker name, hide others
-                        audio_updates.append(gr.update(visible=True, label=f"🎤 {speakers[i]} Voice Sample"))
+                        # Show audio group and IndexTTS2 emotion accordion with speaker name, hide others
+                        audio_updates.append(gr.update(visible=True))
                         kokoro_accordion_updates.append(gr.update(visible=False))
                         kitten_accordion_updates.append(gr.update(visible=False))
                         indextts2_accordion_updates.append(gr.update(visible=True, label=f"🎭 {speakers[i]} IndexTTS2 Emotions"))
@@ -9197,7 +9801,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 # For other engines, show upload instructions
                 speakers_text += f"\n\n📝 **Instructions:**\n1. Upload voice samples below\n2. Select TTS engine\n3. Click 'Generate Conversation'"
                 
-                # Show/hide voice sample uploads based on number of speakers, hide all accordions
+                # Show/hide voice sample groups based on number of speakers, hide all accordions
                 audio_updates = []
                 kokoro_accordion_updates = []
                 kitten_accordion_updates = []
@@ -9205,8 +9809,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 
                 for i in range(5):
                     if i < len(speakers):
-                        # Show audio upload with speaker name, hide all accordions
-                        audio_updates.append(gr.update(visible=True, label=f"🎤 {speakers[i]} Voice Sample"))
+                        # Show audio group, hide all accordions
+                        audio_updates.append(gr.update(visible=True))
                         kokoro_accordion_updates.append(gr.update(visible=False))
                         kitten_accordion_updates.append(gr.update(visible=False))
                         indextts2_accordion_updates.append(gr.update(visible=False))
@@ -9246,8 +9850,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         
         def handle_clear_script():
             """Clear the conversation script and reset components."""
-            # Hide all audio components, Kokoro voice accordions, KittenTTS accordions, IndexTTS2 accordions, and the generate button
-            audio_updates = [gr.update(visible=False, value=None) for _ in range(5)]
+            # Hide all audio groups, Kokoro voice accordions, KittenTTS accordions, IndexTTS2 accordions, and the generate button
+            audio_updates = [gr.update(visible=False) for _ in range(5)]
             kokoro_accordion_updates = [gr.update(visible=False) for _ in range(5)]
             kitten_accordion_updates = [gr.update(visible=False) for _ in range(5)]
             indextts2_accordion_updates = [gr.update(visible=False) for _ in range(5)]
@@ -9272,7 +9876,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 gr.update(interactive=True),  # Enable transition pause slider
             )
 
-        def handle_generate_conversation_advanced(script_text, pause_duration, transition_pause, audio_format, voice_samples, kokoro_voices, kitten_voices, selected_engine, emotion_modes=None, emotion_audios=None, emotion_descriptions=None, emotion_vectors=None):
+        def handle_generate_conversation_advanced(script_text, pause_duration, transition_pause, audio_format, voice_samples, ref_texts, kokoro_voices, kitten_voices, selected_engine, emotion_modes=None, emotion_audios=None, emotion_descriptions=None, emotion_vectors=None):
             """Generate the multi-voice conversation with voice samples or Kokoro voice selections."""
             print(f"🎭 Conversation handler called with engine: {selected_engine}")
             
@@ -9322,6 +9926,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     result = generate_conversation_audio_simple(
                         script_text,
                         voice_samples,
+                        ref_texts=ref_texts,
                         selected_engine=selected_engine,
                         conversation_pause_duration=pause_duration,
                         speaker_transition_pause=transition_pause,
@@ -9346,7 +9951,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 print(f"❌ Exception in conversation handler: {error_msg}")
                 return None, error_msg
 
-        def handle_generate_conversation_simple(script_text, pause_duration, transition_pause, audio_format, voice_samples, selected_engine):
+        def handle_generate_conversation_simple(script_text, pause_duration, transition_pause, audio_format, voice_samples, ref_texts, selected_engine):
             """Generate the multi-voice conversation with voice samples - Simplified version."""
             print(f"🎭 Conversation handler called with engine: {selected_engine}")
             
@@ -9358,6 +9963,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 result = generate_conversation_audio_simple(
                     script_text,
                     voice_samples,
+                    ref_texts=ref_texts,
                     selected_engine=selected_engine,
                     conversation_pause_duration=pause_duration,
                     speaker_transition_pause=transition_pause,
@@ -9387,8 +9993,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=handle_analyze_script,
             inputs=[conversation_script, tts_engine],
             outputs=[detected_speakers, generate_conversation_btn,
-                    speaker_1_audio, speaker_2_audio, speaker_3_audio, 
-                    speaker_4_audio, speaker_5_audio,
+                    speaker_1_group, speaker_2_group, speaker_3_group, 
+                    speaker_4_group, speaker_5_group,
                     speaker_1_kokoro_accordion, speaker_2_kokoro_accordion, speaker_3_kokoro_accordion,
                     speaker_4_kokoro_accordion, speaker_5_kokoro_accordion,
                     speaker_1_kitten_accordion, speaker_2_kitten_accordion, speaker_3_kitten_accordion,
@@ -9403,8 +10009,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=handle_example_script,
             inputs=[tts_engine],
             outputs=[conversation_script, detected_speakers, generate_conversation_btn,
-                    speaker_1_audio, speaker_2_audio, speaker_3_audio, 
-                    speaker_4_audio, speaker_5_audio,
+                    speaker_1_group, speaker_2_group, speaker_3_group, 
+                    speaker_4_group, speaker_5_group,
                     speaker_1_kokoro_accordion, speaker_2_kokoro_accordion, speaker_3_kokoro_accordion,
                     speaker_4_kokoro_accordion, speaker_5_kokoro_accordion,
                     speaker_1_kitten_accordion, speaker_2_kitten_accordion, speaker_3_kitten_accordion,
@@ -9416,8 +10022,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         clear_script_btn.click(
             fn=handle_clear_script,
             outputs=[conversation_script, detected_speakers, generate_conversation_btn,
-                    speaker_1_audio, speaker_2_audio, speaker_3_audio, 
-                    speaker_4_audio, speaker_5_audio,
+                    speaker_1_group, speaker_2_group, speaker_3_group, 
+                    speaker_4_group, speaker_5_group,
                     speaker_1_kokoro_accordion, speaker_2_kokoro_accordion, speaker_3_kokoro_accordion,
                     speaker_4_kokoro_accordion, speaker_5_kokoro_accordion,
                     speaker_1_kitten_accordion, speaker_2_kitten_accordion, speaker_3_kitten_accordion,
@@ -9427,13 +10033,13 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         )
         
         generate_conversation_btn.click(
-            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, kv1, kv2, kv3, kv4, kv5, ktv1, ktv2, ktv3, ktv4, ktv5, engine, \
+            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, rt1, rt2, rt3, rt4, rt5, kv1, kv2, kv3, kv4, kv5, ktv1, ktv2, ktv3, ktv4, ktv5, engine, \
                      em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, \
                      em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, \
                      em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, \
                      em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, \
                      em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5: handle_generate_conversation_advanced(
-                script, pause, trans_pause, audio_fmt, [s1, s2, s3, s4, s5], [kv1, kv2, kv3, kv4, kv5], [ktv1, ktv2, ktv3, ktv4, ktv5], engine,
+                script, pause, trans_pause, audio_fmt, [s1, s2, s3, s4, s5], [rt1, rt2, rt3, rt4, rt5], [kv1, kv2, kv3, kv4, kv5], [ktv1, ktv2, ktv3, ktv4, ktv5], engine,
                 # IndexTTS2 emotion parameters
                 [em1, em2, em3, em4, em5],  # emotion_modes
                 [ea1, ea2, ea3, ea4, ea5],  # emotion_audios
@@ -9453,6 +10059,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 audio_format,  # Use the same audio format selector as single voice mode
                 speaker_1_audio, speaker_2_audio, speaker_3_audio, 
                 speaker_4_audio, speaker_5_audio,
+                speaker_1_ref_text, speaker_2_ref_text, speaker_3_ref_text,
+                speaker_4_ref_text, speaker_5_ref_text,
                 speaker_1_kokoro_voice, speaker_2_kokoro_voice, speaker_3_kokoro_voice,
                 speaker_4_kokoro_voice, speaker_5_kokoro_voice,
                 speaker_1_kitten_voice, speaker_2_kitten_voice, speaker_3_kitten_voice,
@@ -9471,6 +10079,33 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_5_happy, speaker_5_sad, speaker_5_angry, speaker_5_afraid, speaker_5_surprised, speaker_5_calm
             ],
             outputs=[audio_output, conversation_info]  # Use same audio output as single voice mode
+        )
+        
+        # Speaker transcribe button handlers for conversation mode
+        speaker_1_transcribe_btn.click(
+            fn=handle_qwen_transcribe,
+            inputs=[speaker_1_audio],
+            outputs=[speaker_1_ref_text]
+        )
+        speaker_2_transcribe_btn.click(
+            fn=handle_qwen_transcribe,
+            inputs=[speaker_2_audio],
+            outputs=[speaker_2_ref_text]
+        )
+        speaker_3_transcribe_btn.click(
+            fn=handle_qwen_transcribe,
+            inputs=[speaker_3_audio],
+            outputs=[speaker_3_ref_text]
+        )
+        speaker_4_transcribe_btn.click(
+            fn=handle_qwen_transcribe,
+            inputs=[speaker_4_audio],
+            outputs=[speaker_4_ref_text]
+        )
+        speaker_5_transcribe_btn.click(
+            fn=handle_qwen_transcribe,
+            inputs=[speaker_5_audio],
+            outputs=[speaker_5_ref_text]
         )
         
         # Function to switch tabs based on TTS engine selection
@@ -9579,6 +10214,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 higgs_ras_win_len, higgs_ras_win_max_num_repeat,
                 # KittenTTS parameters
                 kitten_voice_param,
+                # Qwen TTS parameters
+                qwen_ref_audio_param, qwen_ref_text_param, qwen_language_param, qwen_xvector_only_param,
+                qwen_clone_model_size_param, qwen_seed_param,
                 # VoxCPM parameters
                 voxcpm_ref_audio, voxcpm_ref_text, voxcpm_cfg_value, voxcpm_inference_timesteps,
                 voxcpm_normalize, voxcpm_denoise, voxcpm_retry_badcase, voxcpm_retry_badcase_max_times,
@@ -9622,6 +10260,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     higgs_ras_win_len, higgs_ras_win_max_num_repeat,
                     # KittenTTS parameters
                     kitten_voice_param,
+                    # Qwen TTS parameters
+                    qwen_ref_audio_param, qwen_ref_text_param, qwen_language_param, qwen_xvector_only_param,
+                    qwen_clone_model_size_param, qwen_seed_param,
                     gain, eq_en, eq_b, eq_m, eq_t,
                     rev_en, rev_room, rev_damp, rev_wet,
                     echo_en, echo_del, echo_dec,
@@ -9700,6 +10341,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     higgs_ras_win_len, higgs_ras_win_max_num_repeat,
                     # KittenTTS parameters
                     kitten_voice,
+                    # Qwen TTS parameters
+                    qwen_ref_audio, qwen_ref_text, qwen_language, qwen_xvector_only,
+                    qwen_clone_model_size, qwen_seed,
                     # VoxCPM parameters
                     voxcpm_ref_audio, voxcpm_ref_text, voxcpm_cfg_value, voxcpm_inference_timesteps,
                     voxcpm_normalize, voxcpm_denoise, voxcpm_retry_badcase, voxcpm_retry_badcase_max_times,
