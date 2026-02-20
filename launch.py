@@ -2174,10 +2174,14 @@ custom_voices_folder = os.path.join(os.getcwd(), 'custom_voices')
 audiobooks_folder = os.path.join(os.getcwd(), 'audiobooks')
 
 DEFAULT_AUTOSAVE_SETTINGS = {
-    "filename_template": "{project}_{speaker}_{timestamp}",
+    "filename_template": "{preset}_{project}_{timestamp}",
     "output_storage_mode": "project",
     "output_storage_path": ""
 }
+
+LEGACY_DEFAULT_FILENAME_TEMPLATE = "{project}_{speaker}_{timestamp}"
+PREVIOUS_DEFAULT_FILENAME_TEMPLATE = "{project}_{preset}_{timestamp}"
+PRESET_ONLY_FILENAME_TEMPLATE = "{preset}_{timestamp}"
 
 
 def ensure_app_state_dirs():
@@ -2196,6 +2200,17 @@ def load_app_state_settings() -> dict:
             settings = json.load(file)
             if isinstance(settings, dict):
                 merged = {**DEFAULT_AUTOSAVE_SETTINGS, **settings}
+                if merged.get("filename_template") in {
+                    LEGACY_DEFAULT_FILENAME_TEMPLATE,
+                    PREVIOUS_DEFAULT_FILENAME_TEMPLATE,
+                    PRESET_ONLY_FILENAME_TEMPLATE,
+                }:
+                    merged["filename_template"] = DEFAULT_AUTOSAVE_SETTINGS["filename_template"]
+                    try:
+                        with open(APP_STATE_SETTINGS_FILE, "w", encoding="utf-8") as settings_file:
+                            json.dump(merged, settings_file, indent=2, ensure_ascii=False)
+                    except Exception as write_error:
+                        print(f"⚠️ Failed to persist filename template migration: {write_error}")
                 return merged
     except Exception as error:
         print(f"⚠️ Failed to load app_state settings: {error}")
@@ -5733,14 +5748,25 @@ def _safe_speaker_name(speaker_name: str) -> str:
     return cleaned[:80].strip() or "speaker"
 
 
-def _build_autosave_run_base(project_name: str, speaker_name: str, engine_name: str) -> str:
+def _build_autosave_run_base(project_name: str, speaker_name: str, engine_name: str, preset_name: str = "") -> str:
     settings = load_app_state_settings()
     template = settings.get("filename_template", DEFAULT_AUTOSAVE_SETTINGS["filename_template"])
+    if not isinstance(template, str) or not template.strip() or template in {
+        LEGACY_DEFAULT_FILENAME_TEMPLATE,
+        PREVIOUS_DEFAULT_FILENAME_TEMPLATE,
+        PRESET_ONLY_FILENAME_TEMPLATE,
+    }:
+        template = DEFAULT_AUTOSAVE_SETTINGS["filename_template"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_preset = _safe_project_name(preset_name or "")
+    safe_speaker = _safe_speaker_name(speaker_name)
+    preset_label = safe_preset if safe_preset else "no_preset"
 
     values = {
         "project": _safe_project_name(project_name),
-        "speaker": _safe_speaker_name(speaker_name),
+        "speaker": safe_speaker,
+        "preset": safe_preset,
+        "voice": preset_label,
         "engine": _safe_project_name(engine_name or "tts"),
         "timestamp": timestamp,
     }
@@ -5748,7 +5774,10 @@ def _build_autosave_run_base(project_name: str, speaker_name: str, engine_name: 
     try:
         candidate = str(template).format(**values)
     except Exception:
-        candidate = f"{values['project']}_{values['speaker']}_{values['timestamp']}"
+        candidate = f"{preset_label}_{values['project']}_{values['timestamp']}"
+
+    if "{preset" in template and not safe_preset:
+        candidate = f"{preset_label}_{values['project']}_{values['timestamp']}"
 
     candidate = re.sub(r"[^\w\-.]+", "_", candidate).strip("._")
     return candidate[:160] or f"tts_{timestamp}"
@@ -5782,7 +5811,12 @@ def autosave_generation_artifacts(
     os.makedirs(meta_dir, exist_ok=True)
 
     engine_name = (metadata or {}).get("engine", "tts")
-    run_base = _build_autosave_run_base(project, speaker_name, engine_name)
+    run_base = _build_autosave_run_base(
+        project,
+        speaker_name,
+        engine_name,
+        (metadata or {}).get("preset", "")
+    )
 
     audio_copy_created = True
     if source_audio_path and not store_audio_copy and os.path.exists(source_audio_path):
@@ -6066,14 +6100,21 @@ def create_gradio_interface():
         css="""
         /* CSS Variables for Theme Support */
         :root {
-            --text-primary: rgba(255, 255, 255, 0.9);
-            --text-secondary: rgba(255, 255, 255, 0.7);
-            --text-muted: rgba(255, 255, 255, 0.6);
-            --bg-primary: rgba(255, 255, 255, 0.05);
-            --bg-secondary: rgba(255, 255, 255, 0.03);
-            --border-color: rgba(255, 255, 255, 0.1);
-            --accent-color: #667eea;
-            --gradient-bg: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            --text-primary: rgba(241, 245, 249, 0.96);
+            --text-secondary: rgba(203, 213, 225, 0.82);
+            --text-muted: rgba(148, 163, 184, 0.78);
+            --bg-primary: rgba(15, 23, 42, 0.56);
+            --bg-secondary: rgba(15, 23, 42, 0.38);
+            --border-color: rgba(148, 163, 184, 0.22);
+            --accent-color: #8b5cf6;
+            --accent-color-2: #22d3ee;
+            --accent-color-3: #f472b6;
+            --gradient-bg: linear-gradient(160deg, #050816 0%, #0f172a 48%, #1e1b4b 100%);
+            --panel-radius: 14px;
+            --space-1: 8px;
+            --space-2: 12px;
+            --space-3: 16px;
+            --space-4: 20px;
         }
         
         /* Force Dark Mode Variables for Light Mode */
@@ -6083,14 +6124,16 @@ def create_gradio_interface():
         .gradio-container[data-theme="light"],
         body.light,
         body[data-theme="light"] {
-            --text-primary: rgba(255, 255, 255, 0.9) !important;
-            --text-secondary: rgba(255, 255, 255, 0.7) !important;
-            --text-muted: rgba(255, 255, 255, 0.6) !important;
-            --bg-primary: rgba(255, 255, 255, 0.05) !important;
-            --bg-secondary: rgba(255, 255, 255, 0.03) !important;
-            --border-color: rgba(255, 255, 255, 0.1) !important;
-            --accent-color: #667eea !important;
-            --gradient-bg: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%) !important;
+            --text-primary: rgba(241, 245, 249, 0.96) !important;
+            --text-secondary: rgba(203, 213, 225, 0.82) !important;
+            --text-muted: rgba(148, 163, 184, 0.78) !important;
+            --bg-primary: rgba(15, 23, 42, 0.56) !important;
+            --bg-secondary: rgba(15, 23, 42, 0.38) !important;
+            --border-color: rgba(148, 163, 184, 0.22) !important;
+            --accent-color: #8b5cf6 !important;
+            --accent-color-2: #22d3ee !important;
+            --accent-color-3: #f472b6 !important;
+            --gradient-bg: linear-gradient(160deg, #050816 0%, #0f172a 48%, #1e1b4b 100%) !important;
             
             /* Override Gradio default light theme vars */
             --body-background-fill: transparent !important;
@@ -6123,12 +6166,13 @@ def create_gradio_interface():
         
         /* Global Styles */
         .gradio-container {
-            max-width: 1800px !important;
+            max-width: 1680px !important;
             margin: 0 auto !important;
             background: var(--gradient-bg) !important;
             min-height: 100vh;
             font-family: 'Inter', system-ui, sans-serif !important;
-            padding: 0 14px 28px 14px !important;
+            padding: 0 var(--space-3) 36px var(--space-3) !important;
+            line-height: 1.45 !important;
         }
         
         /* Animated Background - Responsive */
@@ -6140,9 +6184,9 @@ def create_gradio_interface():
             width: 100%;
             height: 100%;
             background-image: 
-                radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.3) 0%, transparent 50%),
-                radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.3) 0%, transparent 50%),
-                radial-gradient(circle at 40% 40%, rgba(120, 219, 255, 0.2) 0%, transparent 50%);
+                radial-gradient(circle at 16% 80%, rgba(139, 92, 246, 0.18) 0%, transparent 52%),
+                radial-gradient(circle at 82% 18%, rgba(34, 211, 238, 0.14) 0%, transparent 52%),
+                radial-gradient(circle at 48% 38%, rgba(244, 114, 182, 0.12) 0%, transparent 56%);
             animation: gradientShift 20s ease infinite;
             pointer-events: none;
             z-index: 0;
@@ -6159,16 +6203,13 @@ def create_gradio_interface():
         /* Main Title Styling - Compact */
         .main-title {
             text-align: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #667eea 100%);
-            background-size: 400% 400%;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            color: #f8fafc !important;
             font-size: 2.8em;
             font-weight: 900;
             margin: 15px 0 10px 0;
-            text-shadow: 0 0 40px rgba(102, 126, 234, 0.5);
-            animation: gradientMove 8s ease infinite;
+            text-shadow:
+                0 0 16px rgba(139, 92, 246, 0.45),
+                0 0 30px rgba(34, 211, 238, 0.2);
             letter-spacing: -1px;
             position: relative;
             z-index: 1;
@@ -6197,14 +6238,14 @@ def create_gradio_interface():
         /* Glassmorphism Cards - Compact */
         .card, .settings-card, .gr-group {
             background: var(--bg-primary) !important;
-            backdrop-filter: blur(10px) !important;
-            -webkit-backdrop-filter: blur(10px) !important;
-            border-radius: 15px !important;
-            padding: 15px !important;
-            margin: 8px 0 !important;
+            backdrop-filter: blur(8px) !important;
+            -webkit-backdrop-filter: blur(8px) !important;
+            border-radius: var(--panel-radius) !important;
+            padding: var(--space-3) !important;
+            margin: var(--space-1) 0 !important;
             border: 1px solid var(--border-color) !important;
             box-shadow: 
-                0 4px 16px 0 rgba(31, 38, 135, 0.25),
+                0 2px 10px 0 rgba(31, 38, 135, 0.2),
                 inset 0 0 0 1px var(--border-color) !important;
             transition: all 0.3s ease !important;
             position: relative;
@@ -6213,9 +6254,8 @@ def create_gradio_interface():
         }
         
         .card:hover, .settings-card:hover, .gr-group:hover {
-            transform: translateY(-2px);
             box-shadow: 
-                0 8px 30px 0 rgba(31, 38, 135, 0.35),
+                0 6px 18px 0 rgba(31, 38, 135, 0.28),
                 inset 0 0 0 1px var(--border-color) !important;
             background: var(--bg-secondary) !important;
         }
@@ -6230,7 +6270,7 @@ def create_gradio_interface():
             bottom: 0;
             border-radius: 20px;
             padding: 2px;
-            background: linear-gradient(45deg, #667eea, #764ba2, #f093fb, #4facfe);
+            background: linear-gradient(45deg, var(--accent-color), #6d28d9, var(--accent-color-3), var(--accent-color-2));
             -webkit-mask: 
                 linear-gradient(#fff 0 0) content-box, 
                 linear-gradient(#fff 0 0);
@@ -6247,25 +6287,25 @@ def create_gradio_interface():
         
         /* Generate Button - Compact */
         .generate-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            background: linear-gradient(135deg, var(--accent-color) 0%, #6d28d9 100%) !important;
             border: none !important;
             border-radius: 12px !important;
-            padding: 15px 40px !important;
-            font-size: 1.1em !important;
+            padding: 13px 28px !important;
+            font-size: 1.0em !important;
             font-weight: 700 !important;
             color: white !important;
             text-shadow: 0 2px 4px rgba(0,0,0,0.3) !important;
             box-shadow: 
-                0 6px 20px rgba(102, 126, 234, 0.4),
+                0 6px 16px rgba(139, 92, 246, 0.38),
                 inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
             transition: all 0.3s ease !important;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            text-transform: none;
+            letter-spacing: 0.2px;
             position: relative;
             overflow: hidden;
-            margin: 15px auto !important;
+            margin: var(--space-3) auto !important;
             display: block !important;
-            width: 300px !important;
+            width: min(100%, 320px) !important;
         }
         
         .generate-btn::before {
@@ -6280,9 +6320,9 @@ def create_gradio_interface():
         }
         
         .generate-btn:hover {
-            transform: translateY(-3px) scale(1.05) !important;
+            transform: translateY(-2px) !important;
             box-shadow: 
-                0 15px 40px rgba(102, 126, 234, 0.6),
+                0 10px 26px rgba(139, 92, 246, 0.55),
                 inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
         }
         
@@ -6392,6 +6432,13 @@ def create_gradio_interface():
         }
         
         /* Specific fix for accordion content */
+
+        .gr-accordion .gr-accordion-header {
+            color: #f8fafc !important;
+            font-weight: 740 !important;
+            letter-spacing: 0.25px !important;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.20), rgba(34, 211, 238, 0.08)) !important;
+        }
         .gr-accordion .gr-accordion-content {
             overflow: visible !important;
         }
@@ -6473,7 +6520,7 @@ def create_gradio_interface():
         /* Workspace hierarchy */
         .workspace-row {
             align-items: flex-start !important;
-            gap: 14px !important;
+            gap: 16px !important;
         }
 
         .main-workspace {
@@ -6482,19 +6529,59 @@ def create_gradio_interface():
 
         .right-rail {
             min-width: 0 !important;
+            position: sticky;
+            top: 12px;
+            align-self: flex-start;
         }
 
         #preset_autosave_panel {
-            max-width: 760px;
-            margin-left: auto;
-            margin-right: 0;
+            width: 100%;
+            margin-top: 8px;
             border: 1px solid rgba(102, 126, 234, 0.25) !important;
             box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25) !important;
         }
 
-        #preset_autosave_panel .gr-accordion-header {
-            font-size: 0.92em !important;
-            letter-spacing: 0.2px !important;
+        #preset_autosave_panel .gr-accordion-header,
+        #engine_selector_panel .gr-accordion-header,
+        #audiobook_results_panel .gr-accordion-header,
+        #engine_settings_panel .gr-accordion-header,
+        #model_manager_panel .gr-accordion-header {
+            font-size: 0.96em !important;
+            font-weight: 760 !important;
+            letter-spacing: 0.3px !important;
+            color: #f1f5f9 !important;
+            text-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
+        }
+
+        #engine_selector_panel {
+            width: 100%;
+            margin-top: 8px;
+            border: 1px solid rgba(139, 92, 246, 0.42) !important;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22) !important;
+        }
+
+        #engine_settings_toggle {
+            margin-top: 10px;
+        }
+
+        #engine_settings_toggle button {
+            width: 100% !important;
+            justify-content: center !important;
+            border-radius: 12px !important;
+            border: 1px solid rgba(139, 92, 246, 0.38) !important;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.24), rgba(34, 211, 238, 0.12)) !important;
+            color: #f8fafc !important;
+            font-weight: 760 !important;
+            letter-spacing: 0.25px !important;
+            text-shadow: 0 0 8px rgba(139, 92, 246, 0.28);
+            cursor: default !important;
+        }
+
+        #text_synthesize_input textarea {
+            resize: vertical !important;
+            min-height: 210px !important;
+            max-height: 72vh !important;
+            line-height: 1.5 !important;
         }
         
         /* Sliders */
@@ -6536,6 +6623,29 @@ def create_gradio_interface():
             color: var(--text-primary) !important;
             transition: all 0.3s ease !important;
             font-size: 0.95em !important;
+        }
+
+        .gradio-container .tabs {
+            margin-top: var(--space-2) !important;
+        }
+
+        .gradio-container .tab-nav,
+        .gradio-container .tab-nav button {
+            border-radius: 10px !important;
+        }
+
+        .gradio-container .tab-nav button {
+            background: rgba(255, 255, 255, 0.04) !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            color: var(--text-secondary) !important;
+            font-weight: 600 !important;
+            padding: 8px 12px !important;
+        }
+
+        .gradio-container .tab-nav button[aria-selected="true"] {
+            background: rgba(139, 92, 246, 0.24) !important;
+            border-color: rgba(139, 92, 246, 0.5) !important;
+            color: var(--text-primary) !important;
         }
         
         .gr-accordion-header:hover {
@@ -6845,9 +6955,9 @@ def create_gradio_interface():
         
         /* Status Output */
         .gr-textbox[readonly] {
-            background: rgba(0, 255, 0, 0.05) !important;
-            border-color: rgba(0, 255, 0, 0.2) !important;
-            color: rgba(0, 255, 0, 0.9) !important;
+            background: rgba(255, 255, 255, 0.04) !important;
+            border-color: rgba(255, 255, 255, 0.14) !important;
+            color: var(--text-primary) !important;
         }
         
         /* Scrollbar Styling */
@@ -6862,12 +6972,12 @@ def create_gradio_interface():
         }
         
         ::-webkit-scrollbar-thumb {
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, var(--accent-color), #6d28d9);
             border-radius: 5px;
         }
         
         ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(135deg, #764ba2, #667eea);
+            background: linear-gradient(135deg, #6d28d9, var(--accent-color));
         }
         
         /* Loading Animation */
@@ -6877,8 +6987,8 @@ def create_gradio_interface():
         
         /* Feature Cards - Compact */
         .feature-card {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
-            border: 1px solid rgba(102, 126, 234, 0.2);
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(34, 211, 238, 0.07));
+            border: 1px solid rgba(139, 92, 246, 0.24);
             border-radius: 12px;
             padding: 12px;
             margin: 5px;
@@ -6887,19 +6997,30 @@ def create_gradio_interface():
         }
         
         .feature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 24px rgba(139, 92, 246, 0.28);
         }
         
         /* Glow Effects */
         .glow {
             box-shadow: 
-                0 0 20px rgba(102, 126, 234, 0.5),
-                0 0 40px rgba(102, 126, 234, 0.3),
-                0 0 60px rgba(102, 126, 234, 0.1);
+                0 0 10px rgba(139, 92, 246, 0.34),
+                0 0 20px rgba(34, 211, 238, 0.16);
         }
         
         /* Responsive Design - Compact */
+        @media (max-width: 1200px) {
+            .workspace-row {
+                flex-direction: column !important;
+            }
+
+            .right-rail {
+                position: static !important;
+                top: auto !important;
+                width: 100% !important;
+            }
+        }
+
         @media (max-width: 768px) {
             .main-title {
                 font-size: 2.2em;
@@ -7018,6 +7139,7 @@ def create_gradio_interface():
                 if (mutation.addedNodes.length > 0) {
                     setupVoiceSelection();
                     setupTabSwitching();
+                    setupEbookPanelExpansion();
                 }
             });
         });
@@ -7070,10 +7192,31 @@ def create_gradio_interface():
                 });
             });
         }
-        
+
+        function setupEbookPanelExpansion() {
+            const convertButton = document.querySelector('#convert_ebook_btn button, #convert_ebook_btn');
+            const resultsPanel = document.querySelector('#audiobook_results_panel');
+            if (!convertButton || !resultsPanel) return;
+            if (convertButton.dataset.expandBound === 'true') return;
+
+            const openResultsPanel = () => {
+                const header = resultsPanel.querySelector('.gr-accordion-header');
+                if (header && header.getAttribute('aria-expanded') === 'false') {
+                    header.click();
+                }
+                setTimeout(() => {
+                    resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 120);
+            };
+
+            convertButton.addEventListener('click', openResultsPanel);
+            convertButton.dataset.expandBound = 'true';
+        }
+
         // Initialize tab switching on page load
         document.addEventListener('DOMContentLoaded', function() {
             setupTabSwitching();
+            setupEbookPanelExpansion();
         });
         </script>
         """
@@ -7082,51 +7225,36 @@ def create_gradio_interface():
         # Header with enhanced styling
         gr.Markdown("""
         <div class="fade-in">
-            <div class="main-title">
-            ✨ ULTIMATE TTS STUDIO PRO ✨
+            <div style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; margin-bottom:2px;">
+                <div class="main-title" style="margin: 8px 0;">
+                ✨ ULTIMATE TTS STUDIO PRO ✨
+                </div>
+                <a href="https://github.com/SUP3RMASS1VE/Ultimate-TTS-Studio-SUP3R-Edition" target="_blank" style="text-decoration:none;">
+                    <button style="background:linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); border:1px solid rgba(255,255,255,0.16); border-radius:12px; padding:8px 14px; color:white; font-weight:700; font-size:13px; cursor:pointer; box-shadow:0 4px 12px rgba(139, 92, 246, 0.35); white-space:nowrap;">
+                        ⭐ Star on GitHub
+                    </button>
+                </a>
             </div>
             <div class="subtitle">
             🎭 ChatterboxTTS + Kokoro TTS + Fish Speech + IndexTTS + F5-TTS + VoxCPM | SUP3R EDITION 🚀<br/>
             <strong>Advanced Text-to-Speech with Multiple Engines, Voice Presets, Audio Effects & Export Options</strong>
             </div>
         </div>
-        
-        <div style="display: flex; justify-content: center; margin: 20px 0 15px 0;">
-            <a href="https://github.com/SUP3RMASS1VE/Ultimate-TTS-Studio-SUP3R-Edition" target="_blank" style="text-decoration: none;">
-                <button style="
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    border: none;
-                    border-radius: 25px;
-                    padding: 12px 24px;
-                    color: white;
-                    font-weight: 600;
-                    font-size: 16px;
-                    cursor: pointer;
-                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-                    transition: all 0.3s ease;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(102, 126, 234, 0.4)';" onmouseout="this.style.transform='translateY(0px)'; this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.3)';">
-                    ⭐ Star this project on GitHub
-                </button>
-            </a>
-        </div>
-        
-        <div style="display: flex; justify-content: center; gap: 10px; margin: 15px 0;">
-            <div class="feature-card" style="flex: 1;">
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:10px; margin:12px 0;">
+            <div class="feature-card">
                 <h3 style="margin: 0 0 5px 0; padding: 0; font-size: 0.9em;">🎤 Voice Cloning</h3>
                 <p style="margin: 0; opacity: 0.8; font-size: 0.8em;">Clone any voice with ChatterboxTTS</p>
             </div>
-            <div class="feature-card" style="flex: 1;">
+            <div class="feature-card">
                 <h3 style="margin: 0 0 5px 0; padding: 0; font-size: 0.9em;">🗣️ Pre-trained Voices</h3>
                 <p style="margin: 0; opacity: 0.8; font-size: 0.8em;">30+ high-quality Kokoro voices</p>
             </div>
-            <div class="feature-card" style="flex: 1;">
+            <div class="feature-card">
                 <h3 style="margin: 0 0 5px 0; padding: 0; font-size: 0.9em;">📚 eBook Conversion</h3>
                 <p style="margin: 0; opacity: 0.8; font-size: 0.8em;">Convert books to audiobooks</p>
             </div>
-            <div class="feature-card" style="flex: 1;">
+            <div class="feature-card">
                 <h3 style="margin: 0 0 5px 0; padding: 0; font-size: 0.9em;">🎵 Audio Effects</h3>
                 <p style="margin: 0; opacity: 0.8; font-size: 0.8em;">Professional audio enhancement</p>
             </div>
@@ -7134,7 +7262,7 @@ def create_gradio_interface():
         """)
         
         # Model Management Section - Compact Version
-        with gr.Accordion("🎛️ Model Management", open=False, elem_classes=["fade-in"]):
+        with gr.Accordion("🧩 Model Manager", open=False, elem_classes=["fade-in"], elem_id="model_manager_panel"):
             gr.Markdown("*Load only the models you need to save memory.*", elem_classes=["fade-in"])
             
             # Compact model status display
@@ -7567,9 +7695,11 @@ def create_gradio_interface():
                         text = gr.Textbox(
                             value="Hello! This is a demonstration of the ultimate TTS studio. You can choose between Chatterbox TTS. Fish Speech, VoxCPM, Index TTS and Index TTS 2, Higgs audio TTS and F5 TTS for custom voice cloning or Kitten TTS and Kokoro TTS for high-quality pre-trained voices and VibeVoice for podcast.",
                             label="📝 Text to synthesize",
-                            lines=5,
+                            lines=8,
+                            max_lines=28,
                             placeholder="Enter your text here...",
-                            elem_classes=["fade-in"]
+                            elem_classes=["fade-in"],
+                            elem_id="text_synthesize_input"
                         )
                     
                     # Conversation Mode Tab
@@ -8130,7 +8260,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         convert_ebook_btn = gr.Button(
                                             "🎧 Convert to Audiobook",
                                             variant="primary",
-                                            elem_classes=["fade-in"]
+                                            elem_classes=["fade-in"],
+                                            elem_id="convert_ebook_btn"
                                         )
                                         clear_ebook_btn = gr.Button(
                                             "🗑️ Clear",
@@ -8519,44 +8650,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             vibevoice_output = gr.Audio(visible=False)
                             vibevoice_status = gr.Textbox(visible=False)
 
-                
-                # TTS Engine Selection with custom styling
-                tts_engine = gr.Radio(
-                    choices=[
-                        ("🎤 ChatterboxTTS - Voice Cloning", "ChatterboxTTS"),
-                        ("🌍 Chatterbox Multilingual - 23 Languages", "Chatterbox Multilingual"),
-                        ("🚀 Chatterbox Turbo - Fast Voice Cloning", "Chatterbox Turbo"),
-                        ("🗣️ Kokoro TTS - Pre-trained Voices", "Kokoro TTS"),
-                        ("🐟 Fish Speech - Natural TTS", "Fish Speech"),
-                        ("🎯 IndexTTS - Industrial Quality", "IndexTTS"),
-                        ("🎯 IndexTTS2 - Advanced Emotion Control", "IndexTTS2"),
-                        ("🎵 F5-TTS - Flow Matching TTS", "F5-TTS"),
-                        ("🎙️ Higgs Audio - Advanced Multimodal TTS", "Higgs Audio"),
-                        ("🎤 VoxCPM - Voice Cloning TTS", "VoxCPM"),
-                        ("🐱 KittenTTS - Mini Model TTS", "KittenTTS"),
-                        ("🎨 Qwen Voice Design - Create Voices", "Qwen Voice Design"),
-                        ("🎭 Qwen Voice Clone - Clone Voices", "Qwen Voice Clone"),
-                        ("🗣️ Qwen Custom Voice - Predefined Speakers", "Qwen Custom Voice")
-                    ],
-                    value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "VoxCPM" if VOXCPM_AVAILABLE else "KittenTTS" if KITTEN_TTS_AVAILABLE else "Qwen Voice Clone",
-                    label="🎯 Select TTS Engine",
-                    info="Choose your preferred text-to-speech engine (auto-selects when you load a model)",
-                    elem_classes=["fade-in"]
-                )
-                
-                # Audio Format Selection
-                audio_format = gr.Radio(
-                    choices=[
-                        ("🎵 WAV - Uncompressed (High Quality)", "wav"),
-                        ("🎶 MP3 - Compressed (Smaller Size)", "mp3")
-                    ],
-                    value="wav",
-                    label="🎵 Audio Output Format",
-                    info="Choose output format: WAV for best quality, MP3 for smaller file size",
-                    elem_classes=["fade-in"]
-                )
-            
-            with gr.Column(scale=2, elem_classes=["right-rail"]):
+            with gr.Column(scale=1, elem_classes=["right-rail"]):
                 # Audio output section with glow effect
                 audio_output = gr.Audio(
                     label="🎵 Generated Audio",
@@ -8587,40 +8681,53 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     value="Ready for conversation generation..."
                 )
                 
-                # Audiobook output and status (for eBook conversion)
-                audiobook_output = gr.Audio(
-                    label="🎧 Generated Audiobook",
-                    show_download_button=True,
-                    elem_classes=["fade-in", "glow"]
+                with gr.Accordion("📚 Audiobook Results", open=False, elem_classes=["fade-in"], elem_id="audiobook_results_panel"):
+                    audiobook_output = gr.Audio(
+                        label="🎧 Generated Audiobook",
+                        show_download_button=True,
+                        elem_classes=["fade-in", "glow"]
+                    )
+                    
+                    audiobook_download = gr.File(
+                        label="📥 Download Large Audiobook",
+                        visible=False,
+                        elem_classes=["fade-in"]
+                    )
+                    
+                    ebook_status = gr.Textbox(
+                        label="📊 eBook Conversion Status",
+                        lines=6,
+                        interactive=False,
+                        elem_classes=["fade-in"]
+                    )
+        
+        # Generate buttons - separate for single voice and conversation modes
+        with gr.Row():
+            with gr.Column():
+                generate_btn = gr.Button(
+                    "🚀 Generate Speech",
+                    variant="primary",
+                    size="lg",
+                    elem_classes=["generate-btn", "fade-in"],
+                    visible=True
                 )
-                
-                # Download link for large audiobook files
-                audiobook_download = gr.File(
-                    label="📥 Download Large Audiobook",
-                    visible=False,
-                    elem_classes=["fade-in"]
-                )
-                
-                # eBook conversion status
-                ebook_status = gr.Textbox(
-                    label="📊 eBook Conversion Status",
-                    lines=6,
-                    interactive=False,
-                    elem_classes=["fade-in"]
+            with gr.Column():
+                generate_conversation_btn = gr.Button(
+                    "🎭 Generate Conversation",
+                    variant="primary",
+                    size="lg",
+                    elem_classes=["generate-btn", "fade-in"],
+                    visible=False
                 )
 
-                gr.Markdown(
-                    "### 🧭 Project Controls\nManage presets, autosave, and storage in one place.",
-                    elem_classes=["fade-in"]
-                )
-
-                with gr.Accordion("🎙️ Voice Presets & Autosave", open=True, elem_classes=["fade-in"], elem_id="preset_autosave_panel"):
-                    with gr.Row():
-                        speaker_name_tb = gr.Textbox(
-                            value="Speakers Name",
-                            label="🗣️ Speaker Name",
-                            placeholder="Speakers Name"
-                        )
+        with gr.Accordion("🧭 Workspace Controls", open=False, elem_classes=["fade-in"], elem_id="preset_autosave_panel"):
+            with gr.Row(elem_classes=["workspace-row"]):
+                with gr.Column(scale=2):
+                    speaker_name_tb = gr.Textbox(
+                        value="Speakers Name",
+                        label="🗣️ Speaker Name",
+                        placeholder="Speakers Name"
+                    )
 
                     with gr.Row():
                         voice_preset_dd = gr.Dropdown(
@@ -8650,6 +8757,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         delete_preset_btn = gr.Button("🗑️ Delete Preset", variant="stop")
                         refresh_presets_btn = gr.Button("🔄 Refresh", variant="secondary")
 
+                    preset_status_md = gr.Markdown(value="ℹ️ Preset manager ready")
+
+                with gr.Column(scale=2):
                     with gr.Row():
                         autosave_enabled = gr.Checkbox(
                             value=True,
@@ -8666,57 +8776,74 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             value=True,
                             label="🧬 Keep structured autosave audio copy"
                         )
-
-                    with gr.Row():
                         keep_legacy_output_copy = gr.Checkbox(
                             value=True,
-                            label="📦 Keep legacy output copy (outputs/audiobooks naming)"
+                            label="📦 Keep legacy output copy"
                         )
 
-                    with gr.Row():
-                        output_storage_mode = gr.Dropdown(
-                            label="📦 Generated Output Storage",
-                            choices=["Project Folders (default)", "Custom Path"],
-                            value=storage_mode_value,
-                            info="Set where generated outputs/autosaves are stored; preset voices remain local"
-                        )
-                        output_storage_path = gr.Textbox(
-                            label="🛣️ Custom Output Base Path",
-                            value=current_storage_path,
-                            placeholder="D:/Ultimate-TTS-Outputs"
-                        )
+                    output_storage_mode = gr.Dropdown(
+                        label="📦 Generated Output Storage",
+                        choices=["Project Folders (default)", "Custom Path"],
+                        value=storage_mode_value,
+                        info="Set where generated outputs/autosaves are stored; preset voices remain local"
+                    )
+                    output_storage_path = gr.Textbox(
+                        label="🛣️ Custom Output Base Path",
+                        value=current_storage_path,
+                        placeholder="D:/Ultimate-TTS-Outputs"
+                    )
 
                     with gr.Row():
                         save_storage_btn = gr.Button("💾 Apply Storage", variant="primary")
-                        open_output_folder_btn = gr.Button("📂 Open Active Output Folder", variant="secondary")
-                        open_autosave_folder_btn = gr.Button("🗂️ Open Active Autosave Folder", variant="secondary")
+                        open_output_folder_btn = gr.Button("📂 Open Output Folder", variant="secondary")
+                        open_autosave_folder_btn = gr.Button("🗂️ Open Autosave Folder", variant="secondary")
 
-                    preset_status_md = gr.Markdown(value="ℹ️ Preset manager ready")
                     storage_status_md = gr.Markdown(value=storage_status_default)
-        
-        # Generate buttons - separate for single voice and conversation modes
-        with gr.Row():
-            with gr.Column():
-                generate_btn = gr.Button(
-                    "🚀 Generate Speech",
-                    variant="primary",
-                    size="lg",
-                    elem_classes=["generate-btn", "fade-in"],
-                    visible=True
-                )
-            with gr.Column():
-                generate_conversation_btn = gr.Button(
-                    "🎭 Generate Conversation",
-                    variant="primary",
-                    size="lg",
-                    elem_classes=["generate-btn", "fade-in"],
-                    visible=False
+
+        with gr.Accordion("🎚️ Engine Selection", open=False, elem_classes=["fade-in"], elem_id="engine_selector_panel"):
+            with gr.Row():
+                tts_engine = gr.Dropdown(
+                    choices=[
+                        ("🎤 ChatterboxTTS - Voice Cloning", "ChatterboxTTS"),
+                        ("🌍 Chatterbox Multilingual - 23 Languages", "Chatterbox Multilingual"),
+                        ("🚀 Chatterbox Turbo - Fast Voice Cloning", "Chatterbox Turbo"),
+                        ("🗣️ Kokoro TTS - Pre-trained Voices", "Kokoro TTS"),
+                        ("🐟 Fish Speech - Natural TTS", "Fish Speech"),
+                        ("🎯 IndexTTS - Industrial Quality", "IndexTTS"),
+                        ("🎯 IndexTTS2 - Advanced Emotion Control", "IndexTTS2"),
+                        ("🎵 F5-TTS - Flow Matching TTS", "F5-TTS"),
+                        ("🎙️ Higgs Audio - Advanced Multimodal TTS", "Higgs Audio"),
+                        ("🎤 VoxCPM - Voice Cloning TTS", "VoxCPM"),
+                        ("🐱 KittenTTS - Mini Model TTS", "KittenTTS"),
+                        ("🎨 Qwen Voice Design - Create Voices", "Qwen Voice Design"),
+                        ("🎭 Qwen Voice Clone - Clone Voices", "Qwen Voice Clone"),
+                        ("🗣️ Qwen Custom Voice - Predefined Speakers", "Qwen Custom Voice")
+                    ],
+                    value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "VoxCPM" if VOXCPM_AVAILABLE else "KittenTTS" if KITTEN_TTS_AVAILABLE else "Qwen Voice Clone",
+                    label="🎯 Select TTS Engine",
+                    info="Use this only if you want to override auto-selection from loaded models",
+                    elem_classes=["fade-in"]
                 )
 
-        # Engine-specific settings in tabs
-        gr.Markdown("## 🎛️ TTS Engine Settings", elem_classes=["fade-in"])
-        
-        with gr.Tabs(elem_classes=["fade-in"]) as engine_tabs:
+                audio_format = gr.Dropdown(
+                    choices=[
+                        ("🎵 WAV - Uncompressed (High Quality)", "wav"),
+                        ("🎶 MP3 - Compressed (Smaller Size)", "mp3")
+                    ],
+                    value="wav",
+                    label="🎵 Audio Output Format",
+                    info="WAV for quality, MP3 for smaller files",
+                    elem_classes=["fade-in"]
+                )
+
+        engine_settings_toggle = gr.Button(
+            "🛠️ TTS Engine Settings",
+            variant="secondary",
+            elem_classes=["fade-in"],
+            elem_id="engine_settings_toggle"
+        )
+
+        with gr.Tabs(elem_classes=["fade-in"], elem_id="engine_settings_tabs") as engine_tabs:
             # ChatterboxTTS Tab
             with gr.TabItem("🎤 ChatterboxTTS", id="chatterbox_tab"):
                 if CHATTERBOX_AVAILABLE:
