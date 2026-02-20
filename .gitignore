@@ -27,10 +27,13 @@ Thumbs.db
 *.temp
 temp_status.txt
 requirements_no_versions.txt
+*.diff
 
 # Output files
 outputs/
 *.log
+logs/
+app_state/
 
 # User data and models
 models/
@@ -40,4 +43,30 @@ F5-Models/
 indextts/checkpoints/
 custom_voices/
 audiobooks/
+
+# Secrets and local configuration
+.env
+.env.*
+*.env
+*.local
+*.secret
+*.secrets
+*.token
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+
+# Tooling and test artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local-only docs/work notes
+docs/Temp_*
+docs/*Chat Log*.md
 
