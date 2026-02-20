@@ -6128,6 +6128,7 @@ def create_gradio_interface():
             background: var(--gradient-bg) !important;
             min-height: 100vh;
             font-family: 'Inter', system-ui, sans-serif !important;
+            padding: 0 14px 28px 14px !important;
         }
         
         /* Animated Background - Responsive */
@@ -6212,9 +6213,9 @@ def create_gradio_interface():
         }
         
         .card:hover, .settings-card:hover, .gr-group:hover {
-            transform: translateY(-5px);
+            transform: translateY(-2px);
             box-shadow: 
-                0 12px 40px 0 rgba(31, 38, 135, 0.5),
+                0 8px 30px 0 rgba(31, 38, 135, 0.35),
                 inset 0 0 0 1px var(--border-color) !important;
             background: var(--bg-secondary) !important;
         }
@@ -6465,8 +6466,35 @@ def create_gradio_interface():
             font-weight: 500 !important;
             font-size: 0.95em !important;
             margin-bottom: 8px !important;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        /* Workspace hierarchy */
+        .workspace-row {
+            align-items: flex-start !important;
+            gap: 14px !important;
+        }
+
+        .main-workspace {
+            min-width: 0 !important;
+        }
+
+        .right-rail {
+            min-width: 0 !important;
+        }
+
+        #preset_autosave_panel {
+            max-width: 760px;
+            margin-left: auto;
+            margin-right: 0;
+            border: 1px solid rgba(102, 126, 234, 0.25) !important;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25) !important;
+        }
+
+        #preset_autosave_panel .gr-accordion-header {
+            font-size: 0.92em !important;
+            letter-spacing: 0.2px !important;
         }
         
         /* Sliders */
@@ -7106,7 +7134,7 @@ def create_gradio_interface():
         """)
         
         # Model Management Section - Compact Version
-        with gr.Accordion("🎛️ Model Management", open=True, elem_classes=["fade-in"]):
+        with gr.Accordion("🎛️ Model Management", open=False, elem_classes=["fade-in"]):
             gr.Markdown("*Load only the models you need to save memory.*", elem_classes=["fade-in"])
             
             # Compact model status display
@@ -7529,8 +7557,8 @@ def create_gradio_interface():
                         )
         
                         # Main input section with tabs for single voice, conversation mode, and eBook conversion
-        with gr.Row():
-            with gr.Column(scale=3):
+        with gr.Row(elem_classes=["workspace-row"]):
+            with gr.Column(scale=3, elem_classes=["main-workspace"]):
                 # Tabs for different input modes
                 with gr.Tabs(elem_classes=["fade-in"]) as input_tabs:
                     # Single Voice Tab
@@ -8528,7 +8556,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     elem_classes=["fade-in"]
                 )
             
-            with gr.Column(scale=2):
+            with gr.Column(scale=2, elem_classes=["right-rail"]):
                 # Audio output section with glow effect
                 audio_output = gr.Audio(
                     label="🎵 Generated Audio",
@@ -8555,7 +8583,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     lines=8,
                     interactive=False,
                     elem_classes=["fade-in"],
-                    visible=True,
+                    visible=False,
                     value="Ready for conversation generation..."
                 )
                 
@@ -8580,6 +8608,91 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     interactive=False,
                     elem_classes=["fade-in"]
                 )
+
+                gr.Markdown(
+                    "### 🧭 Project Controls\nManage presets, autosave, and storage in one place.",
+                    elem_classes=["fade-in"]
+                )
+
+                with gr.Accordion("🎙️ Voice Presets & Autosave", open=True, elem_classes=["fade-in"], elem_id="preset_autosave_panel"):
+                    with gr.Row():
+                        speaker_name_tb = gr.Textbox(
+                            value="Speakers Name",
+                            label="🗣️ Speaker Name",
+                            placeholder="Speakers Name"
+                        )
+
+                    with gr.Row():
+                        voice_preset_dd = gr.Dropdown(
+                            label="🎙️ Voice Preset",
+                            choices=get_voice_preset_choices(),
+                            value="",
+                            allow_custom_value=True,
+                            info="Select a preset to reuse reference audio for supported engines"
+                        )
+                        preset_name_tb = gr.Textbox(
+                            label="🏷️ Preset Name",
+                            placeholder="Speakers Name_Style"
+                        )
+
+                    with gr.Row():
+                        preset_audio_file = gr.File(
+                            label="📎 Preset Audio File",
+                            type="filepath"
+                        )
+                        copy_into_app_chk = gr.Checkbox(
+                            value=True,
+                            label="📁 Copy audio into app_state/voices"
+                        )
+
+                    with gr.Row():
+                        save_preset_btn = gr.Button("💾 Save / Update Preset", variant="secondary")
+                        delete_preset_btn = gr.Button("🗑️ Delete Preset", variant="stop")
+                        refresh_presets_btn = gr.Button("🔄 Refresh", variant="secondary")
+
+                    with gr.Row():
+                        autosave_enabled = gr.Checkbox(
+                            value=True,
+                            label="💾 Autosave project files"
+                        )
+                        autosave_project_name = gr.Textbox(
+                            value="default",
+                            label="📚 Project Name",
+                            placeholder="book_title_or_project"
+                        )
+
+                    with gr.Row():
+                        autosave_store_audio_copy = gr.Checkbox(
+                            value=True,
+                            label="🧬 Keep structured autosave audio copy"
+                        )
+
+                    with gr.Row():
+                        keep_legacy_output_copy = gr.Checkbox(
+                            value=True,
+                            label="📦 Keep legacy output copy (outputs/audiobooks naming)"
+                        )
+
+                    with gr.Row():
+                        output_storage_mode = gr.Dropdown(
+                            label="📦 Generated Output Storage",
+                            choices=["Project Folders (default)", "Custom Path"],
+                            value=storage_mode_value,
+                            info="Set where generated outputs/autosaves are stored; preset voices remain local"
+                        )
+                        output_storage_path = gr.Textbox(
+                            label="🛣️ Custom Output Base Path",
+                            value=current_storage_path,
+                            placeholder="D:/Ultimate-TTS-Outputs"
+                        )
+
+                    with gr.Row():
+                        save_storage_btn = gr.Button("💾 Apply Storage", variant="primary")
+                        open_output_folder_btn = gr.Button("📂 Open Active Output Folder", variant="secondary")
+                        open_autosave_folder_btn = gr.Button("🗂️ Open Active Autosave Folder", variant="secondary")
+
+                    preset_status_md = gr.Markdown(value="ℹ️ Preset manager ready")
+                    storage_status_md = gr.Markdown(value=storage_status_default)
         
         # Generate buttons - separate for single voice and conversation modes
         with gr.Row():
@@ -8600,86 +8713,6 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     visible=False
                 )
 
-        with gr.Accordion("🎙️ Voice Presets & Autosave", open=False, elem_classes=["fade-in"]):
-            with gr.Row():
-                speaker_name_tb = gr.Textbox(
-                    value="Speakers Name",
-                    label="🗣️ Speaker Name",
-                    placeholder="Speakers Name"
-                )
-
-            with gr.Row():
-                voice_preset_dd = gr.Dropdown(
-                    label="🎙️ Voice Preset",
-                    choices=get_voice_preset_choices(),
-                    value="",
-                    allow_custom_value=True,
-                    info="Select a preset to reuse reference audio for supported engines"
-                )
-                preset_name_tb = gr.Textbox(
-                    label="🏷️ Preset Name",
-                    placeholder="Speakers Name_Style"
-                )
-
-            with gr.Row():
-                preset_audio_file = gr.File(
-                    label="📎 Preset Audio File",
-                    type="filepath"
-                )
-                copy_into_app_chk = gr.Checkbox(
-                    value=True,
-                    label="📁 Copy audio into app_state/voices"
-                )
-
-            with gr.Row():
-                save_preset_btn = gr.Button("💾 Save / Update Preset", variant="secondary")
-                delete_preset_btn = gr.Button("🗑️ Delete Preset", variant="stop")
-                refresh_presets_btn = gr.Button("🔄 Refresh Presets")
-
-            with gr.Row():
-                autosave_enabled = gr.Checkbox(
-                    value=True,
-                    label="💾 Autosave audio/script/metadata to app_state"
-                )
-                autosave_project_name = gr.Textbox(
-                    value="default",
-                    label="📚 Autosave Project Name",
-                    placeholder="book_title_or_project"
-                )
-
-            with gr.Row():
-                autosave_store_audio_copy = gr.Checkbox(
-                    value=True,
-                    label="🧬 Keep autosave audio file in structured app_state project folders"
-                )
-
-            with gr.Row():
-                keep_legacy_output_copy = gr.Checkbox(
-                    value=True,
-                    label="📦 Keep legacy output file copy (outputs/audiobooks naming). Turn off to auto-cleanup after autosave"
-                )
-
-            with gr.Row():
-                output_storage_mode = gr.Dropdown(
-                    label="📦 Generated Output Storage",
-                    choices=["Project Folders (default)", "Custom Path"],
-                    value=storage_mode_value,
-                    info="Moves generated outputs/audio artifacts while keeping app_state/voices local"
-                )
-                output_storage_path = gr.Textbox(
-                    label="🛣️ Custom Output Base Path",
-                    value=current_storage_path,
-                    placeholder="D:/Ultimate-TTS-Outputs"
-                )
-
-            with gr.Row():
-                save_storage_btn = gr.Button("💾 Save Output Storage", variant="secondary")
-                open_output_folder_btn = gr.Button("📂 Open Active Output Folder", variant="secondary")
-                open_autosave_folder_btn = gr.Button("🗂️ Open Active Autosave Folder", variant="secondary")
-
-            preset_status_md = gr.Markdown(value="ℹ️ Preset manager ready")
-            storage_status_md = gr.Markdown(value=storage_status_default)
-        
         # Engine-specific settings in tabs
         gr.Markdown("## 🎛️ TTS Engine Settings", elem_classes=["fade-in"])
         
