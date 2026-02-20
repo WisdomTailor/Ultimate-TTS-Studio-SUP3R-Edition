@@ -10,6 +10,9 @@ import re
 import json
 import io
 import logging
+import hashlib
+import inspect
+import importlib
 from datetime import datetime
 from pathlib import Path
 
@@ -117,19 +120,19 @@ try:
         from chatterbox.src.chatterbox.mtl_tts import ChatterboxMultilingualTTS, SUPPORTED_LANGUAGES
     CHATTERBOX_AVAILABLE = True
     CHATTERBOX_MULTILINGUAL_AVAILABLE = True
-except ImportError:
+except Exception as error:
     CHATTERBOX_AVAILABLE = False
     CHATTERBOX_MULTILINGUAL_AVAILABLE = False
-    print("⚠️ ChatterboxTTS not available. Some features will be disabled.")
+    print(f"⚠️ ChatterboxTTS not available. Some features will be disabled. Error: {error}")
 
 # Kokoro imports
 try:
     with suppress_specific_warnings():
         from kokoro import KModel, KPipeline
     KOKORO_AVAILABLE = True
-except ImportError:
+except Exception as error:
     KOKORO_AVAILABLE = False
-    print("⚠️ Kokoro TTS not available. Some features will be disabled.")
+    print(f"⚠️ Kokoro TTS not available. Some features will be disabled. Error: {error}")
 
 # Fish Speech imports
 try:
@@ -141,9 +144,9 @@ try:
         from fish_speech.utils.schema import ServeTTSRequest, ServeReferenceAudio
         from fish_speech.utils.file import audio_to_bytes
     FISH_SPEECH_AVAILABLE = True
-except ImportError:
+except Exception as error:
     FISH_SPEECH_AVAILABLE = False
-    print("⚠️ Fish Speech not available. Some features will be disabled.")
+    print(f"⚠️ Fish Speech not available. Some features will be disabled. Error: {error}")
 
 # F5-TTS imports
 try:
@@ -151,9 +154,9 @@ try:
         from f5_tts_handler import get_f5_tts_handler
     F5_TTS_AVAILABLE = True
     print("✅ F5-TTS handler loaded")
-except ImportError:
+except Exception as error:
     F5_TTS_AVAILABLE = False
-    print("⚠️ F5-TTS not available. Some features will be disabled.")
+    print(f"⚠️ F5-TTS not available. Some features will be disabled. Error: {error}")
 
 # Higgs Audio imports
 try:
@@ -161,9 +164,9 @@ try:
         from higgs_audio_handler import generate_higgs_audio_tts, get_higgs_audio_handler
     HIGGS_AUDIO_AVAILABLE = True
     print("✅ Higgs Audio handler loaded")
-except ImportError:
+except Exception as error:
     HIGGS_AUDIO_AVAILABLE = False
-    print("⚠️ Higgs Audio not available. Some features will be disabled.")
+    print(f"⚠️ Higgs Audio not available. Some features will be disabled. Error: {error}")
 
 # KittenTTS imports
 try:
@@ -171,9 +174,9 @@ try:
         from kitten_tts_handler import generate_kitten_tts, get_kitten_tts_handler, init_kitten_tts, unload_kitten_tts, KITTEN_VOICES
     KITTEN_TTS_AVAILABLE = True
     print("✅ KittenTTS handler loaded")
-except ImportError:
+except Exception as error:
     KITTEN_TTS_AVAILABLE = False
-    print("⚠️ KittenTTS not available. Some features will be disabled.")
+    print(f"⚠️ KittenTTS not available. Some features will be disabled. Error: {error}")
 
 # VibeVoice imports
 try:
@@ -185,9 +188,9 @@ try:
         )
     VIBEVOICE_AVAILABLE = True
     print("✅ VibeVoice handler loaded")
-except ImportError:
+except Exception as error:
     VIBEVOICE_AVAILABLE = False
-    print("⚠️ VibeVoice not available. Some features will be disabled.")
+    print(f"⚠️ VibeVoice not available. Some features will be disabled. Error: {error}")
 
 # VoxCPM imports
 try:
@@ -198,9 +201,9 @@ try:
         )
     VOXCPM_AVAILABLE = True
     print("✅ VoxCPM handler loaded")
-except ImportError:
+except Exception as error:
     VOXCPM_AVAILABLE = False
-    print("⚠️ VoxCPM not available. Some features will be disabled.")
+    print(f"⚠️ VoxCPM not available. Some features will be disabled. Error: {error}")
 
 # Chatterbox Turbo imports
 try:
@@ -212,9 +215,9 @@ try:
         )
     CHATTERBOX_TURBO_AVAILABLE = _TURBO_AVAILABLE
     print("✅ Chatterbox Turbo handler loaded")
-except ImportError:
+except Exception as error:
     CHATTERBOX_TURBO_AVAILABLE = False
-    print("⚠️ Chatterbox Turbo not available. Some features will be disabled.")
+    print(f"⚠️ Chatterbox Turbo not available. Some features will be disabled. Error: {error}")
 
 # Qwen TTS imports
 try:
@@ -227,12 +230,12 @@ try:
         )
     QWEN_TTS_AVAILABLE = _QWEN_AVAILABLE
     print("✅ Qwen TTS handler loaded")
-except ImportError:
+except Exception as error:
     QWEN_TTS_AVAILABLE = False
     QWEN_TTS_MODELS = {}
     QWEN_SPEAKERS = []
     QWEN_LANGUAGES = []
-    print("⚠️ Qwen TTS not available. Some features will be disabled.")
+    print(f"⚠️ Qwen TTS not available. Some features will be disabled. Error: {error}")
 
 # ===== VOXCPM MODEL MANAGEMENT =====
 def init_voxcpm_model():
@@ -545,29 +548,65 @@ def download_indextts_models_auto():
 # Import IndexTTS
 INDEXTTS_AVAILABLE = False
 INDEXTTS_MODELS_AVAILABLE = False
+IndexTTS = None
+
+
+def _has_indextts_package() -> bool:
+    try:
+        if importlib.util.find_spec("indextts.infer") is not None:
+            return True
+    except Exception:
+        pass
+
+    try:
+        if importlib.util.find_spec("indextts.indextts.infer") is not None:
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def load_indextts_class():
+    global IndexTTS
+    if IndexTTS is not None:
+        return IndexTTS, None
+
+    last_error = None
+    for target in ["indextts.infer", "indextts.indextts.infer"]:
+        try:
+            module = importlib.import_module(target)
+            IndexTTS = module.IndexTTS
+            return IndexTTS, None
+        except Exception as error:
+            last_error = error
+
+    return None, last_error
 
 try:
-    with suppress_specific_warnings():
-        from indextts.indextts.infer import IndexTTS
-    INDEXTTS_AVAILABLE = True
-    
-    # Check if models are available
-    with suppress_specific_warnings():
-        if check_indextts_models():
-            INDEXTTS_MODELS_AVAILABLE = True
-            print("✅ IndexTTS loaded with models ready")
-        else:
-            print("🎯 IndexTTS available but models missing - attempting auto-download...")
-            if download_indextts_models_auto():
+    if _has_indextts_package():
+        INDEXTTS_AVAILABLE = True
+
+        # Check if models are available
+        with suppress_specific_warnings():
+            if check_indextts_models():
                 INDEXTTS_MODELS_AVAILABLE = True
-                print("✅ IndexTTS models downloaded and ready")
+                print("✅ IndexTTS package detected with models ready")
             else:
-                print("⚠️  IndexTTS available but models not downloaded")
-                print("   Run: python tools/download_indextts_models.py")
-            
-except ImportError:
+                print("🎯 IndexTTS available but models missing - attempting auto-download...")
+                if download_indextts_models_auto():
+                    INDEXTTS_MODELS_AVAILABLE = True
+                    print("✅ IndexTTS models downloaded and ready")
+                else:
+                    print("⚠️  IndexTTS available but models not downloaded")
+                    print("   Run: python tools/download_indextts_models.py")
+    else:
+        INDEXTTS_AVAILABLE = False
+        print("⚠️  IndexTTS not available - indextts package not found")
+
+except Exception as error:
     INDEXTTS_AVAILABLE = False
-    print("⚠️  IndexTTS not available - indextts package not found")
+    print(f"⚠️  IndexTTS not available - initialization failed: {error}")
 
 # IndexTTS2 imports
 try:
@@ -1145,6 +1184,17 @@ def generate_conversation_audio_simple(
         # Create conversation summary
         total_duration = len(final_conversation_audio) / sample_rate
         unique_speakers = len(set([info['speaker'] for info in conversation_info]))
+        meta_path, script_path = write_generation_sidecar_metadata(
+            filepath if 'filepath' in locals() else None,
+            {
+                "mode": "conversation",
+                "engine": selected_engine,
+                "total_lines": len(conversation),
+                "unique_speakers": unique_speakers,
+                "total_duration_seconds": float(total_duration)
+            },
+            conversation_script,
+        )
         
         summary = {
             'total_lines': len(conversation),
@@ -1153,7 +1203,9 @@ def generate_conversation_audio_simple(
             'speakers': list(set([info['speaker'] for info in conversation_info])),
             'conversation_info': conversation_info,
             'engine_used': selected_engine,
-            'saved_file': filename
+            'saved_file': filename,
+            'metadata_file': meta_path,
+            'script_file': script_path
         }
         
         print(f"✅ Conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s")
@@ -1367,6 +1419,17 @@ def generate_conversation_audio_kokoro(
         # Create conversation summary
         total_duration = len(final_conversation_audio) / sample_rate
         unique_speakers = len(set([info['speaker'] for info in conversation_info]))
+        meta_path, script_path = write_generation_sidecar_metadata(
+            filepath if 'filepath' in locals() else None,
+            {
+                "mode": "conversation",
+                "engine": selected_engine,
+                "total_lines": len(conversation),
+                "unique_speakers": unique_speakers,
+                "total_duration_seconds": float(total_duration)
+            },
+            conversation_script,
+        )
         
         summary = {
             'total_lines': len(conversation),
@@ -1375,7 +1438,9 @@ def generate_conversation_audio_kokoro(
             'speakers': list(set([info['speaker'] for info in conversation_info])),
             'conversation_info': conversation_info,
             'engine_used': selected_engine,
-            'saved_file': filename
+            'saved_file': filename,
+            'metadata_file': meta_path,
+            'script_file': script_path
         }
         
         print(f"✅ Kokoro conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s")
@@ -1561,6 +1626,17 @@ def generate_conversation_audio_kitten(
         # Create conversation summary
         total_duration = len(final_conversation_audio) / sample_rate
         unique_speakers = len(set([info['speaker'] for info in conversation_info]))
+        meta_path, script_path = write_generation_sidecar_metadata(
+            filepath if 'filepath' in locals() else None,
+            {
+                "mode": "conversation",
+                "engine": selected_engine,
+                "total_lines": len(conversation),
+                "unique_speakers": unique_speakers,
+                "total_duration_seconds": float(total_duration)
+            },
+            conversation_script,
+        )
         
         summary = {
             'total_lines': len(conversation),
@@ -1569,7 +1645,9 @@ def generate_conversation_audio_kitten(
             'speakers': list(set([info['speaker'] for info in conversation_info])),
             'conversation_info': conversation_info,
             'engine_used': selected_engine,
-            'saved_file': filename
+            'saved_file': filename,
+            'metadata_file': meta_path,
+            'script_file': script_path
         }
         
         print(f"✅ KittenTTS conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s")
@@ -1804,6 +1882,18 @@ def generate_conversation_audio_indextts2(
         # Create conversation summary
         total_duration = len(final_conversation_audio) / sample_rate
         unique_speakers = len(set([info['speaker'] for info in conversation_info]))
+        meta_path, script_path = write_generation_sidecar_metadata(
+            filepath if 'filepath' in locals() else None,
+            {
+                "mode": "conversation",
+                "engine": selected_engine,
+                "total_lines": len(conversation),
+                "unique_speakers": unique_speakers,
+                "total_duration_seconds": float(total_duration),
+                "emotion_controls_used": True
+            },
+            conversation_script,
+        )
         
         summary = {
             'total_lines': len(conversation),
@@ -1813,7 +1903,9 @@ def generate_conversation_audio_indextts2(
             'conversation_info': conversation_info,
             'engine_used': selected_engine,
             'emotion_controls_used': True,
-            'saved_file': filename
+            'saved_file': filename,
+            'metadata_file': meta_path,
+            'script_file': script_path
         }
         
         print(f"✅ IndexTTS2 conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s")
@@ -1955,7 +2047,7 @@ def save_audio_with_format(audio_data, sample_rate, output_format="wav", output_
         tuple: (filepath, filename) of the saved file
     """
     if output_folder is None:
-        output_folder = globals().get('output_folder', 'outputs')
+        output_folder = get_runtime_output_dir("outputs")
     
     if filename_base is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2067,20 +2159,257 @@ warnings.filterwarnings("ignore")
 torch.nn.utils.parametrize = torch.nn.utils.parametrizations.weight_norm
 
 # ===== DIRECTORY SETUP =====
+APP_STATE_DIR = os.path.join(os.getcwd(), "app_state")
+APP_STATE_PRESETS_FILE = os.path.join(APP_STATE_DIR, "presets.json")
+APP_STATE_BUNDLES_FILE = os.path.join(APP_STATE_DIR, "bundles.json")
+APP_STATE_SETTINGS_FILE = os.path.join(APP_STATE_DIR, "settings.json")
+APP_STATE_VOICES_DIR = os.path.join(APP_STATE_DIR, "voices")
+APP_STATE_OUTPUTS_DIR = os.path.join(APP_STATE_DIR, "outputs")
+
+# Legacy preset file (migrated one-way to app_state/presets.json)
 PRESETS_FILE = "voice_presets.json"
+
 output_folder = os.path.join(os.getcwd(), 'outputs')
 custom_voices_folder = os.path.join(os.getcwd(), 'custom_voices')
 audiobooks_folder = os.path.join(os.getcwd(), 'audiobooks')
 
+DEFAULT_AUTOSAVE_SETTINGS = {
+    "filename_template": "{project}_{speaker}_{timestamp}",
+    "output_storage_mode": "project",
+    "output_storage_path": ""
+}
+
+
+def ensure_app_state_dirs():
+    os.makedirs(APP_STATE_DIR, exist_ok=True)
+    os.makedirs(APP_STATE_VOICES_DIR, exist_ok=True)
+    os.makedirs(APP_STATE_OUTPUTS_DIR, exist_ok=True)
+    if not os.path.exists(APP_STATE_SETTINGS_FILE):
+        with open(APP_STATE_SETTINGS_FILE, "w", encoding="utf-8") as file:
+            json.dump(DEFAULT_AUTOSAVE_SETTINGS, file, indent=2, ensure_ascii=False)
+
+
+def load_app_state_settings() -> dict:
+    ensure_app_state_dirs()
+    try:
+        with open(APP_STATE_SETTINGS_FILE, "r", encoding="utf-8") as file:
+            settings = json.load(file)
+            if isinstance(settings, dict):
+                merged = {**DEFAULT_AUTOSAVE_SETTINGS, **settings}
+                return merged
+    except Exception as error:
+        print(f"⚠️ Failed to load app_state settings: {error}")
+    return dict(DEFAULT_AUTOSAVE_SETTINGS)
+
+
+def resolve_output_storage_settings(settings: dict | None = None):
+    if settings is None:
+        settings = load_app_state_settings()
+
+    mode = str(settings.get("output_storage_mode", "project") or "project").strip().lower()
+    if mode not in {"project", "custom"}:
+        mode = "project"
+
+    raw_path = str(settings.get("output_storage_path", "") or "").strip()
+    custom_base = os.path.abspath(os.path.expanduser(raw_path)) if raw_path else ""
+
+    if mode == "custom" and custom_base:
+        try:
+            os.makedirs(custom_base, exist_ok=True)
+        except Exception as error:
+            print(f"⚠️ Could not access custom output storage '{custom_base}': {error}")
+            mode = "project"
+            custom_base = ""
+
+    return mode, custom_base
+
+
+def get_runtime_output_dir(kind: str, settings: dict | None = None) -> str:
+    mode, custom_base = resolve_output_storage_settings(settings)
+
+    if kind == "outputs":
+        target = os.path.join(custom_base, "outputs") if mode == "custom" and custom_base else os.path.join(os.getcwd(), "outputs")
+    elif kind == "audiobooks":
+        target = os.path.join(custom_base, "audiobooks") if mode == "custom" and custom_base else os.path.join(os.getcwd(), "audiobooks")
+    elif kind == "autosave":
+        target = os.path.join(custom_base, "app_state_outputs") if mode == "custom" and custom_base else APP_STATE_OUTPUTS_DIR
+    else:
+        target = os.path.join(os.getcwd(), "outputs")
+
+    os.makedirs(target, exist_ok=True)
+    return target
+
+
+def refresh_runtime_storage_paths(settings: dict | None = None):
+    global output_folder, audiobooks_folder
+    output_folder = get_runtime_output_dir("outputs", settings)
+    audiobooks_folder = get_runtime_output_dir("audiobooks", settings)
+    return output_folder, audiobooks_folder
+
+
+def save_app_state_settings(updates: dict) -> dict:
+    ensure_app_state_dirs()
+    current = load_app_state_settings()
+    current.update(updates or {})
+    with open(APP_STATE_SETTINGS_FILE, "w", encoding="utf-8") as file:
+        json.dump(current, file, indent=2, ensure_ascii=False)
+    return current
+
+
+def save_output_storage_settings(mode_label: str, custom_path: str):
+    mode = "custom" if str(mode_label or "").lower().startswith("custom") else "project"
+    normalized_path = str(custom_path or "").strip()
+
+    if mode == "custom" and not normalized_path:
+        return "❌ Custom output mode requires a base path"
+
+    try:
+        updates = {
+            "output_storage_mode": mode,
+            "output_storage_path": normalized_path if mode == "custom" else ""
+        }
+        settings = save_app_state_settings(updates)
+        active_outputs, active_audiobooks = refresh_runtime_storage_paths(settings)
+        active_autosave = get_runtime_output_dir("autosave", settings)
+
+        mode_text = "Custom Path" if mode == "custom" else "Project Folders"
+        return (
+            f"✅ Output storage updated\n"
+            f"Mode: {mode_text}\n"
+            f"Outputs: {os.path.abspath(active_outputs)}\n"
+            f"Audiobooks: {os.path.abspath(active_audiobooks)}\n"
+            f"Autosave: {os.path.abspath(active_autosave)}"
+        )
+    except Exception as error:
+        return f"❌ Failed to save output storage settings: {error}"
+
+
+def choose_custom_output_storage_path(mode_label: str, current_path: str):
+    if not str(mode_label or "").lower().startswith("custom"):
+        return gr.update(value=current_path), "ℹ️ Output storage mode set to project folders"
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        root.lift()
+        root.focus_force()
+
+        initial_dir = current_path if isinstance(current_path, str) and current_path.strip() else os.getcwd()
+        selected_path = filedialog.askdirectory(initialdir=initial_dir, mustexist=False)
+        root.destroy()
+
+        if selected_path:
+            return (
+                gr.update(value=selected_path),
+                f"📁 Selected custom output path:\n{os.path.abspath(selected_path)}\nClick 'Save Output Storage' to apply"
+            )
+
+        return gr.update(value=current_path), "ℹ️ Custom output path selection canceled"
+    except Exception as error:
+        return gr.update(value=current_path), f"⚠️ Could not open folder picker: {error}"
+
+
+def open_active_output_folder():
+    try:
+        folder_path = os.path.abspath(get_runtime_output_dir("outputs"))
+        os.makedirs(folder_path, exist_ok=True)
+
+        if sys.platform.startswith("win"):
+            os.startfile(folder_path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder_path])
+        else:
+            subprocess.Popen(["xdg-open", folder_path])
+
+        return f"📂 Opened output folder:\n{folder_path}"
+    except Exception as error:
+        return f"❌ Failed to open output folder: {error}"
+
+
+def open_active_autosave_folder():
+    try:
+        folder_path = os.path.abspath(get_runtime_output_dir("autosave"))
+        os.makedirs(folder_path, exist_ok=True)
+
+        if sys.platform.startswith("win"):
+            os.startfile(folder_path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", folder_path])
+        else:
+            subprocess.Popen(["xdg-open", folder_path])
+
+        return f"📂 Opened autosave folder:\n{folder_path}"
+    except Exception as error:
+        return f"❌ Failed to open autosave folder: {error}"
+
+
+def _list_audio_files(folder_path: str):
+    audio_extensions = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
+    collected = set()
+    try:
+        for name in os.listdir(folder_path):
+            abs_path = os.path.join(folder_path, name)
+            if os.path.isfile(abs_path) and os.path.splitext(name)[1].lower() in audio_extensions:
+                collected.add(os.path.abspath(abs_path))
+    except Exception:
+        pass
+    return collected
+
+
+def _detect_new_audio_file(before_files, after_files):
+    new_files = list((after_files or set()) - (before_files or set()))
+    if not new_files:
+        return None
+    try:
+        return max(new_files, key=lambda candidate: os.path.getmtime(candidate))
+    except Exception:
+        return new_files[-1]
+
+
+def _json_safe(value):
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    return str(value)
+
+
+def write_generation_sidecar_metadata(audio_path: str, metadata: dict = None, script_text: str = None):
+    if not audio_path:
+        return None, None
+
+    abs_audio_path = os.path.abspath(audio_path)
+    base, _ = os.path.splitext(abs_audio_path)
+    meta_path = f"{base}.json"
+    script_path = None
+
+    payload = {
+        "timestamp": datetime.now().isoformat(),
+        "audio_path": abs_audio_path,
+        **(_json_safe(metadata or {})),
+    }
+
+    with open(meta_path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2, ensure_ascii=False)
+
+    if isinstance(script_text, str) and script_text.strip():
+        script_path = f"{base}.txt"
+        with open(script_path, "w", encoding="utf-8") as file:
+            file.write(script_text)
+
+    return meta_path, script_path
+
+
 # Create necessary folders
-if not os.path.exists(output_folder):
-    os.makedirs(output_folder)
-
-if not os.path.exists(custom_voices_folder):
-    os.makedirs(custom_voices_folder)
-
-if not os.path.exists(audiobooks_folder):
-    os.makedirs(audiobooks_folder)
+ensure_app_state_dirs()
+refresh_runtime_storage_paths()
+os.makedirs(custom_voices_folder, exist_ok=True)
 
 # ===== MODEL INITIALIZATION =====
 CHATTERBOX_MODEL = None
@@ -2427,6 +2756,14 @@ def init_indextts():
     try:
         MODEL_STATUS['indextts']['loading'] = True
         print("🔄 Loading IndexTTS...")
+
+        # Lazy import IndexTTS class only when initializing model
+        indextts_class, import_error = load_indextts_class()
+        if indextts_class is None:
+            MODEL_STATUS['indextts']['loading'] = False
+            error_msg = f"❌ IndexTTS import failed: {import_error}"
+            print(error_msg)
+            return False, error_msg
         
         # Check if models are available, try to download if not
         if not INDEXTTS_MODELS_AVAILABLE:
@@ -2452,7 +2789,7 @@ def init_indextts():
         
         # Initialize IndexTTS model
         with suppress_specific_warnings():
-            INDEXTTS_MODEL = IndexTTS(
+            INDEXTTS_MODEL = indextts_class(
                 cfg_path=config_path,
                 model_dir=checkpoint_path,
                 is_fp16=DEVICE == "cuda",
@@ -3987,7 +4324,7 @@ def generate_indextts_tts(
                 try:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     filename_base = f"indextts_output_{timestamp}"
-                    output_folder = "outputs"
+                    output_folder = get_runtime_output_dir("outputs")
                     
                     file_path, filename = save_audio_with_format(
                         audio_data, sample_rate, audio_format, output_folder, filename_base
@@ -4194,42 +4531,253 @@ def generate_f5_tts(
         return None, f"❌ F5-TTS error: {str(e)}"
 
 # ===== VOICE PRESET FUNCTIONS =====
-def load_voice_presets():
-    """Load voice presets from JSON file."""
-    try:
-        if os.path.exists(PRESETS_FILE):
-            with open(PRESETS_FILE, 'r') as f:
-                return json.load(f)
-    except Exception as e:
-        print(f"Error loading presets: {e}")
-    return {}
+def _preset_store_template():
+    return {
+        "version": 1,
+        "presets": {}
+    }
 
-def save_voice_presets(presets):
-    """Save voice presets to JSON file."""
-    try:
-        with open(PRESETS_FILE, 'w') as f:
-            json.dump(presets, f, indent=2)
-        return True
-    except Exception as e:
-        print(f"Error saving presets: {e}")
+
+def _normalize_preset_name(name: str) -> str:
+    if name is None:
+        return ""
+    return str(name).strip()
+
+
+def _safe_name(value: str) -> str:
+    cleaned = re.sub(r"[^\w\-. ]+", "_", str(value).strip())
+    return cleaned[:80].strip() or "preset"
+
+
+def migrate_legacy_presets_if_needed() -> bool:
+    if os.path.exists(APP_STATE_PRESETS_FILE):
         return False
 
-def save_current_preset(preset_name, tts_engine, **settings):
-    """Save current settings as a preset."""
-    if not preset_name.strip():
-        return "❌ Please enter a preset name", gr.update()
-    
-    presets = load_voice_presets()
-    presets[preset_name.strip()] = {
-        'tts_engine': tts_engine,
-        'settings': settings,
-        'created': datetime.now().isoformat()
-    }
-    
-    if save_voice_presets(presets):
-        return f"✅ Preset '{preset_name}' saved!", gr.update(choices=list(presets.keys()))
+    if not os.path.exists(PRESETS_FILE):
+        return False
+
+    try:
+        with open(PRESETS_FILE, "r", encoding="utf-8") as legacy_file:
+            legacy_data = json.load(legacy_file)
+
+        migrated = _preset_store_template()
+        if isinstance(legacy_data, dict):
+            for name, data in legacy_data.items():
+                normalized = _normalize_preset_name(name)
+                if not normalized:
+                    continue
+
+                audio_path = ""
+                if isinstance(data, dict):
+                    if isinstance(data.get("audio_path"), str):
+                        audio_path = data.get("audio_path", "")
+                    elif isinstance(data.get("settings"), dict):
+                        audio_path = (
+                            data.get("settings", {}).get("chatterbox_ref_audio")
+                            or data.get("settings", {}).get("chatterbox_turbo_ref_audio")
+                            or data.get("settings", {}).get("chatterbox_mtl_ref_audio")
+                            or ""
+                        )
+
+                migrated["presets"][normalized] = {
+                    "audio_path": audio_path,
+                    "created": datetime.now().isoformat()
+                }
+
+        save_voice_preset_store(migrated)
+        print("✅ Migrated legacy voice_presets.json to app_state/presets.json")
+        return True
+    except Exception as error:
+        print(f"⚠️ Failed to migrate legacy presets: {error}")
+        return False
+
+
+def load_voice_preset_store() -> dict:
+    ensure_app_state_dirs()
+    migrate_legacy_presets_if_needed()
+
+    try:
+        if os.path.exists(APP_STATE_PRESETS_FILE):
+            with open(APP_STATE_PRESETS_FILE, "r", encoding="utf-8") as file:
+                data = json.load(file)
+                if isinstance(data, dict):
+                    data.setdefault("version", 1)
+                    data.setdefault("presets", {})
+                    if isinstance(data["presets"], dict):
+                        return data
+    except Exception as error:
+        print(f"⚠️ Error loading app_state presets: {error}")
+
+    return _preset_store_template()
+
+
+def save_voice_preset_store(store: dict) -> bool:
+    ensure_app_state_dirs()
+    try:
+        with open(APP_STATE_PRESETS_FILE, "w", encoding="utf-8") as file:
+            json.dump(store, file, indent=2, ensure_ascii=False)
+        return True
+    except Exception as error:
+        print(f"⚠️ Error saving app_state presets: {error}")
+        return False
+
+
+def load_voice_presets() -> dict:
+    """Compatibility helper: returns the presets map only."""
+    return load_voice_preset_store().get("presets", {})
+
+
+def save_voice_presets(presets: dict) -> bool:
+    """Compatibility helper: accepts a presets map and writes canonical store."""
+    store = load_voice_preset_store()
+    store["presets"] = presets if isinstance(presets, dict) else {}
+    return save_voice_preset_store(store)
+
+
+def get_voice_preset_choices() -> list:
+    presets = load_voice_preset_store().get("presets", {})
+    return [""] + sorted(presets.keys())
+
+
+def get_voice_preset_dropdown_update(selected: str = ""):
+    choices = get_voice_preset_choices()
+    selected_value = selected if selected in choices else ""
+    return gr.update(choices=choices, value=selected_value)
+
+
+def get_preset_audio_path(preset_name: str) -> str:
+    normalized = _normalize_preset_name(preset_name)
+    if not normalized:
+        return ""
+
+    presets = load_voice_preset_store().get("presets", {})
+    preset_entry = presets.get(normalized, {})
+    audio_path = preset_entry.get("audio_path", "") if isinstance(preset_entry, dict) else ""
+
+    if isinstance(audio_path, str) and audio_path and os.path.exists(audio_path):
+        return audio_path
+    return ""
+
+
+def _copy_preset_audio_into_app_state(preset_name: str, source_audio_path: str) -> str:
+    ensure_app_state_dirs()
+    source_path = os.path.abspath(source_audio_path)
+    extension = os.path.splitext(source_path)[1] or ".wav"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{_safe_name(preset_name)}_{timestamp}{extension}"
+    destination = os.path.join(APP_STATE_VOICES_DIR, filename)
+    shutil.copy2(source_path, destination)
+    return destination
+
+
+def on_refresh_presets():
+    choices = get_voice_preset_choices()
+    return gr.update(choices=choices), "✅ Preset list refreshed"
+
+
+def on_select_preset(selected_name: str):
+    clear_audio_values = [None for _ in range(10)]
+    normalized = _normalize_preset_name(selected_name)
+    if not normalized:
+        return "", "ℹ️ No preset selected", "Speakers Name", *clear_audio_values
+
+    audio_path = get_preset_audio_path(normalized)
+    speaker_name_guess = normalized.split("_", 1)[0] if "_" in normalized else normalized
+    speaker_name_guess = speaker_name_guess.strip() or "Speakers Name"
+
+    if audio_path:
+        audio_values = [audio_path for _ in range(10)]
+        return normalized, f"✅ Selected preset **{normalized}**", speaker_name_guess, *audio_values
+    return normalized, f"⚠️ Selected preset **{normalized}**, but audio path is missing", speaker_name_guess, *clear_audio_values
+
+
+def on_save_preset(preset_name: str, audio_path: str, copy_into_app: bool):
+    normalized_name = _normalize_preset_name(preset_name)
+    if not normalized_name:
+        return gr.update(), "❌ Please enter a preset name", gr.update(value="")
+
+    if not audio_path or not os.path.exists(audio_path):
+        return gr.update(), "❌ Please upload a valid reference audio file", gr.update(value=normalized_name)
+
+    try:
+        final_audio_path = os.path.abspath(audio_path)
+        if copy_into_app:
+            final_audio_path = _copy_preset_audio_into_app_state(normalized_name, audio_path)
+
+        store = load_voice_preset_store()
+        store["presets"][normalized_name] = {
+            "audio_path": final_audio_path,
+            "created": datetime.now().isoformat()
+        }
+        if not save_voice_preset_store(store):
+            return gr.update(), "❌ Failed to save preset", gr.update(value=normalized_name)
+
+        choices = get_voice_preset_choices()
+        return (
+            gr.update(choices=choices, value=normalized_name),
+            f"✅ Preset **{normalized_name}** saved",
+            gr.update(value=normalized_name)
+        )
+    except Exception as error:
+        return gr.update(), f"❌ Failed to save preset: {error}", gr.update(value=normalized_name)
+
+
+def on_delete_preset(selected_name: str):
+    normalized_name = _normalize_preset_name(selected_name)
+    if not normalized_name:
+        return gr.update(), "ℹ️ Select a preset to delete", gr.update(value="")
+
+    store = load_voice_preset_store()
+    presets = store.get("presets", {})
+    if normalized_name not in presets:
+        choices = get_voice_preset_choices()
+        return gr.update(choices=choices, value=""), f"⚠️ Preset **{normalized_name}** not found", gr.update(value="")
+
+    preset_entry = presets.pop(normalized_name)
+    deleted_audio = False
+    audio_path = preset_entry.get("audio_path", "") if isinstance(preset_entry, dict) else ""
+    try:
+        if isinstance(audio_path, str) and audio_path:
+            abs_audio = os.path.abspath(audio_path)
+            abs_voices_dir = os.path.abspath(APP_STATE_VOICES_DIR)
+            if abs_audio.startswith(abs_voices_dir) and os.path.exists(abs_audio):
+                os.remove(abs_audio)
+                deleted_audio = True
+    except Exception as error:
+        print(f"⚠️ Failed to remove preset audio file: {error}")
+
+    save_voice_preset_store(store)
+    choices = get_voice_preset_choices()
+    if deleted_audio:
+        message = f"✅ Preset **{normalized_name}** deleted (audio file removed)"
     else:
-        return "❌ Failed to save preset", gr.update()
+        message = f"✅ Preset **{normalized_name}** deleted"
+    return gr.update(choices=choices, value=""), message, gr.update(value="")
+
+
+def save_current_preset(preset_name, tts_engine, **settings):
+    """Legacy API shim: store a preset using available reference audio from settings."""
+    normalized_name = _normalize_preset_name(preset_name)
+    if not normalized_name:
+        return "❌ Please enter a preset name", gr.update()
+
+    candidate_audio = (
+        settings.get("chatterbox_ref_audio")
+        or settings.get("chatterbox_mtl_ref_audio")
+        or settings.get("chatterbox_turbo_ref_audio")
+        or settings.get("fish_ref_audio")
+        or settings.get("indextts_ref_audio")
+        or settings.get("f5_ref_audio")
+        or settings.get("qwen_ref_audio")
+        or settings.get("voxcpm_ref_audio")
+        or ""
+    )
+
+    if not candidate_audio:
+        return "❌ No reference audio found in current settings", gr.update()
+
+    dropdown_update, message, _ = on_save_preset(normalized_name, candidate_audio, True)
+    return message, dropdown_update
 
 # ===== EBOOK TO AUDIOBOOK FUNCTIONS =====
 def analyze_ebook_file(file_path: str):
@@ -4647,6 +5195,22 @@ def convert_ebook_to_audiobook(
         # Calculate total duration and file size
         total_duration = len(final_audio) / final_sample_rate / 60  # in minutes
         file_size_mb = os.path.getsize(filepath) / (1024 * 1024)  # in MB
+        metadata_path, _ = write_generation_sidecar_metadata(
+            filepath,
+            {
+                "mode": "ebook_audiobook",
+                "engine": tts_engine,
+                "book_title": metadata.get('title', 'Unknown'),
+                "chapters_processed": len(audio_segments),
+                "chunk_gap_seconds": chunk_gap,
+                "chapter_gap_seconds": chapter_gap,
+                "selected_chapters": selected_chapters,
+                "audio_format": audio_format,
+                "duration_minutes": float(total_duration),
+                "file_size_mb": float(file_size_mb),
+            },
+            None,
+        )
         
         status_message = f"✅ Audiobook generated successfully!\n"
         status_message += f"📖 Book: {metadata['title']}\n"
@@ -4656,6 +5220,8 @@ def convert_ebook_to_audiobook(
         status_message += f"🔇 Chunk gap: {chunk_gap}s | Chapter gap: {chapter_gap}s\n"
         status_message += f"💾 Saved as: {filename}\n"
         status_message += f"📂 Location: {os.path.abspath(filepath)}\n\n"
+        if metadata_path:
+            status_message += f"🧾 Metadata: {os.path.abspath(metadata_path)}\n\n"
         
         # For large files (>50MB or >30 minutes), don't return the audio data to avoid browser issues
         if file_size_mb > 50 or total_duration > 30:
@@ -4819,7 +5385,7 @@ def generate_voxcpm_unified_tts(
         # Save to file (using the same pattern as other engines)
         try:
             # Create outputs directory if it doesn't exist
-            output_folder = Path("outputs")
+            output_folder = Path(get_runtime_output_dir("outputs"))
             output_folder.mkdir(exist_ok=True)
             
             # Generate filename
@@ -5132,9 +5698,328 @@ def generate_unified_tts(
     else:
         return None, "❌ Invalid TTS engine selected"
 
+
+def _is_seed_empty(seed_value, tts_engine: str) -> bool:
+    if seed_value is None:
+        return True
+    if isinstance(seed_value, str) and not seed_value.strip():
+        return True
+
+    try:
+        numeric_seed = int(seed_value)
+    except Exception:
+        return False
+
+    if tts_engine == "Qwen Voice Clone" or tts_engine == "Qwen Voice Design" or tts_engine == "Qwen Custom Voice":
+        return numeric_seed <= 0
+    return numeric_seed == 0
+
+
+def _generate_seed() -> int:
+    return random.randint(1, 2147483647)
+
+
+def _safe_project_name(project_name: str) -> str:
+    if not isinstance(project_name, str):
+        return "default"
+    cleaned = re.sub(r"[^\w\-. ]+", "_", project_name.strip())
+    return cleaned[:80].strip() or "default"
+
+
+def _safe_speaker_name(speaker_name: str) -> str:
+    if not isinstance(speaker_name, str):
+        return "speaker"
+    cleaned = re.sub(r"[^\w\-. ]+", "_", speaker_name.strip())
+    return cleaned[:80].strip() or "speaker"
+
+
+def _build_autosave_run_base(project_name: str, speaker_name: str, engine_name: str) -> str:
+    settings = load_app_state_settings()
+    template = settings.get("filename_template", DEFAULT_AUTOSAVE_SETTINGS["filename_template"])
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    values = {
+        "project": _safe_project_name(project_name),
+        "speaker": _safe_speaker_name(speaker_name),
+        "engine": _safe_project_name(engine_name or "tts"),
+        "timestamp": timestamp,
+    }
+
+    try:
+        candidate = str(template).format(**values)
+    except Exception:
+        candidate = f"{values['project']}_{values['speaker']}_{values['timestamp']}"
+
+    candidate = re.sub(r"[^\w\-.]+", "_", candidate).strip("._")
+    return candidate[:160] or f"tts_{timestamp}"
+
+
+def autosave_generation_artifacts(
+    audio_output_data,
+    text_input: str,
+    audio_format: str,
+    project_name: str,
+    speaker_name: str,
+    metadata: dict,
+    source_audio_path: str = None,
+    store_audio_copy: bool = False,
+):
+    ensure_app_state_dirs()
+
+    if not audio_output_data or not isinstance(audio_output_data, tuple) or len(audio_output_data) != 2:
+        return None, "No audio output available to save"
+
+    sample_rate, audio_data = audio_output_data
+    project = _safe_project_name(project_name)
+    autosave_root = get_runtime_output_dir("autosave")
+    project_root = os.path.join(autosave_root, project)
+    audio_dir = os.path.join(project_root, "audio")
+    scripts_dir = os.path.join(project_root, "scripts")
+    meta_dir = os.path.join(project_root, "meta")
+
+    os.makedirs(audio_dir, exist_ok=True)
+    os.makedirs(scripts_dir, exist_ok=True)
+    os.makedirs(meta_dir, exist_ok=True)
+
+    engine_name = (metadata or {}).get("engine", "tts")
+    run_base = _build_autosave_run_base(project, speaker_name, engine_name)
+
+    audio_copy_created = True
+    if source_audio_path and not store_audio_copy and os.path.exists(source_audio_path):
+        audio_path = os.path.abspath(source_audio_path)
+        audio_filename = os.path.basename(audio_path)
+        audio_copy_created = False
+    else:
+        audio_path, audio_filename = save_audio_with_format(
+            audio_data,
+            int(sample_rate),
+            audio_format,
+            audio_dir,
+            run_base,
+        )
+
+    script_path = os.path.join(scripts_dir, f"{run_base}.txt")
+    with open(script_path, "w", encoding="utf-8") as script_file:
+        script_file.write(text_input or "")
+
+    text_hash = hashlib.sha256((text_input or "").encode("utf-8")).hexdigest()
+
+    full_metadata = {
+        "timestamp": datetime.now().isoformat(),
+        "text_hash_sha256": text_hash,
+        "paths": {
+            "audio": os.path.abspath(audio_path),
+            "script": os.path.abspath(script_path),
+            "meta": ""
+        },
+        "audio_copy_created": audio_copy_created,
+        **(metadata or {}),
+    }
+
+    meta_path = os.path.join(meta_dir, f"{run_base}.json")
+    full_metadata["paths"]["meta"] = os.path.abspath(meta_path)
+
+    with open(meta_path, "w", encoding="utf-8") as meta_file:
+        json.dump(full_metadata, meta_file, indent=2, ensure_ascii=False)
+
+    return {
+        "audio_path": os.path.abspath(audio_path),
+        "audio_filename": audio_filename,
+        "script_path": os.path.abspath(script_path),
+        "meta_path": os.path.abspath(meta_path),
+    }, None
+
+
+def generate_unified_tts_wrapped(*all_args):
+    """Wrapper around generate_unified_tts: preset resolution, deterministic seed, and autosave."""
+    signature_params = list(inspect.signature(generate_unified_tts).parameters.keys())
+    base_count = len(signature_params)
+    if len(all_args) < base_count:
+        return None, "❌ Internal error: incomplete generation arguments", "🎲 Last Seed: N/A", None
+
+    base_args = list(all_args[:base_count])
+    extra_args = list(all_args[base_count:])
+
+    # Current ordering: speaker_name, voice_preset, autosave_enabled, autosave_project_name,
+    #                   autosave_store_audio_copy, keep_legacy_output_copy, last_seed_state
+    # Backward compatibility retained for prior orderings.
+    speaker_name = ""
+    voice_preset = ""
+    autosave_enabled = False
+    autosave_project_name = "default"
+    autosave_store_audio_copy = True
+    keep_legacy_output_copy = True
+    last_seed_state = None
+
+    if len(extra_args) >= 7 and isinstance(extra_args[2], bool):
+        speaker_name = extra_args[0]
+        voice_preset = extra_args[1]
+        autosave_enabled = bool(extra_args[2])
+        autosave_project_name = extra_args[3]
+        autosave_store_audio_copy = bool(extra_args[4])
+        keep_legacy_output_copy = bool(extra_args[5])
+        last_seed_state = extra_args[6]
+    elif len(extra_args) >= 6 and isinstance(extra_args[2], bool):
+        speaker_name = extra_args[0]
+        voice_preset = extra_args[1]
+        autosave_enabled = bool(extra_args[2])
+        autosave_project_name = extra_args[3]
+        autosave_store_audio_copy = bool(extra_args[4])
+        last_seed_state = extra_args[5]
+    elif len(extra_args) >= 6:
+        speaker_name = extra_args[1]
+        voice_preset = extra_args[2]
+        autosave_enabled = bool(extra_args[3])
+        autosave_project_name = extra_args[4]
+        last_seed_state = extra_args[5]
+    elif len(extra_args) >= 5:
+        speaker_name = extra_args[0]
+        voice_preset = extra_args[1]
+        autosave_enabled = bool(extra_args[2])
+        autosave_project_name = extra_args[3]
+        last_seed_state = extra_args[4]
+    else:
+        speaker_name = ""
+        voice_preset = extra_args[0] if len(extra_args) > 0 else ""
+        autosave_enabled = bool(extra_args[1]) if len(extra_args) > 1 else False
+        autosave_project_name = extra_args[2] if len(extra_args) > 2 else "default"
+        autosave_store_audio_copy = bool(extra_args[3]) if len(extra_args) > 3 else True
+        keep_legacy_output_copy = bool(extra_args[4]) if len(extra_args) > 4 else True
+        last_seed_state = extra_args[5] if len(extra_args) > 5 else None
+
+    resolved_project = _safe_project_name(autosave_project_name or "default")
+    resolved_speaker = _safe_speaker_name(speaker_name or "speaker")
+
+    param_idx = {name: index for index, name in enumerate(signature_params)}
+    text_input = base_args[param_idx["text_input"]]
+    tts_engine = base_args[param_idx["tts_engine"]]
+    audio_format = base_args[param_idx["audio_format"]]
+
+    preset_name_used = ""
+    preset_audio = get_preset_audio_path(voice_preset)
+    engine_ref_param = {
+        "ChatterboxTTS": "chatterbox_ref_audio",
+        "Chatterbox Multilingual": "chatterbox_mtl_ref_audio",
+        "Chatterbox Turbo": "chatterbox_turbo_ref_audio",
+    }
+
+    ref_param_name = engine_ref_param.get(tts_engine)
+    if ref_param_name and preset_audio:
+        base_args[param_idx[ref_param_name]] = preset_audio
+        preset_name_used = voice_preset
+
+    engine_seed_param = {
+        "ChatterboxTTS": "chatterbox_seed",
+        "Chatterbox Multilingual": "chatterbox_mtl_seed",
+        "Chatterbox Turbo": "chatterbox_turbo_seed",
+        "Fish Speech": "fish_seed",
+        "IndexTTS": "indextts_seed",
+        "IndexTTS2": "indextts2_seed",
+        "F5-TTS": "f5_seed",
+        "VoxCPM": "voxcpm_seed",
+        "Qwen Voice Design": "qwen_seed",
+        "Qwen Voice Clone": "qwen_seed",
+        "Qwen Custom Voice": "qwen_seed",
+    }
+
+    used_seed = last_seed_state
+    seed_param_name = engine_seed_param.get(tts_engine)
+    if seed_param_name:
+        seed_index = param_idx[seed_param_name]
+        current_seed = base_args[seed_index]
+        if _is_seed_empty(current_seed, tts_engine):
+            used_seed = _generate_seed()
+            base_args[seed_index] = used_seed
+        else:
+            try:
+                used_seed = int(current_seed)
+            except Exception:
+                used_seed = current_seed
+
+    active_output_dir = get_runtime_output_dir("outputs")
+    before_audio_files = _list_audio_files(active_output_dir)
+
+    generation_output, generation_status = generate_unified_tts(*base_args)
+
+    after_audio_files = _list_audio_files(active_output_dir)
+    generated_audio_file = _detect_new_audio_file(before_audio_files, after_audio_files)
+
+    status_lines = [str(generation_status or "")]
+    status_lines.append(f"\nEngine: {tts_engine}")
+    status_lines.append(f"Seed: {used_seed if used_seed is not None else 'N/A'}")
+    status_lines.append(f"Preset: {preset_name_used if preset_name_used else 'None'}")
+    status_lines.append(f"Project: {resolved_project}")
+    status_lines.append(f"Speaker: {resolved_speaker}")
+    status_lines.append(f"Autosave copy audio: {'Yes' if autosave_store_audio_copy else 'No (metadata+script only)'}")
+    status_lines.append(f"Legacy outputs copy: {'Yes' if keep_legacy_output_copy else 'No'}")
+
+    autosave_error = None
+    autosave_paths = None
+    if autosave_enabled and generation_output is not None:
+        metadata = {
+            "engine": tts_engine,
+            "seed": used_seed,
+            "preset": preset_name_used,
+            "project": resolved_project,
+            "speaker": resolved_speaker,
+            "audio_format": audio_format,
+            "exaggeration": base_args[param_idx.get("chatterbox_exaggeration", 0)] if "chatterbox_exaggeration" in param_idx else None,
+            "cfg_weight": base_args[param_idx.get("chatterbox_cfg_weight", 0)] if "chatterbox_cfg_weight" in param_idx else None,
+        }
+        try:
+            autosave_paths, autosave_error = autosave_generation_artifacts(
+                generation_output,
+                text_input,
+                audio_format,
+                resolved_project,
+                resolved_speaker,
+                metadata,
+                source_audio_path=generated_audio_file,
+                store_audio_copy=autosave_store_audio_copy,
+            )
+            if autosave_paths:
+                status_lines.append(f"Autosave audio: {autosave_paths['audio_path']}")
+                status_lines.append(f"Autosave script: {autosave_paths['script_path']}")
+                status_lines.append(f"Autosave meta: {autosave_paths['meta_path']}")
+        except Exception as error:
+            autosave_error = str(error)
+
+    if autosave_error:
+        status_lines.append(f"⚠️ Autosave failed: {autosave_error}")
+
+    if (
+        autosave_enabled
+        and generation_output is not None
+        and generated_audio_file
+        and not keep_legacy_output_copy
+        and autosave_paths
+    ):
+        generated_audio_abs = os.path.abspath(generated_audio_file)
+        autosave_audio_abs = os.path.abspath(autosave_paths.get("audio_path", ""))
+        if generated_audio_abs != autosave_audio_abs and os.path.exists(generated_audio_abs):
+            try:
+                os.remove(generated_audio_abs)
+                status_lines.append(f"Legacy output removed: {generated_audio_abs}")
+            except Exception as error:
+                status_lines.append(f"⚠️ Failed to remove legacy output copy: {error}")
+        elif generated_audio_abs == autosave_audio_abs:
+            status_lines.append("ℹ️ Legacy output cleanup skipped (autosave references same file)")
+
+    seed_label = f"🎲 Last Seed: {used_seed if used_seed is not None else 'N/A'}"
+    return generation_output, "\n".join(status_lines), seed_label, used_seed
+
 # ===== GRADIO INTERFACE =====
 def create_gradio_interface():
     """Create the unified Gradio interface."""
+    current_storage_settings = load_app_state_settings()
+    current_storage_mode, current_storage_path = resolve_output_storage_settings(current_storage_settings)
+    storage_mode_value = "Custom Path" if current_storage_mode == "custom" else "Project Folders (default)"
+    storage_status_default = (
+        f"ℹ️ Output storage mode: {storage_mode_value}\n"
+        f"Outputs: {os.path.abspath(get_runtime_output_dir('outputs', current_storage_settings))}\n"
+        f"Audiobooks: {os.path.abspath(get_runtime_output_dir('audiobooks', current_storage_settings))}\n"
+        f"Autosave: {os.path.abspath(get_runtime_output_dir('autosave', current_storage_settings))}"
+    )
     
             # Kokoro voices will be preloaded when the model is loaded
     
@@ -7652,12 +8537,17 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 )
                 
                 # Status with custom styling
-                status_output = gr.Textbox(
-                    label="📊 Status",
-                    lines=2,
-                    interactive=False,
+                status_output = gr.Markdown(
+                    value="Ready.",
                     elem_classes=["fade-in"]
                 )
+
+                last_seed_out = gr.Markdown(
+                    value="🎲 Last Seed: N/A",
+                    elem_classes=["fade-in"]
+                )
+
+                last_seed_state = gr.State(value=None)
                 
                 # Conversation info output (visible for conversation mode)
                 conversation_info = gr.Textbox(
@@ -7709,6 +8599,86 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     elem_classes=["generate-btn", "fade-in"],
                     visible=False
                 )
+
+        with gr.Accordion("🎙️ Voice Presets & Autosave", open=False, elem_classes=["fade-in"]):
+            with gr.Row():
+                speaker_name_tb = gr.Textbox(
+                    value="Speakers Name",
+                    label="🗣️ Speaker Name",
+                    placeholder="Speakers Name"
+                )
+
+            with gr.Row():
+                voice_preset_dd = gr.Dropdown(
+                    label="🎙️ Voice Preset",
+                    choices=get_voice_preset_choices(),
+                    value="",
+                    allow_custom_value=True,
+                    info="Select a preset to reuse reference audio for supported engines"
+                )
+                preset_name_tb = gr.Textbox(
+                    label="🏷️ Preset Name",
+                    placeholder="Speakers Name_Style"
+                )
+
+            with gr.Row():
+                preset_audio_file = gr.File(
+                    label="📎 Preset Audio File",
+                    type="filepath"
+                )
+                copy_into_app_chk = gr.Checkbox(
+                    value=True,
+                    label="📁 Copy audio into app_state/voices"
+                )
+
+            with gr.Row():
+                save_preset_btn = gr.Button("💾 Save / Update Preset", variant="secondary")
+                delete_preset_btn = gr.Button("🗑️ Delete Preset", variant="stop")
+                refresh_presets_btn = gr.Button("🔄 Refresh Presets")
+
+            with gr.Row():
+                autosave_enabled = gr.Checkbox(
+                    value=True,
+                    label="💾 Autosave audio/script/metadata to app_state"
+                )
+                autosave_project_name = gr.Textbox(
+                    value="default",
+                    label="📚 Autosave Project Name",
+                    placeholder="book_title_or_project"
+                )
+
+            with gr.Row():
+                autosave_store_audio_copy = gr.Checkbox(
+                    value=True,
+                    label="🧬 Keep autosave audio file in structured app_state project folders"
+                )
+
+            with gr.Row():
+                keep_legacy_output_copy = gr.Checkbox(
+                    value=True,
+                    label="📦 Keep legacy output file copy (outputs/audiobooks naming). Turn off to auto-cleanup after autosave"
+                )
+
+            with gr.Row():
+                output_storage_mode = gr.Dropdown(
+                    label="📦 Generated Output Storage",
+                    choices=["Project Folders (default)", "Custom Path"],
+                    value=storage_mode_value,
+                    info="Moves generated outputs/audio artifacts while keeping app_state/voices local"
+                )
+                output_storage_path = gr.Textbox(
+                    label="🛣️ Custom Output Base Path",
+                    value=current_storage_path,
+                    placeholder="D:/Ultimate-TTS-Outputs"
+                )
+
+            with gr.Row():
+                save_storage_btn = gr.Button("💾 Save Output Storage", variant="secondary")
+                open_output_folder_btn = gr.Button("📂 Open Active Output Folder", variant="secondary")
+                open_autosave_folder_btn = gr.Button("🗂️ Open Active Autosave Folder", variant="secondary")
+
+            preset_status_md = gr.Markdown(value="ℹ️ Preset manager ready")
+            storage_status_md = gr.Markdown(value=storage_status_default)
         
         # Engine-specific settings in tabs
         gr.Markdown("## 🎛️ TTS Engine Settings", elem_classes=["fade-in"])
@@ -9654,10 +10624,66 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[cleanup_status, chatterbox_ref_audio, fish_ref_audio, 
                     speaker_1_audio, speaker_2_audio, speaker_3_audio, speaker_4_audio, speaker_5_audio]
         )
+
+        demo.load(
+            fn=get_voice_preset_dropdown_update,
+            outputs=[voice_preset_dd]
+        )
+
+        # Voice preset controls
+        refresh_presets_btn.click(
+            fn=on_refresh_presets,
+            outputs=[voice_preset_dd, preset_status_md]
+        )
+
+        voice_preset_dd.change(
+            fn=on_select_preset,
+            inputs=[voice_preset_dd],
+            outputs=[
+                preset_name_tb, preset_status_md, speaker_name_tb,
+                chatterbox_ref_audio, chatterbox_mtl_ref_audio, chatterbox_turbo_ref_audio,
+                fish_ref_audio, indextts_ref_audio, indextts2_ref_audio,
+                f5_ref_audio, higgs_ref_audio, voxcpm_ref_audio, qwen_ref_audio
+            ]
+        )
+
+        save_preset_btn.click(
+            fn=on_save_preset,
+            inputs=[preset_name_tb, preset_audio_file, copy_into_app_chk],
+            outputs=[voice_preset_dd, preset_status_md, preset_name_tb]
+        )
+
+        save_storage_btn.click(
+            fn=save_output_storage_settings,
+            inputs=[output_storage_mode, output_storage_path],
+            outputs=[storage_status_md]
+        )
+
+        output_storage_mode.change(
+            fn=choose_custom_output_storage_path,
+            inputs=[output_storage_mode, output_storage_path],
+            outputs=[output_storage_path, storage_status_md]
+        )
+
+        open_output_folder_btn.click(
+            fn=open_active_output_folder,
+            outputs=[storage_status_md]
+        )
+
+        open_autosave_folder_btn.click(
+            fn=open_active_autosave_folder,
+            outputs=[storage_status_md]
+        )
+
+        delete_preset_btn.click(
+            fn=on_delete_preset,
+            inputs=[voice_preset_dd],
+            outputs=[voice_preset_dd, preset_status_md, preset_name_tb]
+        )
         
         # Main generation event handler
         generate_btn.click(
-            fn=generate_unified_tts,
+            fn=generate_unified_tts_wrapped,
             inputs=[
                 text, tts_engine, audio_format,
                 chatterbox_ref_audio, chatterbox_exaggeration, chatterbox_temperature,
@@ -9690,9 +10716,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 gain_db, enable_eq, eq_bass, eq_mid, eq_treble,
                 enable_reverb, reverb_room, reverb_damping, reverb_wet,
                 enable_echo, echo_delay, echo_decay,
-                enable_pitch, pitch_semitones
+                enable_pitch, pitch_semitones,
+                speaker_name_tb,
+                voice_preset_dd, autosave_enabled, autosave_project_name, autosave_store_audio_copy, keep_legacy_output_copy, last_seed_state
             ],
-            outputs=[audio_output, status_output]
+            outputs=[audio_output, status_output, last_seed_out, last_seed_state]
         )
         
         # Conversation Mode Event Handlers
@@ -10542,7 +11570,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     speaker_voices=speaker_voices,
                     cfg_scale=cfg_scale,
                     seed=int(seed) if seed is not None else None,
-                    output_folder="outputs",
+                    output_folder=get_runtime_output_dir("outputs"),
                     audio_format=audio_format
                 )
                 
