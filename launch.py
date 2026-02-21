@@ -2174,13 +2174,13 @@ custom_voices_folder = os.path.join(os.getcwd(), 'custom_voices')
 audiobooks_folder = os.path.join(os.getcwd(), 'audiobooks')
 
 DEFAULT_AUTOSAVE_SETTINGS = {
-    "filename_template": "{preset}_{project}_{timestamp}",
+    "filename_template": "{project}_{preset}_{timestamp}",
     "output_storage_mode": "project",
     "output_storage_path": ""
 }
 
 LEGACY_DEFAULT_FILENAME_TEMPLATE = "{project}_{speaker}_{timestamp}"
-PREVIOUS_DEFAULT_FILENAME_TEMPLATE = "{project}_{preset}_{timestamp}"
+PREVIOUS_DEFAULT_FILENAME_TEMPLATE = "{preset}_{project}_{timestamp}"
 PRESET_ONLY_FILENAME_TEMPLATE = "{preset}_{timestamp}"
 
 
@@ -5748,6 +5748,13 @@ def _safe_speaker_name(speaker_name: str) -> str:
     return cleaned[:80].strip() or "speaker"
 
 
+def _safe_optional_label(value: str) -> str:
+    if not isinstance(value, str):
+        return ""
+    cleaned = re.sub(r"[^\w\-. ]+", "_", value.strip())
+    return cleaned[:80].strip()
+
+
 def _build_autosave_run_base(project_name: str, speaker_name: str, engine_name: str, preset_name: str = "") -> str:
     settings = load_app_state_settings()
     template = settings.get("filename_template", DEFAULT_AUTOSAVE_SETTINGS["filename_template"])
@@ -5758,7 +5765,7 @@ def _build_autosave_run_base(project_name: str, speaker_name: str, engine_name: 
     }:
         template = DEFAULT_AUTOSAVE_SETTINGS["filename_template"]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_preset = _safe_project_name(preset_name or "")
+    safe_preset = _safe_optional_label(preset_name)
     safe_speaker = _safe_speaker_name(speaker_name)
     preset_label = safe_preset if safe_preset else "no_preset"
 
@@ -5774,10 +5781,10 @@ def _build_autosave_run_base(project_name: str, speaker_name: str, engine_name: 
     try:
         candidate = str(template).format(**values)
     except Exception:
-        candidate = f"{preset_label}_{values['project']}_{values['timestamp']}"
+        candidate = f"{values['project']}_{preset_label}_{values['timestamp']}"
 
     if "{preset" in template and not safe_preset:
-        candidate = f"{preset_label}_{values['project']}_{values['timestamp']}"
+        candidate = f"{values['project']}_{preset_label}_{values['timestamp']}"
 
     candidate = re.sub(r"[^\w\-.]+", "_", candidate).strip("._")
     return candidate[:160] or f"tts_{timestamp}"
