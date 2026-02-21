@@ -13,6 +13,7 @@ import logging
 import hashlib
 import inspect
 import importlib
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -1926,7 +1927,11 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
         return None, "❌ Fish Speech not loaded"
     
     try:
-        print(f"🐟 Fish Speech generating: {text[:50]}...")
+        cleaned_text = _sanitize_fish_speech_text(text)
+        if not cleaned_text:
+            return None, "❌ Fish Speech input is empty after text cleanup"
+
+        print(f"🐟 Fish Speech generating: {cleaned_text[:50]}...")
         
         # Prepare reference audio if provided
         references = []
@@ -1944,19 +1949,19 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
         
         # Create simple TTS request
         request = ServeTTSRequest(
-            text=text,
+            text=cleaned_text,
             references=references,
             reference_id=None,
             format="wav",
-            max_new_tokens=1024,  # Reduced for faster generation
-            chunk_length=300,    # Smaller chunks
+            max_new_tokens=768,
+            chunk_length=180,
             top_p=0.8,
             repetition_penalty=1.1,
             temperature=0.8,
             streaming=False,
             use_memory_cache="off",
             seed=seed,  # Use consistent seed
-            normalize=True
+            normalize=False
         )
         
         print("🐟 Calling Fish Speech inference...")
@@ -1996,7 +2001,30 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
     except Exception as e:
         import traceback
         traceback.print_exc()
+        message = str(e)
+        if "device-side assert" in message or "index out of bounds" in message:
+            return None, (
+                "❌ Fish Speech CUDA index error. Text was auto-cleaned but GPU context is now unstable. "
+                "Please unload/reload Fish Speech (or restart app), then retry with plain narration text "
+                "without style tags like (calm)/(break)."
+            )
         return None, f"❌ Fish Speech error: {str(e)}"
+
+
+def _sanitize_fish_speech_text(text_input: str) -> str:
+    if not isinstance(text_input, str):
+        return ""
+
+    text = unicodedata.normalize("NFKC", text_input)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    text = re.sub(r"\((?:\s*[A-Za-z][A-Za-z _\-]{0,40}\s*)\)", " ", text)
+    text = re.sub(r"\[(?:\s*[A-Za-z][A-Za-z _\-]{0,40}\s*)\]", " ", text)
+    text = re.sub(r"\{(?:\s*[A-Za-z][A-Za-z _\-]{0,40}\s*)\}", " ", text)
+
+    text = re.sub(r"[\u0000-\u001F\u007F-\u009F]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 def format_conversation_info(summary):
     """Format conversation summary for display."""
@@ -3750,6 +3778,10 @@ def generate_fish_speech_tts(
     
     try:
         from fish_speech.text.spliter import split_text
+
+        cleaned_text = _sanitize_fish_speech_text(text_input)
+        if not cleaned_text:
+            return None, "❌ Fish Speech input is empty after text cleanup"
         
         # Prepare reference audio if provided
         references = []
@@ -3761,7 +3793,7 @@ def generate_fish_speech_tts(
         # Split text into appropriate chunks using Fish Speech's own text splitter
         # This is crucial for handling long texts properly
         chunk_length = 200  # Fish Speech default chunk length for text splitting
-        text_chunks = split_text(text_input, chunk_length)
+        text_chunks = split_text(cleaned_text, chunk_length)
         
         if not text_chunks:
             return None, "❌ No valid text chunks generated"
@@ -3769,6 +3801,11 @@ def generate_fish_speech_tts(
         print(f"Fish Speech - Processing {len(text_chunks)} text chunks")
         for i, chunk in enumerate(text_chunks):
             print(f"  Chunk {i+1}: {chunk[:50]}{'...' if len(chunk) > 50 else ''}")
+
+        safe_max_tokens = max(128, min(int(fish_max_tokens or 1024), 1024))
+        safe_top_p = float(np.clip(fish_top_p, 0.1, 0.98))
+        safe_repetition_penalty = float(np.clip(fish_repetition_penalty, 1.0, 2.0))
+        safe_temperature = float(np.clip(fish_temperature, 0.1, 1.5))
         
         all_audio_segments = []
         
@@ -3794,15 +3831,15 @@ def generate_fish_speech_tts(
                 references=chunk_references,  # Use accumulated references
                 reference_id=None,
                 format="wav",
-                max_new_tokens=fish_max_tokens,
+                max_new_tokens=safe_max_tokens,
                 chunk_length=chunk_length,  # Internal chunking within Fish Speech
-                top_p=fish_top_p,
-                repetition_penalty=fish_repetition_penalty,
-                temperature=fish_temperature,
+                top_p=safe_top_p,
+                repetition_penalty=safe_repetition_penalty,
+                temperature=safe_temperature,
                 streaming=False,
                 use_memory_cache="off",
                 seed=fish_seed,  # Use consistent seed across all chunks
-                normalize=True  # Enable text normalization for better stability
+                normalize=False
             )
             
             # Generate audio for this chunk
@@ -3917,6 +3954,12 @@ def generate_fish_speech_tts(
     except Exception as e:
         import traceback
         traceback.print_exc()
+        message = str(e)
+        if "device-side assert" in message or "index out of bounds" in message:
+            return None, (
+                "❌ Fish Speech CUDA index error. Try narration text without style tags "
+                "(for example remove '(calm)'/'(break)') and reload Fish Speech before retrying."
+            )
         return None, f"❌ Fish Speech error: {str(e)}"
 
 # ===== KOKORO TTS FUNCTIONS =====
@@ -5734,6 +5777,123 @@ def _generate_seed() -> int:
     return random.randint(1, 2147483647)
 
 
+ENGINE_METADATA_CONTROL_MAP = {
+    "ChatterboxTTS": [
+        ("chatterbox_exaggeration", "exaggeration"),
+        ("chatterbox_temperature", "temperature"),
+        ("chatterbox_cfg_weight", "cfg_weight"),
+        ("chatterbox_chunk_size", "chunk_size"),
+    ],
+    "Chatterbox Multilingual": [
+        ("chatterbox_mtl_language", "language"),
+        ("chatterbox_mtl_exaggeration", "exaggeration"),
+        ("chatterbox_mtl_temperature", "temperature"),
+        ("chatterbox_mtl_cfg_weight", "cfg_weight"),
+        ("chatterbox_mtl_repetition_penalty", "repetition_penalty"),
+        ("chatterbox_mtl_min_p", "min_p"),
+        ("chatterbox_mtl_top_p", "top_p"),
+        ("chatterbox_mtl_chunk_size", "chunk_size"),
+    ],
+    "Chatterbox Turbo": [
+        ("chatterbox_turbo_exaggeration", "exaggeration"),
+        ("chatterbox_turbo_temperature", "temperature"),
+        ("chatterbox_turbo_cfg_weight", "cfg_weight"),
+        ("chatterbox_turbo_repetition_penalty", "repetition_penalty"),
+        ("chatterbox_turbo_min_p", "min_p"),
+        ("chatterbox_turbo_top_p", "top_p"),
+        ("chatterbox_turbo_chunk_size", "chunk_size"),
+    ],
+    "Kokoro TTS": [
+        ("kokoro_voice", "voice"),
+        ("kokoro_speed", "speed"),
+    ],
+    "Fish Speech": [
+        ("fish_temperature", "temperature"),
+        ("fish_top_p", "top_p"),
+        ("fish_repetition_penalty", "repetition_penalty"),
+        ("fish_max_tokens", "max_tokens"),
+    ],
+    "IndexTTS": [
+        ("indextts_temperature", "temperature"),
+    ],
+    "IndexTTS2": [
+        ("indextts2_emotion_mode", "emotion_mode"),
+        ("indextts2_emo_alpha", "emo_alpha"),
+        ("indextts2_happy", "happy"),
+        ("indextts2_angry", "angry"),
+        ("indextts2_sad", "sad"),
+        ("indextts2_afraid", "afraid"),
+        ("indextts2_disgusted", "disgusted"),
+        ("indextts2_melancholic", "melancholic"),
+        ("indextts2_surprised", "surprised"),
+        ("indextts2_calm", "calm"),
+        ("indextts2_temperature", "temperature"),
+        ("indextts2_top_p", "top_p"),
+        ("indextts2_top_k", "top_k"),
+        ("indextts2_repetition_penalty", "repetition_penalty"),
+        ("indextts2_max_mel_tokens", "max_mel_tokens"),
+        ("indextts2_use_random", "use_random"),
+    ],
+    "F5-TTS": [
+        ("f5_speed", "speed"),
+        ("f5_cross_fade", "cross_fade"),
+        ("f5_remove_silence", "remove_silence"),
+    ],
+    "Higgs Audio": [
+        ("higgs_voice_preset", "voice_preset"),
+        ("higgs_system_prompt", "system_prompt"),
+        ("higgs_temperature", "temperature"),
+        ("higgs_top_p", "top_p"),
+        ("higgs_top_k", "top_k"),
+        ("higgs_max_tokens", "max_tokens"),
+        ("higgs_ras_win_len", "ras_win_len"),
+        ("higgs_ras_win_max_num_repeat", "ras_win_max_num_repeat"),
+    ],
+    "KittenTTS": [
+        ("kitten_voice", "voice"),
+    ],
+    "VoxCPM": [
+        ("voxcpm_cfg_value", "cfg_value"),
+        ("voxcpm_inference_timesteps", "inference_timesteps"),
+        ("voxcpm_normalize", "normalize"),
+        ("voxcpm_denoise", "denoise"),
+        ("voxcpm_retry_badcase", "retry_badcase"),
+        ("voxcpm_retry_badcase_max_times", "retry_badcase_max_times"),
+        ("voxcpm_retry_badcase_ratio_threshold", "retry_badcase_ratio_threshold"),
+    ],
+    "Qwen Voice Design": [
+        ("qwen_language", "language"),
+        ("qwen_voice_description", "voice_description"),
+    ],
+    "Qwen Voice Clone": [
+        ("qwen_language", "language"),
+        ("qwen_ref_text", "ref_text"),
+        ("qwen_xvector_only", "xvector_only"),
+        ("qwen_clone_model_size", "model_size"),
+        ("qwen_chunk_size", "chunk_size"),
+        ("qwen_chunk_gap", "chunk_gap"),
+    ],
+    "Qwen Custom Voice": [
+        ("qwen_speaker", "speaker_profile"),
+        ("qwen_language", "language"),
+        ("qwen_style_instruct", "style_instruct"),
+        ("qwen_custom_model_size", "model_size"),
+    ],
+}
+
+
+def _collect_engine_metadata_controls(tts_engine: str, base_args: list, param_idx: dict) -> dict:
+    controls = {}
+    for param_name, metadata_key in ENGINE_METADATA_CONTROL_MAP.get(tts_engine, []):
+        if param_name not in param_idx:
+            continue
+        value = base_args[param_idx[param_name]]
+        if value is None:
+            continue
+        controls[metadata_key] = value
+    return controls
+
+
 def _safe_project_name(project_name: str) -> str:
     if not isinstance(project_name, str):
         return "default"
@@ -5997,6 +6157,7 @@ def generate_unified_tts_wrapped(*all_args):
     autosave_error = None
     autosave_paths = None
     if autosave_enabled and generation_output is not None:
+        engine_controls = _collect_engine_metadata_controls(tts_engine, base_args, param_idx)
         metadata = {
             "engine": tts_engine,
             "seed": used_seed,
@@ -6004,8 +6165,7 @@ def generate_unified_tts_wrapped(*all_args):
             "project": resolved_project,
             "speaker": resolved_speaker,
             "audio_format": audio_format,
-            "exaggeration": base_args[param_idx.get("chatterbox_exaggeration", 0)] if "chatterbox_exaggeration" in param_idx else None,
-            "cfg_weight": base_args[param_idx.get("chatterbox_cfg_weight", 0)] if "chatterbox_cfg_weight" in param_idx else None,
+            **engine_controls,
         }
         try:
             autosave_paths, autosave_error = autosave_generation_artifacts(
