@@ -143,7 +143,7 @@ try:
     FISH_SPEECH_AVAILABLE = True
 except ImportError:
     FISH_SPEECH_AVAILABLE = False
-    print("⚠️ Fish Speech not available. Some features will be disabled.")
+    print("⚠️ Fish Speech S1 not available. Some features will be disabled.")
 
 # F5-TTS imports
 try:
@@ -201,6 +201,21 @@ try:
 except ImportError:
     VOXCPM_AVAILABLE = False
     print("⚠️ VoxCPM not available. Some features will be disabled.")
+
+# Fish Speech S2 Pro imports
+try:
+    with suppress_specific_warnings():
+        from fish_speech_s2_handler import (
+            get_fish_s2_handler, generate_fish_s2_tts, init_fish_speech_s2,
+            unload_fish_speech_s2, get_s2_status, setup_s2_pro,
+            check_s2_repo_exists, check_s2_weights_exist,
+            FISH_S2_AVAILABLE as _FISH_S2_AVAILABLE
+        )
+    FISH_S2_AVAILABLE = True  # Handler is available even if model isn't loaded yet
+    print("✅ Fish Speech S2 Pro handler loaded")
+except ImportError:
+    FISH_S2_AVAILABLE = False
+    print("⚠️ Fish Speech S2 Pro not available. Some features will be disabled.")
 
 # Chatterbox Turbo imports
 try:
@@ -683,7 +698,7 @@ def create_default_speaker_settings(speakers):
         default_settings[speaker] = {
             # Common settings
             'ref_audio': '',  # Path to reference audio file
-            'tts_engine': 'chatterbox',  # Default engine: 'chatterbox', 'kokoro', or 'Fish Speech'
+            'tts_engine': 'chatterbox',  # Default engine: 'chatterbox', 'kokoro', or 'Fish Speech S1'
             
             # ChatterboxTTS settings
             'exaggeration': 0.5,
@@ -835,9 +850,9 @@ def generate_conversation_audio_simple(
                         effects_settings,
                         audio_format
                     )
-                elif selected_engine == 'Fish Speech':
-                    print(f"🐟 Using Fish Speech for {speaker}")
-                    # Simplified Fish Speech call
+                elif selected_engine == 'Fish Speech S1':
+                    print(f"🐟 Using Fish Speech S1 for {speaker}")
+                    # Simplified Fish Speech S1 call
                     result = generate_fish_speech_simple(
                         text,
                         ref_audio,
@@ -1001,6 +1016,31 @@ def generate_conversation_audio_simple(
                         200,     # max_chunk_chars
                         0.0,     # chunk_gap
                         speaker_seed,  # seed
+                        effects_settings,
+                        audio_format,
+                        skip_file_saving=True
+                    )
+                elif selected_engine == 'Fish Speech S2 Pro':
+                    print(f"🐟 Using Fish Speech S2 Pro for {speaker}")
+                    
+                    # Get pre-provided reference text for this speaker
+                    ref_text = speaker_ref_text_map.get(speaker)
+                    if ref_text:
+                        print(f"📝 Using pre-provided ref_text for {speaker}: {ref_text[:50]}...")
+                    
+                    # Use consistent seed for this speaker
+                    speaker_seed = speaker_seed_map.get(speaker, None)
+                    print(f"🎲 Using consistent seed {speaker_seed} for {speaker}")
+                    
+                    result = generate_fish_speech_s2_tts(
+                        text,
+                        ref_audio,
+                        ref_text or "",
+                        0.8,   # temperature
+                        0.8,   # top_p
+                        1.1,   # repetition_penalty
+                        1024,  # max_tokens
+                        speaker_seed,
                         effects_settings,
                         audio_format,
                         skip_file_saving=True
@@ -1826,15 +1866,15 @@ def generate_conversation_audio_indextts2(
         return None, f"❌ IndexTTS2 conversation error: {str(e)}"
 
 def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, audio_format="wav"):
-    """Simplified Fish Speech generation for conversation mode."""
+    """Simplified Fish Speech S1 generation for conversation mode."""
     if not FISH_SPEECH_AVAILABLE:
-        return None, "❌ Fish Speech not available"
+        return None, "❌ Fish Speech S1 not available"
     
     if not MODEL_STATUS['fish_speech']['loaded'] or FISH_SPEECH_ENGINE is None:
-        return None, "❌ Fish Speech not loaded"
+        return None, "❌ Fish Speech S1 not loaded"
     
     try:
-        print(f"🐟 Fish Speech generating: {text[:50]}...")
+        print(f"🐟 Fish Speech S1 generating: {text[:50]}...")
         
         # Prepare reference audio if provided
         references = []
@@ -1867,7 +1907,7 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
             normalize=True
         )
         
-        print("🐟 Calling Fish Speech inference...")
+        print("🐟 Calling Fish Speech S1 inference...")
         
         # Generate audio
         results = list(FISH_SPEECH_ENGINE.inference(request))
@@ -1879,11 +1919,11 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
                 final_result = result
                 break
             elif result.code == "error":
-                return None, f"❌ Fish Speech error: {str(result.error)}"
+                return None, f"❌ Fish Speech S1 error: {str(result.error)}"
         
         if final_result is None or final_result.error is not None:
             error_msg = str(final_result.error) if final_result else "No audio generated"
-            return None, f"❌ Fish Speech error: {error_msg}"
+            return None, f"❌ Fish Speech S1 error: {error_msg}"
         
         # Extract audio data
         sample_rate, audio_data = final_result.audio
@@ -1897,14 +1937,14 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
         if peak > 1.0:
             audio_data = audio_data / peak
         
-        print(f"✅ Fish Speech generated: {len(audio_data)} samples")
+        print(f"✅ Fish Speech S1 generated: {len(audio_data)} samples")
         
-        return (sample_rate, audio_data), "✅ Generated with Fish Speech"
+        return (sample_rate, audio_data), "✅ Generated with Fish Speech S1"
         
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return None, f"❌ Fish Speech error: {str(e)}"
+        return None, f"❌ Fish Speech S1 error: {str(e)}"
 
 def format_conversation_info(summary):
     """Format conversation summary for display."""
@@ -2099,6 +2139,7 @@ MODEL_STATUS = {
     'kokoro': {'loaded': False, 'loading': False},
     'vibevoice': {'loaded': False, 'loading': False},
     'fish_speech': {'loaded': False, 'loading': False},
+    'fish_speech_s2': {'loaded': False, 'loading': False},
     'indextts': {'loaded': False, 'loading': False},
     'indextts2': {'loaded': False, 'loading': False},
     'f5_tts': {'loaded': False, 'loading': False, 'models': {}},
@@ -2327,26 +2368,26 @@ def unload_kokoro():
         return error_msg
 
 def init_fish_speech():
-    """Initialize Fish Speech TTS engine."""
+    """Initialize Fish Speech S1 TTS engine."""
     global FISH_SPEECH_ENGINE, FISH_SPEECH_LLAMA_QUEUE, MODEL_STATUS
     if not FISH_SPEECH_AVAILABLE:
-        return False, "❌ Fish Speech not available - check installation"
+        return False, "❌ Fish Speech S1 not available - check installation"
     
     if MODEL_STATUS['fish_speech']['loaded']:
-        return True, "✅ Fish Speech already loaded"
+        return True, "✅ Fish Speech S1 already loaded"
     
     if MODEL_STATUS['fish_speech']['loading']:
-        return False, "⏳ Fish Speech is currently loading..."
+        return False, "⏳ Fish Speech S1 is currently loading..."
     
     try:
         MODEL_STATUS['fish_speech']['loading'] = True
-        print("🔄 Loading Fish Speech...")
+        print("🔄 Loading Fish Speech S1...")
         
         # Check for model checkpoints
         checkpoint_path = "checkpoints/openaudio-s1-mini"
         if not os.path.exists(checkpoint_path):
             MODEL_STATUS['fish_speech']['loading'] = False
-            error_msg = "❌ Fish Speech checkpoints not found. Please download them first:\nhf download cocktailpeanut/oa --local-dir ./checkpoints/openaudio-s1-mini"
+            error_msg = "❌ Fish Speech S1 checkpoints not found. Please download them first:\nhf download cocktailpeanut/oa --local-dir ./checkpoints/openaudio-s1-mini"
             print(error_msg)
             return False, error_msg
         
@@ -2377,17 +2418,17 @@ def init_fish_speech():
         
         MODEL_STATUS['fish_speech']['loaded'] = True
         MODEL_STATUS['fish_speech']['loading'] = False
-        print("✅ Fish Speech loaded successfully")
-        return True, "✅ Fish Speech loaded successfully"
+        print("✅ Fish Speech S1 loaded successfully")
+        return True, "✅ Fish Speech S1 loaded successfully"
         
     except Exception as e:
         MODEL_STATUS['fish_speech']['loading'] = False
-        error_msg = f"❌ Failed to load Fish Speech: {e}"
+        error_msg = f"❌ Failed to load Fish Speech S1: {e}"
         print(error_msg)
         return False, error_msg
 
 def unload_fish_speech():
-    """Unload Fish Speech TTS engine to free memory."""
+    """Unload Fish Speech S1 TTS engine to free memory."""
     global FISH_SPEECH_ENGINE, FISH_SPEECH_LLAMA_QUEUE, MODEL_STATUS
     try:
         if FISH_SPEECH_ENGINE is not None:
@@ -2405,12 +2446,53 @@ def unload_fish_speech():
             torch.cuda.empty_cache()
         
         MODEL_STATUS['fish_speech']['loaded'] = False
-        print("✅ Fish Speech unloaded successfully")
-        return "✅ Fish Speech unloaded - memory freed"
+        print("✅ Fish Speech S1 unloaded successfully")
+        return "✅ Fish Speech S1 unloaded - memory freed"
     except Exception as e:
-        error_msg = f"❌ Error unloading Fish Speech: {e}"
+        error_msg = f"❌ Error unloading Fish Speech S1: {e}"
         print(error_msg)
         return error_msg
+
+# ===== FISH SPEECH S2 PRO MODEL MANAGEMENT =====
+def init_fish_speech_s2_model():
+    """Initialize Fish Speech S2 Pro model."""
+    global MODEL_STATUS
+    if not FISH_S2_AVAILABLE:
+        return False, "❌ Fish Speech S2 Pro handler not available"
+    
+    if MODEL_STATUS['fish_speech_s2']['loaded']:
+        return True, "✅ Fish Speech S2 Pro already loaded"
+    
+    if MODEL_STATUS['fish_speech_s2']['loading']:
+        return False, "⏳ Fish Speech S2 Pro is currently loading..."
+    
+    try:
+        MODEL_STATUS['fish_speech_s2']['loading'] = True
+        success, message = init_fish_speech_s2()
+        if success:
+            MODEL_STATUS['fish_speech_s2']['loaded'] = True
+        MODEL_STATUS['fish_speech_s2']['loading'] = False
+        return success, message
+    except Exception as e:
+        MODEL_STATUS['fish_speech_s2']['loading'] = False
+        return False, f"❌ Failed to load S2 Pro: {e}"
+
+def unload_fish_speech_s2_model():
+    """Unload Fish Speech S2 Pro model."""
+    global MODEL_STATUS
+    try:
+        message = unload_fish_speech_s2()
+        MODEL_STATUS['fish_speech_s2']['loaded'] = False
+        return message
+    except Exception as e:
+        return f"❌ Error unloading S2 Pro: {e}"
+
+def setup_fish_speech_s2():
+    """Setup Fish Speech S2 Pro (clone repo + download weights)."""
+    if not FISH_S2_AVAILABLE:
+        return "❌ Fish Speech S2 Pro handler not available"
+    success, message = setup_s2_pro()
+    return message
 
 def init_indextts():
     """Initialize IndexTTS model."""
@@ -2644,16 +2726,27 @@ def get_model_status():
     else:
         status_text += "🗣️ **Kokoro TTS:** ❌ Not available\n"
     
-    # Fish Speech status
+    # Fish Speech S1 status
     if FISH_SPEECH_AVAILABLE:
         if MODEL_STATUS['fish_speech']['loading']:
-            status_text += "🐟 **Fish Speech:** ⏳ Loading...\n"
+            status_text += "🐟 **Fish Speech S1:** ⏳ Loading...\n"
         elif MODEL_STATUS['fish_speech']['loaded']:
-            status_text += "🐟 **Fish Speech:** ✅ Loaded\n"
+            status_text += "🐟 **Fish Speech S1:** ✅ Loaded\n"
         else:
-            status_text += "🐟 **Fish Speech:** ⭕ Not loaded\n"
+            status_text += "🐟 **Fish Speech S1:** ⭕ Not loaded\n"
     else:
-        status_text += "🐟 **Fish Speech:** ❌ Not available\n"
+        status_text += "🐟 **Fish Speech S1:** ❌ Not available\n"
+    
+    # Fish Speech S2 Pro status
+    if FISH_S2_AVAILABLE:
+        if MODEL_STATUS['fish_speech_s2']['loading']:
+            status_text += "🐟 **Fish Speech S2 Pro:** ⏳ Loading...\n"
+        elif MODEL_STATUS['fish_speech_s2']['loaded']:
+            status_text += "🐟 **Fish Speech S2 Pro:** ✅ Loaded\n"
+        else:
+            status_text += "🐟 **Fish Speech S2 Pro:** ⭕ Not loaded\n"
+    else:
+        status_text += "🐟 **Fish Speech S2 Pro:** ❌ Not available\n"
     
     # IndexTTS status
     if INDEXTTS_AVAILABLE:
@@ -3389,12 +3482,12 @@ def generate_fish_speech_tts(
     audio_format: str = "wav",
     skip_file_saving: bool = False
 ):
-    """Generate TTS audio using Fish Speech - Proper implementation with chunking support."""
+    """Generate TTS audio using Fish Speech S1 - Proper implementation with chunking support."""
     if not FISH_SPEECH_AVAILABLE:
-        return None, "❌ Fish Speech not available - check installation"
+        return None, "❌ Fish Speech S1 not available - check installation"
     
     if not MODEL_STATUS['fish_speech']['loaded'] or FISH_SPEECH_ENGINE is None:
-        return None, "❌ Fish Speech not loaded - please load the model first"
+        return None, "❌ Fish Speech S1 not loaded - please load the model first"
     
     try:
         from fish_speech.text.spliter import split_text
@@ -3463,11 +3556,11 @@ def generate_fish_speech_tts(
                     chunk_final_result = result
                     break
                 elif result.code == "error":
-                    return None, f"❌ Fish Speech error in chunk {i+1}: {str(result.error)}"
+                    return None, f"❌ Fish Speech S1 error in chunk {i+1}: {str(result.error)}"
             
             if chunk_final_result is None or chunk_final_result.error is not None:
                 error_msg = str(chunk_final_result.error) if chunk_final_result else f"No audio generated for chunk {i+1}"
-                return None, f"❌ Fish Speech error: {error_msg}"
+                return None, f"❌ Fish Speech S1 error: {error_msg}"
             
             # Extract audio data for this chunk
             sample_rate, chunk_audio_data = chunk_final_result.audio
@@ -3547,7 +3640,7 @@ def generate_fish_speech_tts(
         
         # Save audio file in specified format (skip if requested, e.g., for audiobook chunks)
         if skip_file_saving:
-            status_message = f"✅ Generated with Fish Speech ({len(text_chunks)} chunks processed)"
+            status_message = f"✅ Generated with Fish Speech S1 ({len(text_chunks)} chunks processed)"
         else:
             try:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -3555,17 +3648,52 @@ def generate_fish_speech_tts(
                 filepath, filename = save_audio_with_format(
                     final_audio, sample_rate, audio_format, output_folder, filename_base
                 )
-                status_message = f"✅ Generated with Fish Speech ({len(text_chunks)} chunks processed) - Saved as: {filename}"
+                status_message = f"✅ Generated with Fish Speech S1 ({len(text_chunks)} chunks processed) - Saved as: {filename}"
             except Exception as e:
                 print(f"Warning: Could not save audio file: {e}")
-                status_message = f"✅ Generated with Fish Speech ({len(text_chunks)} chunks processed) (file saving failed)"
+                status_message = f"✅ Generated with Fish Speech S1 ({len(text_chunks)} chunks processed) (file saving failed)"
         
         return (sample_rate, final_audio), status_message
         
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return None, f"❌ Fish Speech error: {str(e)}"
+        return None, f"❌ Fish Speech S1 error: {str(e)}"
+
+# ===== FISH SPEECH S2 PRO TTS FUNCTION =====
+def generate_fish_speech_s2_tts(
+    text_input: str,
+    fish_s2_ref_audio: str = None,
+    fish_s2_ref_text: str = None,
+    fish_s2_temperature: float = 0.8,
+    fish_s2_top_p: float = 0.8,
+    fish_s2_repetition_penalty: float = 1.1,
+    fish_s2_max_tokens: int = 1024,
+    fish_s2_seed: int = None,
+    effects_settings=None,
+    audio_format: str = "wav",
+    skip_file_saving: bool = False
+):
+    """Generate TTS audio using Fish Speech S2 Pro."""
+    if not FISH_S2_AVAILABLE:
+        return None, "❌ Fish Speech S2 Pro not available"
+    
+    if not MODEL_STATUS['fish_speech_s2']['loaded']:
+        return None, "❌ Fish Speech S2 Pro not loaded - please load the model first"
+    
+    return generate_fish_s2_tts(
+        text_input=text_input,
+        ref_audio=fish_s2_ref_audio,
+        ref_text=fish_s2_ref_text,
+        temperature=fish_s2_temperature,
+        top_p=fish_s2_top_p,
+        repetition_penalty=fish_s2_repetition_penalty,
+        max_tokens=fish_s2_max_tokens,
+        seed=fish_s2_seed,
+        effects_settings=effects_settings,
+        audio_format=audio_format,
+        skip_file_saving=skip_file_saving
+    )
 
 # ===== KOKORO TTS FUNCTIONS =====
 def get_custom_voices():
@@ -4304,6 +4432,14 @@ def convert_ebook_to_audiobook(
     fish_repetition_penalty: float = 1.1,
     fish_max_tokens: int = 1024,
     fish_seed: int = None,
+    # Fish Speech S2 Pro parameters
+    fish_s2_ref_audio: str = None,
+    fish_s2_ref_text: str = None,
+    fish_s2_temperature: float = 0.8,
+    fish_s2_top_p: float = 0.8,
+    fish_s2_repetition_penalty: float = 1.1,
+    fish_s2_max_tokens: int = 1024,
+    fish_s2_seed: int = None,
     # IndexTTS parameters
     indextts_ref_audio: str = None,
     indextts_temperature: float = 0.8,
@@ -4428,7 +4564,7 @@ def convert_ebook_to_audiobook(
         
         # For Fish Speech without reference audio: generate a consistent seed for the entire audiobook
         audiobook_fish_seed = fish_seed
-        if tts_engine == "Fish Speech" and audiobook_fish_seed is None and not fish_ref_audio:
+        if tts_engine == "Fish Speech S1" and audiobook_fish_seed is None and not fish_ref_audio:
             import time
             audiobook_fish_seed = int(time.time()) % 1000000
             print(f"🐟 Using consistent seed {audiobook_fish_seed} for entire audiobook voice consistency")
@@ -4482,13 +4618,20 @@ def convert_ebook_to_audiobook(
                 audio_result, status = generate_kokoro_tts(
                     chunk['content'], kokoro_voice, kokoro_speed, effects_settings, "wav", skip_file_saving=True  # Skip saving individual chunks
                 )
-            elif tts_engine == "Fish Speech":
-                # Use consistent seed and potentially updated reference for Fish Speech
+            elif tts_engine == "Fish Speech S1":
+                # Use consistent seed and potentially updated reference for Fish Speech S1
                 audio_result, status = generate_fish_speech_tts(
                     chunk['content'], fish_chunk_reference_audio, fish_chunk_reference_text, 
                     fish_temperature, fish_top_p,
                     fish_repetition_penalty, fish_max_tokens, audiobook_fish_seed, 
                     effects_settings, "wav", skip_file_saving=True  # Skip saving individual chunks
+                )
+            elif tts_engine == "Fish Speech S2 Pro":
+                audio_result, status = generate_fish_speech_s2_tts(
+                    chunk['content'], fish_s2_ref_audio, fish_s2_ref_text,
+                    fish_s2_temperature, fish_s2_top_p,
+                    fish_s2_repetition_penalty, fish_s2_max_tokens, fish_s2_seed,
+                    effects_settings, "wav", skip_file_saving=True
                 )
             elif tts_engine == "IndexTTS":
                 audio_result, status = generate_indextts_tts(
@@ -4540,7 +4683,7 @@ def convert_ebook_to_audiobook(
             audio_segments.append((sample_rate, audio_data, chunk['title']))
             
             # For Fish Speech: Use first chunk as reference for subsequent chunks if no reference provided
-            if (tts_engine == "Fish Speech" and i == 0 and not fish_ref_audio and 
+            if (tts_engine == "Fish Speech S1" and i == 0 and not fish_ref_audio and 
                 total_chunks > 1 and len(audio_data) > 0):
                 try:
                     import tempfile
@@ -4580,7 +4723,7 @@ def convert_ebook_to_audiobook(
             return None, "❌ No audio generated"
         
         # Clean up temporary reference file if it was created
-        if (tts_engine == "Fish Speech" and fish_chunk_reference_audio != fish_ref_audio and 
+        if (tts_engine == "Fish Speech S1" and fish_chunk_reference_audio != fish_ref_audio and 
             fish_chunk_reference_audio and os.path.exists(fish_chunk_reference_audio)):
             try:
                 os.unlink(fish_chunk_reference_audio)
@@ -4934,6 +5077,14 @@ def generate_unified_tts(
     fish_repetition_penalty: float = 1.1,
     fish_max_tokens: int = 1024,
     fish_seed: int = None,
+    # Fish Speech S2 Pro parameters
+    fish_s2_ref_audio: str = None,
+    fish_s2_ref_text: str = None,
+    fish_s2_temperature: float = 0.8,
+    fish_s2_top_p: float = 0.8,
+    fish_s2_repetition_penalty: float = 1.1,
+    fish_s2_max_tokens: int = 1024,
+    fish_s2_seed: int = None,
     # IndexTTS parameters
     indextts_ref_audio: str = None,
     indextts_temperature: float = 0.8,
@@ -5069,10 +5220,15 @@ def generate_unified_tts(
         return generate_kokoro_tts(
             text_input, kokoro_voice, kokoro_speed, effects_settings, audio_format
         )
-    elif tts_engine == "Fish Speech":
+    elif tts_engine == "Fish Speech S1":
         return generate_fish_speech_tts(
             text_input, fish_ref_audio, fish_ref_text, fish_temperature, fish_top_p,
             fish_repetition_penalty, fish_max_tokens, fish_seed, effects_settings, audio_format
+        )
+    elif tts_engine == "Fish Speech S2 Pro":
+        return generate_fish_speech_s2_tts(
+            text_input, fish_s2_ref_audio, fish_s2_ref_text, fish_s2_temperature, fish_s2_top_p,
+            fish_s2_repetition_penalty, fish_s2_max_tokens, fish_s2_seed, effects_settings, audio_format
         )
     elif tts_engine == "IndexTTS":
         return generate_indextts_tts(
@@ -6173,7 +6329,7 @@ def create_gradio_interface():
             ✨ ULTIMATE TTS STUDIO PRO ✨
             </div>
             <div class="subtitle">
-            🎭 ChatterboxTTS + Kokoro TTS + Fish Speech + IndexTTS + F5-TTS + VoxCPM | SUP3R EDITION 🚀<br/>
+            🎭 ChatterboxTTS + Kokoro TTS + Fish Speech S1 + IndexTTS + F5-TTS + VoxCPM | SUP3R EDITION 🚀<br/>
             <strong>Advanced Text-to-Speech with Multiple Engines, Voice Presets, Audio Effects & Export Options</strong>
             </div>
         </div>
@@ -6467,7 +6623,7 @@ def create_gradio_interface():
                 # Fish Speech Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🐟 **Fish Speech**", elem_classes=["fade-in"])
+                        gr.Markdown("🐟 **Fish Speech S1**", elem_classes=["fade-in"])
                         fish_status = gr.Markdown(
                             value="⭕ Not loaded" if FISH_SPEECH_AVAILABLE else "❌ Not available",
                             elem_classes=["fade-in"]
@@ -6486,6 +6642,40 @@ def create_gradio_interface():
                             variant="secondary",
                             size="sm",
                             visible=FISH_SPEECH_AVAILABLE,
+                            elem_classes=["fade-in"],
+                            scale=1
+                        )
+                
+                # Fish Speech S2 Pro Management - Compact
+                with gr.Column():
+                    with gr.Row():
+                        gr.Markdown("🐟 **Fish Speech S2 Pro**", elem_classes=["fade-in"])
+                        fish_s2_status = gr.Markdown(
+                            value="⭕ Not loaded" if FISH_S2_AVAILABLE else "❌ Not available",
+                            elem_classes=["fade-in"]
+                        )
+                    with gr.Row():
+                        setup_fish_s2_btn = gr.Button(
+                            "📥 Setup",
+                            variant="secondary",
+                            size="sm",
+                            visible=FISH_S2_AVAILABLE,
+                            elem_classes=["fade-in"],
+                            scale=1
+                        )
+                        load_fish_s2_btn = gr.Button(
+                            "🔄 Load",
+                            variant="primary",
+                            size="sm",
+                            visible=FISH_S2_AVAILABLE,
+                            elem_classes=["fade-in"],
+                            scale=1
+                        )
+                        unload_fish_s2_btn = gr.Button(
+                            "🗑️ Unload",
+                            variant="secondary",
+                            size="sm",
+                            visible=FISH_S2_AVAILABLE,
                             elem_classes=["fade-in"],
                             scale=1
                         )
@@ -6652,7 +6842,7 @@ def create_gradio_interface():
                     with gr.TabItem("📝 TEXT TO SYNTHESIZE", id="single_voice"):
                         # Text input with enhanced styling
                         text = gr.Textbox(
-                            value="Hello! This is a demonstration of the ultimate TTS studio. You can choose between Chatterbox TTS. Fish Speech, VoxCPM, Index TTS and Index TTS 2, Higgs audio TTS and F5 TTS for custom voice cloning or Kitten TTS and Kokoro TTS for high-quality pre-trained voices and VibeVoice for podcast.",
+                            value="Hello! This is a demonstration of the ultimate TTS studio. You can choose between Chatterbox TTS. Fish Speech S1, VoxCPM, Index TTS and Index TTS 2, Higgs audio TTS and F5 TTS for custom voice cloning or Kitten TTS and Kokoro TTS for high-quality pre-trained voices and VibeVoice for podcast.",
                             label="📝 Text to synthesize",
                             lines=5,
                             placeholder="Enter your text here...",
@@ -6737,7 +6927,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         # Voice Samples Section for Conversation Mode
                         with gr.Group():
                             gr.Markdown("### 🎤 Voice Samples for Speakers")
-                            gr.Markdown("*Upload voice samples for each speaker (required for ChatterboxTTS, Fish Speech, IndexTTS, F5-TTS and VoxCPM only - not needed for KittenTTS or Kokoro TTS)*")
+                            gr.Markdown("*Upload voice samples for each speaker (required for ChatterboxTTS, Fish Speech S1, IndexTTS, F5-TTS and VoxCPM only - not needed for KittenTTS or Kokoro TTS)*")
                             
                             # Dynamic voice sample uploads (up to 5 speakers) and Kokoro voice selection
                             with gr.Row():
@@ -7174,7 +7364,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     <strong>💡 Voice Sample Tips:</strong><br/>
                                     • Upload clear audio samples (3-10 seconds work best)<br/>
                                     • <strong>ChatterboxTTS:</strong> Voice samples required for voice cloning ✅<br/>
-                                    • <strong>Fish Speech:</strong> Voice samples help with voice matching ✅<br/>
+                                    • <strong>Fish Speech S1:</strong> Voice samples help with voice matching ✅<br/>
                                     • <strong>IndexTTS:</strong> Voice samples required for voice cloning ✅<br/>
                                     • <strong>IndexTTS2:</strong> Voice samples + emotion controls for advanced expression ✅<br/>
                                     • <strong>VoxCPM:</strong> Voice samples required for voice cloning (auto-transcribed with Whisper) ✅<br/>
@@ -7250,7 +7440,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             ("🌍 Chatterbox Multilingual", "Chatterbox Multilingual"),
                                             ("🚀 Chatterbox Turbo", "Chatterbox Turbo"),
                                             ("🗣️ Kokoro TTS", "Kokoro TTS"),
-                                            ("🐟 Fish Speech", "Fish Speech"),
+                                            ("🐟 Fish Speech S1", "Fish Speech S1"),
+                                            ("🐟 Fish Speech S2 Pro", "Fish Speech S2 Pro"),
                                             ("🎯 IndexTTS", "IndexTTS"),
                                             ("🎯 IndexTTS2", "IndexTTS2"),
                                             ("🎵 F5-TTS", "F5-TTS"),
@@ -7258,7 +7449,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             ("🐱 KittenTTS", "KittenTTS"),
                                             ("🎙️ Qwen Voice Clone", "Qwen Voice Clone")
                                         ],
-                                        value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "KittenTTS" if KITTEN_TTS_AVAILABLE else "Qwen Voice Clone",
+                                        value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech S1" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "KittenTTS" if KITTEN_TTS_AVAILABLE else "Qwen Voice Clone",
                                         label="🎯 TTS Engine for Audiobook",
                                         elem_classes=["fade-in"]
                                     )
@@ -7322,7 +7513,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     <strong>⚡ Performance:</strong> Large books may take several minutes to convert depending on length and TTS engine.<br/>
                                     <strong>📁 Large Files:</strong> Audiobooks >50MB or >30min will be saved to the audiobooks folder with a download link (browser can't play very large files).<br/>
                                     <strong>🎧 Playback:</strong> Use VLC, Windows Media Player, or any audio player for large audiobooks.<br/>
-                                    <strong>🐟 Fish Speech:</strong> Maintains consistent voice throughout the entire audiobook using smart seed management and reference cloning.
+                                    <strong>🐟 Fish Speech S1:</strong> Maintains consistent voice throughout the entire audiobook using smart seed management and reference cloning.
                                 </p>
                             </div>
                             """)
@@ -7614,7 +7805,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         ("🌍 Chatterbox Multilingual - 23 Languages", "Chatterbox Multilingual"),
                         ("🚀 Chatterbox Turbo - Fast Voice Cloning", "Chatterbox Turbo"),
                         ("🗣️ Kokoro TTS - Pre-trained Voices", "Kokoro TTS"),
-                        ("🐟 Fish Speech - Natural TTS", "Fish Speech"),
+                        ("🐟 Fish Speech S1 - Natural TTS", "Fish Speech S1"),
+                        ("🐟 Fish Speech S2 Pro - 4B Flagship TTS", "Fish Speech S2 Pro"),
                         ("🎯 IndexTTS - Industrial Quality", "IndexTTS"),
                         ("🎯 IndexTTS2 - Advanced Emotion Control", "IndexTTS2"),
                         ("🎵 F5-TTS - Flow Matching TTS", "F5-TTS"),
@@ -7625,7 +7817,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         ("🎭 Qwen Voice Clone - Clone Voices", "Qwen Voice Clone"),
                         ("🗣️ Qwen Custom Voice - Predefined Speakers", "Qwen Custom Voice")
                     ],
-                    value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "VoxCPM" if VOXCPM_AVAILABLE else "KittenTTS" if KITTEN_TTS_AVAILABLE else "Qwen Voice Clone",
+                    value="ChatterboxTTS" if CHATTERBOX_AVAILABLE else "Chatterbox Turbo" if CHATTERBOX_TURBO_AVAILABLE else "Kokoro TTS" if KOKORO_AVAILABLE else "Fish Speech S1" if FISH_SPEECH_AVAILABLE else "IndexTTS" if INDEXTTS_AVAILABLE else "F5-TTS" if F5_TTS_AVAILABLE else "Higgs Audio" if HIGGS_AUDIO_AVAILABLE else "VoxCPM" if VOXCPM_AVAILABLE else "KittenTTS" if KITTEN_TTS_AVAILABLE else "Qwen Voice Clone",
                     label="🎯 Select TTS Engine",
                     info="Choose your preferred text-to-speech engine (auto-selects when you load a model)",
                     elem_classes=["fade-in"]
@@ -8080,10 +8272,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         custom_voice_list = gr.Dataframe(visible=False, value=[])
             
             # Fish Speech Tab
-            with gr.TabItem("🐟 Fish Speech", id="fish_tab"):
+            with gr.TabItem("🐟 Fish Speech S1", id="fish_tab"):
                 if FISH_SPEECH_AVAILABLE:
                     with gr.Group() as fish_speech_controls:
-                        gr.Markdown("**🐟 Fish Speech - Natural text-to-speech synthesis**")
+                        gr.Markdown("**🐟 Fish Speech S1 - Natural text-to-speech synthesis**")
                         gr.Markdown("*💡 Try the sample file: `sample/Sample.wav`*", elem_classes=["fade-in"])
                         
                         with gr.Row():
@@ -8103,8 +8295,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     elem_classes=["fade-in"]
                                 )
                         
-                        with gr.Accordion("🔧 Advanced Fish Speech Settings", open=False, elem_classes=["fade-in"]):
-                            gr.Markdown("<p style='opacity: 0.7; margin-bottom: 15px;'>🔧 Fine-tune Fish Speech generation parameters</p>")
+                        with gr.Accordion("🔧 Advanced Fish Speech S1 Settings", open=False, elem_classes=["fade-in"]):
+                            gr.Markdown("<p style='opacity: 0.7; margin-bottom: 15px;'>🔧 Fine-tune Fish Speech S1 generation parameters</p>")
                             with gr.Row():
                                 fish_temperature = gr.Slider(
                                     0.1, 1.0, step=0.05,
@@ -8139,15 +8331,15 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             
                             gr.Markdown("### 📝 Text Processing & Voice Consistency")
                             gr.Markdown("""<p style='opacity: 0.7; margin-bottom: 10px;'>
-                            • Fish Speech automatically splits long texts into chunks for better quality<br/>
+                            • Fish Speech S1 automatically splits long texts into chunks for better quality<br/>
                             • Without reference audio: Uses consistent seed across chunks to maintain voice<br/>
                             • With reference audio: Voice cloning ensures consistency<br/>
                             • Tip: Set a specific seed value for reproducible results
                             </p>""")
                 else:
-                    # Placeholder when Fish Speech is not available
+                    # Placeholder when Fish Speech S1 is not available
                     with gr.Group():
-                        gr.Markdown("<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🐟 Fish Speech** - ⚠️ Not available - please check installation</div>")
+                        gr.Markdown("<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🐟 Fish Speech S1** - ⚠️ Not available - please check installation</div>")
                     # Create dummy components
                     fish_ref_audio = gr.Audio(visible=False, value=None)
                     fish_ref_text = gr.Textbox(visible=False, value="")
@@ -8156,6 +8348,86 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     fish_repetition_penalty = gr.Slider(visible=False, value=1.1)
                     fish_max_tokens = gr.Slider(visible=False, value=1024)
                     fish_seed = gr.Number(visible=False, value=None)
+            
+            # Fish Speech S2 Pro Tab
+            with gr.TabItem("🐟 S2 Pro", id="fish_s2_tab"):
+                if FISH_S2_AVAILABLE:
+                    with gr.Group() as fish_s2_controls:
+                        gr.Markdown("**🐟 Fish Speech S2 Pro - 4B parameter flagship TTS with inline emotion control**")
+                        gr.Markdown("""*💡 S2 Pro supports inline [tag] control: e.g. `[excited] Wow! [laughing] Ha ha!`  
+                        Common tags: [pause], [emphasis], [laughing], [whisper], [excited], [angry], [sad], [singing], [shouting], and 15,000+ more.*""", elem_classes=["fade-in"])
+                        
+                        with gr.Row():
+                            with gr.Column(scale=2):
+                                fish_s2_ref_audio = gr.Audio(
+                                    sources=["upload", "microphone"],
+                                    type="filepath",
+                                    label="🎤 Reference Audio (Optional - for voice cloning)",
+                                    value=None,
+                                    elem_classes=["fade-in"]
+                                )
+                            
+                            with gr.Column(scale=1):
+                                fish_s2_ref_text = gr.Textbox(
+                                    label="🗣️ Reference Text (Optional)",
+                                    placeholder="Transcription of reference audio...",
+                                    elem_classes=["fade-in"]
+                                )
+                        
+                        with gr.Accordion("🔧 Advanced S2 Pro Settings", open=False, elem_classes=["fade-in"]):
+                            gr.Markdown("<p style='opacity: 0.7; margin-bottom: 15px;'>🔧 Fine-tune S2 Pro generation parameters</p>")
+                            with gr.Row():
+                                fish_s2_temperature = gr.Slider(
+                                    0.1, 1.0, step=0.05,
+                                    label="🌡️ Temperature",
+                                    value=0.8,
+                                    info="Higher = more creative (0.1-1.0)"
+                                )
+                                fish_s2_top_p = gr.Slider(
+                                    0.1, 1.0, step=0.05,
+                                    label="🎭 Top P",
+                                    value=0.8,
+                                    info="Controls diversity (0.1-1.0)"
+                                )
+                                fish_s2_repetition_penalty = gr.Slider(
+                                    0.9, 2.0, step=0.05,
+                                    label="🔄 Repetition Penalty",
+                                    value=1.1,
+                                    info="Reduces repetition (0.9-2.0)"
+                                )
+                            with gr.Row():
+                                fish_s2_max_tokens = gr.Slider(
+                                    100, 16384, step=1,
+                                    label="🔢 Max Tokens",
+                                    value=2048,
+                                    info="Maximum tokens per generation (higher = longer audio, up to 16384)"
+                                )
+                                fish_s2_seed = gr.Number(
+                                    value=None,
+                                    label="🎲 Seed (None=random)",
+                                    info="For reproducible results"
+                                )
+                            
+                            gr.Markdown("### 🎭 Inline Emotion Control")
+                            gr.Markdown("""<p style='opacity: 0.7; margin-bottom: 10px;'>
+                            S2 Pro accepts free-form [tag] instructions inline with text:<br/>
+                            • <code>[whisper] secret message</code> - Whispered speech<br/>
+                            • <code>[excited] Amazing news!</code> - Excited tone<br/>
+                            • <code>[laughing] Ha ha ha</code> - Laughing<br/>
+                            • <code>[professional broadcast tone] Today's headlines</code> - Broadcast style<br/>
+                            • <code>[pitch up] Higher voice</code> - Pitch control<br/>
+                            • Supports 15,000+ unique tags for open-ended expression control
+                            </p>""")
+                else:
+                    with gr.Group():
+                        gr.Markdown("<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🐟 Fish Speech S2 Pro** - ⚠️ Not available - please check installation</div>")
+                    fish_s2_ref_audio = gr.Audio(visible=False, value=None)
+                    fish_s2_ref_text = gr.Textbox(visible=False, value="")
+                    fish_s2_temperature = gr.Slider(visible=False, value=0.8)
+                    fish_s2_top_p = gr.Slider(visible=False, value=0.8)
+                    fish_s2_repetition_penalty = gr.Slider(visible=False, value=1.1)
+                    fish_s2_max_tokens = gr.Slider(visible=False, value=1024)
+                    fish_s2_seed = gr.Number(visible=False, value=None)
             
             # IndexTTS Tab
             with gr.TabItem("🎯 IndexTTS", id="indextts_tab"):
@@ -8971,9 +9243,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
             success, message = init_fish_speech()
             if success:
                 fish_status_text = "✅ Loaded (Auto-selected)"
-                # Auto-select Fish Speech engine when loaded
-                selected_engine = "Fish Speech"
-                # Auto-switch to Fish Speech tab
+                # Auto-select Fish Speech S1 engine when loaded
+                selected_engine = "Fish Speech S1"
+                # Auto-switch to Fish Speech S1 tab
                 selected_tab = gr.update(selected="fish_tab")
             else:
                 fish_status_text = "❌ Failed to load"
@@ -8989,6 +9261,31 @@ Alice: I went to Japan. It was absolutely incredible!""",
             fish_status_text = "⭕ Not loaded"
             # Don't change engine selection when unloading
             return fish_status_text
+
+        def handle_setup_fish_s2():
+            message = setup_fish_speech_s2()
+            return message
+
+        def handle_load_fish_s2():
+            success, message = init_fish_speech_s2_model()
+            if success:
+                fish_s2_status_text = "✅ Loaded (Auto-selected)"
+                selected_engine = "Fish Speech S2 Pro"
+                selected_tab = gr.update(selected="fish_s2_tab")
+            else:
+                fish_s2_status_text = "❌ Failed to load"
+                selected_engine = gr.update()
+                selected_tab = gr.update()
+            
+            if EBOOK_CONVERTER_AVAILABLE:
+                return fish_s2_status_text, selected_engine, selected_engine, selected_tab
+            else:
+                return fish_s2_status_text, selected_engine, selected_tab
+
+        def handle_unload_fish_s2():
+            message = unload_fish_speech_s2_model()
+            fish_s2_status_text = "⭕ Not loaded"
+            return fish_s2_status_text
 
         def handle_load_indextts():
             success, message = init_indextts()
@@ -9381,6 +9678,21 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 outputs=[fish_status]
             )
 
+        # Fish Speech S2 Pro management
+        if FISH_S2_AVAILABLE:
+            setup_fish_s2_btn.click(
+                fn=handle_setup_fish_s2,
+                outputs=[fish_s2_status]
+            )
+            load_fish_s2_btn.click(
+                fn=handle_load_fish_s2,
+                outputs=[fish_s2_status, tts_engine, ebook_tts_engine, engine_tabs] if EBOOK_CONVERTER_AVAILABLE else [fish_s2_status, tts_engine, engine_tabs]
+            )
+            unload_fish_s2_btn.click(
+                fn=handle_unload_fish_s2,
+                outputs=[fish_s2_status]
+            )
+
         # IndexTTS management
         if INDEXTTS_AVAILABLE:
             load_indextts_btn.click(
@@ -9670,6 +9982,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 chatterbox_turbo_top_p, chatterbox_turbo_chunk_size, chatterbox_turbo_seed,
                 kokoro_voice, kokoro_speed,
                 fish_ref_audio, fish_ref_text, fish_temperature, fish_top_p, fish_repetition_penalty, fish_max_tokens, fish_seed,
+                fish_s2_ref_audio, fish_s2_ref_text, fish_s2_temperature, fish_s2_top_p, fish_s2_repetition_penalty, fish_s2_max_tokens, fish_s2_seed,
                 indextts_ref_audio, indextts_temperature, indextts_seed,
                 indextts2_ref_audio, indextts2_emotion_mode, indextts2_emotion_audio, indextts2_emotion_description,
                 indextts2_emo_alpha, indextts2_happy, indextts2_angry, indextts2_sad, indextts2_afraid,
@@ -10114,7 +10427,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             tab_mapping = {
                 "ChatterboxTTS": "chatterbox_tab",
                 "Kokoro TTS": "kokoro_tab",
-                "Fish Speech": "fish_tab",
+                "Fish Speech S1": "fish_tab",
+                "Fish Speech S2 Pro": "fish_s2_tab",
                 "IndexTTS": "indextts_tab",
                 "F5-TTS": "f5_tab",
                 "Higgs Audio": "higgs_tab",
@@ -10197,6 +10511,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 cb_turbo_rep_pen, cb_turbo_min_p, cb_turbo_top_p, cb_turbo_seed,
                 kok_voice, kok_speed,
                 fish_ref_audio, fish_ref_text, fish_temp, fish_top_p, fish_rep_pen, fish_max_tok, fish_seed_val,
+                # Fish Speech S2 Pro parameters
+                fish_s2_ref_audio_val, fish_s2_ref_text_val, fish_s2_temp_val, fish_s2_top_p_val,
+                fish_s2_rep_pen_val, fish_s2_max_tok_val, fish_s2_seed_val,
                 # IndexTTS parameters
                 idx_ref_audio, idx_temp, idx_seed,
                 # IndexTTS2 parameters
@@ -10243,6 +10560,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     cb_turbo_rep_pen, cb_turbo_min_p, cb_turbo_top_p, cb_turbo_seed,
                     kok_voice, kok_speed,
                     fish_ref_audio, fish_ref_text, fish_temp, fish_top_p, fish_rep_pen, fish_max_tok, fish_seed_val,
+                    # Fish Speech S2 Pro parameters
+                    fish_s2_ref_audio_val, fish_s2_ref_text_val, fish_s2_temp_val, fish_s2_top_p_val,
+                    fish_s2_rep_pen_val, fish_s2_max_tok_val, fish_s2_seed_val,
                     # IndexTTS parameters
                     idx_ref_audio, idx_temp, idx_seed,
                     # IndexTTS2 parameters
@@ -10324,6 +10644,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     # Fish Speech parameters
                     fish_ref_audio, fish_ref_text, fish_temperature, fish_top_p, 
                     fish_repetition_penalty, fish_max_tokens, fish_seed,
+                    # Fish Speech S2 Pro parameters
+                    fish_s2_ref_audio, fish_s2_ref_text, fish_s2_temperature, fish_s2_top_p,
+                    fish_s2_repetition_penalty, fish_s2_max_tokens, fish_s2_seed,
                     # IndexTTS parameters
                     indextts_ref_audio, indextts_temperature, indextts_seed,
                     # IndexTTS2 parameters
