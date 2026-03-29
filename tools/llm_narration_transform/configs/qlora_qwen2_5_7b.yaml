@@ -1,0 +1,85 @@
+# QLoRA template for narration-transform fine-tuning
+# Hardware target: single RTX 4090 (24GB)
+
+model:
+  base_model: Qwen/Qwen2.5-7B-Instruct
+  trust_remote_code: true
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_compute_dtype: bfloat16
+
+data:
+  train_file: app/tools/llm_narration_transform/data/train.jsonl
+  valid_file: app/tools/llm_narration_transform/data/valid.jsonl
+  format: chat
+  fields:
+    source: source_text
+    target: target_text
+    mode: mode
+    locale: locale
+    style: style
+    constraints: constraints
+
+prompting:
+  system_prompt: |
+    You are a TTS narration text transformer for Eleven v3.
+    Rules: no SSML, no commentary, preserve meaning, output text only.
+  user_template: |
+    MODE={mode}
+    LOCALE={locale}
+    STYLE={style}
+    CONSTRAINTS={constraints}
+    TEXT:
+    {source_text}
+
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - up_proj
+    - down_proj
+    - gate_proj
+
+training:
+  output_dir: app/tools/llm_narration_transform/runs/qwen2_5_7b_narration_lora
+  seed: 42
+  num_train_epochs: 4
+  learning_rate: 1.5e-4
+  warmup_ratio: 0.04
+  lr_scheduler_type: cosine
+  weight_decay: 0.0
+
+  max_seq_length: 2048
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 12
+  gradient_checkpointing: true
+
+  optim: paged_adamw_8bit
+  bf16: true
+  fp16: false
+
+  logging_steps: 20
+  eval_steps: 150
+  save_steps: 150
+  save_total_limit: 3
+  load_best_model_at_end: true
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+
+inference_defaults:
+  temperature: 0.2
+  top_p: 0.9
+  repetition_penalty: 1.08
+  max_new_tokens: 512
+
+gates:
+  min_no_ssml_compliance: 0.98
+  min_no_commentary_compliance: 0.95
+  min_rule_pass_rate: 0.90
