@@ -6211,7 +6211,7 @@ LLM_PROVIDER_CONFIGS = {
         "headers": {},
     },
     "Microsoft Foundry (OpenAI-compatible)": {
-        "base_url": "https://ultimate-tts-foundry.openai.azure.com",
+        "base_url": "https://eastus2.api.cognitive.microsoft.com",
         "default_model": "gpt-4o-mini",
         "env_var": "AZURE_AI_API_KEY",
         "requires_api_key": True,
