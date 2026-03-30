@@ -6251,6 +6251,42 @@ LLM_PROVIDER_CONFIGS = {
     },
 }
 
+LLM_PROVIDER_MODEL_SUGGESTIONS = {
+    "Ollama (OpenAI-compatible)": [
+        "qwen3:30b-a3b",
+        "qwen3:8b",
+        "llama3.1:8b",
+        "mistral:7b",
+        "gemma2:9b",
+    ],
+    "LM Studio OpenAI Server": [
+        "lmstudio-community/qwen3-30b-a3b",
+        "lmstudio-community/llama-3.1-8b",
+    ],
+    "Google Gemini API (OpenAI-compatible)": [
+        "gemini-2.0-flash",
+        "gemini-2.5-flash-preview-05-20",
+        "gemini-2.5-pro-preview-05-06",
+    ],
+    "Microsoft Foundry (OpenAI-compatible)": [
+        "gpt-4o-mini",
+        "gpt-4o",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
+    ],
+    "GitHub Models (OpenAI-compatible)": [
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1-mini",
+        "openai/gpt-4.1-nano",
+        "meta-llama/Llama-3.1-8B-Instruct",
+    ],
+    "vLLM OpenAI Server": [
+        "Qwen/Qwen3-30B-A3B",
+        "meta-llama/Llama-3.1-8B-Instruct",
+    ],
+    "Custom OpenAI-compatible": [],
+}
+
 _DEFAULT_PROVIDER_CONFIG = {
     "base_url": "http://localhost:8000/v1",
     "default_model": "",
@@ -6268,7 +6304,11 @@ def _get_provider_config(provider_name: str) -> dict:
 
 def get_llm_provider_defaults(provider_name: str):
     cfg = _get_provider_config(provider_name)
-    return cfg["base_url"], "", cfg["default_model"]
+    suggestions = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
+    default_model = cfg["default_model"]
+    if default_model and default_model not in suggestions:
+        suggestions.insert(0, default_model)
+    return cfg["base_url"], "", gr.update(choices=suggestions, value=default_model)
 
 
 def get_llm_provider_env_var(provider_name: str) -> str:
@@ -9142,10 +9182,14 @@ def create_gradio_interface():
                                     choices=list(LLM_PROVIDER_CONFIGS.keys()),
                                     value="Ollama (OpenAI-compatible)",
                                 )
-                                llm_model_id = gr.Textbox(
+                                llm_model_id = gr.Dropdown(
                                     label="Model ID",
+                                    choices=LLM_PROVIDER_MODEL_SUGGESTIONS[
+                                        "Ollama (OpenAI-compatible)"
+                                    ],
                                     value="qwen3:30b-a3b",
                                     placeholder="e.g. qwen3:30b-a3b, gemini-2.0-flash, or Qwen/Qwen3-30B-A3B-Instruct-2507",
+                                    allow_custom_value=True,
                                 )
 
                             with gr.Row():
@@ -9167,8 +9211,50 @@ def create_gradio_interface():
                                     value="NORMALIZE",
                                     label="Transform Mode",
                                 )
-                                llm_locale = gr.Textbox(label="Locale", value="en-US")
-                                llm_style = gr.Textbox(label="Style", value="cinematic_audiobook")
+                                llm_locale = gr.Dropdown(
+                                    label="Locale",
+                                    choices=[
+                                        "en-US",
+                                        "en-GB",
+                                        "en-AU",
+                                        "es-ES",
+                                        "es-MX",
+                                        "fr-FR",
+                                        "de-DE",
+                                        "it-IT",
+                                        "pt-BR",
+                                        "ja-JP",
+                                        "ko-KR",
+                                        "zh-CN",
+                                        "zh-TW",
+                                        "ru-RU",
+                                        "ar-SA",
+                                        "hi-IN",
+                                        "nl-NL",
+                                        "sv-SE",
+                                        "pl-PL",
+                                        "tr-TR",
+                                    ],
+                                    value="en-US",
+                                    allow_custom_value=True,
+                                )
+                                llm_style = gr.Dropdown(
+                                    label="Style",
+                                    choices=[
+                                        "cinematic_audiobook",
+                                        "conversational",
+                                        "news_broadcast",
+                                        "documentary",
+                                        "dramatic_reading",
+                                        "bedtime_story",
+                                        "podcast",
+                                        "lecture",
+                                        "meditation",
+                                        "commercial",
+                                    ],
+                                    value="cinematic_audiobook",
+                                    allow_custom_value=True,
+                                )
 
                             with gr.Row():
                                 llm_max_tag_density = gr.Slider(
