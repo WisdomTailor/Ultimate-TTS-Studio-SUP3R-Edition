@@ -6181,46 +6181,114 @@ def _apply_local_narration_transform(source_text: str, mode: str) -> str:
     return text
 
 
+# Provider configuration — structured dict replaces per-function tuple lookups
+LLM_PROVIDER_CONFIGS = {
+    "Ollama (OpenAI-compatible)": {
+        "base_url": "http://localhost:11434/v1",
+        "default_model": "qwen3:30b-a3b",
+        "env_var": "OPENAI_API_KEY",
+        "requires_api_key": False,
+        "kind": "local",
+        "auth_style": "bearer",
+        "headers": {},
+    },
+    "LM Studio OpenAI Server": {
+        "base_url": "http://localhost:1234/v1",
+        "default_model": "qwen/qwen3-30b-a3b-instruct-2507",
+        "env_var": "OPENAI_API_KEY",
+        "requires_api_key": False,
+        "kind": "local",
+        "auth_style": "bearer",
+        "headers": {},
+    },
+    "Google Gemini API (OpenAI-compatible)": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "default_model": "gemini-2.0-flash",
+        "env_var": "GOOGLE_API_KEY",
+        "requires_api_key": True,
+        "kind": "cloud",
+        "auth_style": "bearer",
+        "headers": {},
+    },
+    "Microsoft Foundry (OpenAI-compatible)": {
+        "base_url": "https://YOUR-PROJECT.services.ai.azure.com/openai",
+        "default_model": "gpt-4o-mini",
+        "env_var": "AZURE_AI_API_KEY",
+        "requires_api_key": True,
+        "kind": "cloud",
+        "auth_style": "api-key",
+        "headers": {},
+    },
+    "GitHub Models (OpenAI-compatible)": {
+        "base_url": "https://models.github.ai/v1",
+        "default_model": "openai/gpt-4.1-mini",
+        "env_var": "GITHUB_MODELS_TOKEN",
+        "requires_api_key": True,
+        "kind": "cloud",
+        "auth_style": "bearer",
+        "headers": {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2026-03-10",
+        },
+    },
+    "vLLM OpenAI Server": {
+        "base_url": "http://localhost:8000/v1",
+        "default_model": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+        "env_var": "OPENAI_API_KEY",
+        "requires_api_key": False,
+        "kind": "local",
+        "auth_style": "bearer",
+        "headers": {},
+    },
+    "Custom OpenAI-compatible": {
+        "base_url": "http://localhost:8000/v1",
+        "default_model": "",
+        "env_var": "OPENAI_API_KEY",
+        "requires_api_key": False,
+        "kind": "custom",
+        "auth_style": "bearer",
+        "headers": {},
+    },
+}
+
+_DEFAULT_PROVIDER_CONFIG = {
+    "base_url": "http://localhost:8000/v1",
+    "default_model": "",
+    "env_var": "OPENAI_API_KEY",
+    "requires_api_key": False,
+    "kind": "custom",
+    "auth_style": "bearer",
+    "headers": {},
+}
+
+
+def _get_provider_config(provider_name: str) -> dict:
+    return LLM_PROVIDER_CONFIGS.get(provider_name, _DEFAULT_PROVIDER_CONFIG)
+
+
 def get_llm_provider_defaults(provider_name: str):
-    provider_map = {
-        "Ollama (OpenAI-compatible)": ("http://localhost:11434/v1", "", "qwen3:30b-a3b"),
-        "LM Studio OpenAI Server": (
-            "http://localhost:1234/v1",
-            "",
-            "qwen/qwen3-30b-a3b-instruct-2507",
-        ),
-        "Google Gemini API (OpenAI-compatible)": (
-            "https://generativelanguage.googleapis.com/v1beta/openai",
-            "",
-            "gemini-2.0-flash",
-        ),
-        "vLLM OpenAI Server": ("http://localhost:8000/v1", "", "Qwen/Qwen3-30B-A3B-Instruct-2507"),
-        "Custom OpenAI-compatible": ("http://localhost:8000/v1", "", ""),
-    }
-    return provider_map.get(provider_name, ("http://localhost:8000/v1", "", ""))
+    cfg = _get_provider_config(provider_name)
+    return cfg["base_url"], "", cfg["default_model"]
 
 
 def get_llm_provider_env_var(provider_name: str) -> str:
-    if provider_name == "Google Gemini API (OpenAI-compatible)":
-        return "GOOGLE_API_KEY"
-    if provider_name in (
-        "Custom OpenAI-compatible",
-        "vLLM OpenAI Server",
-        "Ollama (OpenAI-compatible)",
-        "LM Studio OpenAI Server",
-    ):
-        return "OPENAI_API_KEY"
-    return "OPENAI_API_KEY"
+    return _get_provider_config(provider_name)["env_var"]
 
 
 def get_llm_shell_key_setup_hint(provider_name: str) -> str:
-    env_name = get_llm_provider_env_var(provider_name)
-    return (
+    cfg = _get_provider_config(provider_name)
+    env_name = cfg["env_var"]
+    hint = (
         f"Set key in shell (placeholder only):\n"
         f'PowerShell: $env:{env_name} = "<PASTE_KEY_HERE>"\n'
         f"CMD: set {env_name}=<PASTE_KEY_HERE>\n"
         f'Bash: export {env_name}="<PASTE_KEY_HERE>"'
     )
+    if provider_name == "Microsoft Foundry (OpenAI-compatible)":
+        hint += "\nOr use: Azure Portal \u2192 AI Foundry \u2192 Project \u2192 Keys"
+    elif provider_name == "GitHub Models (OpenAI-compatible)":
+        hint += "\nGenerate at: github.com/settings/tokens (Fine-grained or Classic)"
+    return hint
 
 
 def resolve_llm_api_key(provider_name: str, api_key: str):
@@ -6275,6 +6343,8 @@ def call_openai_compatible_chat(
     temperature: float = 0.2,
     top_p: float = 0.9,
     max_tokens: int = 1024,
+    extra_headers: dict = None,
+    auth_style: str = "bearer",
 ):
     if not base_url or not model_id:
         raise ValueError("Base URL and model ID are required")
@@ -6294,8 +6364,13 @@ def call_openai_compatible_chat(
     headers = {
         "Content-Type": "application/json",
     }
+    if extra_headers:
+        headers.update(extra_headers)
     if isinstance(api_key, str) and api_key.strip():
-        headers["Authorization"] = f"Bearer {api_key.strip()}"
+        if auth_style == "api-key":
+            headers["api-key"] = api_key.strip()
+        else:
+            headers["Authorization"] = f"Bearer {api_key.strip()}"
 
     request_body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(endpoint, data=request_body, headers=headers, method="POST")
@@ -6320,9 +6395,10 @@ def test_llm_connection(
     if not model_id or not str(model_id).strip():
         return "❌ Enter a model ID before testing connection."
 
+    cfg = _get_provider_config(provider_name)
     resolved_api_key, key_source = resolve_llm_api_key(provider_name, api_key)
-    if provider_name == "Google Gemini API (OpenAI-compatible)" and not resolved_api_key:
-        return "❌ API key required for Google Gemini API.\n" + get_llm_shell_key_setup_hint(
+    if cfg["requires_api_key"] and not resolved_api_key:
+        return f"❌ API key required for {provider_name}.\n" + get_llm_shell_key_setup_hint(
             provider_name
         )
 
@@ -6337,6 +6413,8 @@ def test_llm_connection(
             temperature=0.0,
             top_p=1.0,
             max_tokens=8,
+            extra_headers=cfg["headers"],
+            auth_style=cfg["auth_style"],
         )
         return (
             f"✅ LLM connection successful\n"
@@ -6426,15 +6504,16 @@ def apply_llm_narration_transform(
             )
         return source_text, "LLM transform: skipped (no model ID provided)"
 
+    cfg = _get_provider_config(provider_name)
     resolved_api_key, key_source = resolve_llm_api_key(provider_name, api_key)
-    if provider_name == "Google Gemini API (OpenAI-compatible)" and not resolved_api_key:
+    if cfg["requires_api_key"] and not resolved_api_key:
         if allow_local_fallback:
             return _apply_local_narration_transform(source_text, mode), (
-                "LLM transform: Google API key missing, used local fallback\n"
+                f"LLM transform: {provider_name} API key missing, used local fallback\n"
                 + get_llm_shell_key_setup_hint(provider_name)
             )
         return source_text, (
-            "LLM transform: Google API key missing, using original text\n"
+            f"LLM transform: {provider_name} API key missing, using original text\n"
             + get_llm_shell_key_setup_hint(provider_name)
         )
 
@@ -6458,6 +6537,8 @@ def apply_llm_narration_transform(
             temperature=temperature,
             top_p=top_p,
             max_tokens=max_tokens,
+            extra_headers=cfg["headers"],
+            auth_style=cfg["auth_style"],
         )
         cleaned = _clean_llm_transform_output(raw_output)
         if not cleaned:
@@ -9051,13 +9132,7 @@ def create_gradio_interface():
                             with gr.Row():
                                 llm_provider = gr.Dropdown(
                                     label="LLM Provider",
-                                    choices=[
-                                        "Ollama (OpenAI-compatible)",
-                                        "LM Studio OpenAI Server",
-                                        "Google Gemini API (OpenAI-compatible)",
-                                        "vLLM OpenAI Server",
-                                        "Custom OpenAI-compatible",
-                                    ],
+                                    choices=list(LLM_PROVIDER_CONFIGS.keys()),
                                     value="Ollama (OpenAI-compatible)",
                                 )
                                 llm_model_id = gr.Textbox(
