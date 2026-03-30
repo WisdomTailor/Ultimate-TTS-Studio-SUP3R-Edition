@@ -6211,7 +6211,7 @@ LLM_PROVIDER_CONFIGS = {
         "headers": {},
     },
     "Microsoft Foundry (OpenAI-compatible)": {
-        "base_url": "https://YOUR-PROJECT.services.ai.azure.com/openai",
+        "base_url": "https://ultimate-tts-foundry.openai.azure.com",
         "default_model": "gpt-4o-mini",
         "env_var": "AZURE_AI_API_KEY",
         "requires_api_key": True,
@@ -6349,7 +6349,14 @@ def call_openai_compatible_chat(
     if not base_url or not model_id:
         raise ValueError("Base URL and model ID are required")
 
-    endpoint = base_url.rstrip("/") + "/chat/completions"
+    if auth_style == "api-key":
+        # Azure OpenAI endpoint pattern: /openai/deployments/{deployment}/chat/completions
+        endpoint = (
+            base_url.rstrip("/")
+            + f"/openai/deployments/{model_id}/chat/completions?api-version=2024-10-21"
+        )
+    else:
+        endpoint = base_url.rstrip("/") + "/chat/completions"
     payload = {
         "model": model_id,
         "messages": [
