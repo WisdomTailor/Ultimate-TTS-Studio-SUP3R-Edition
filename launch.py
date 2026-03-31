@@ -2368,6 +2368,11 @@ DEFAULT_AUTOSAVE_SETTINGS = {
     "filename_template": "{project}_{preset}_{timestamp}",
     "output_storage_mode": "project",
     "output_storage_path": "",
+    "llm_provider": "LM Studio OpenAI Server",
+    "llm_base_url": "",
+    "llm_model_id": "",
+    "llm_api_key": "",
+    "llm_system_prompt": "",
 }
 
 LEGACY_DEFAULT_FILENAME_TEMPLATE = "{project}_{speaker}_{timestamp}"
@@ -2472,6 +2477,72 @@ def save_app_state_settings(updates: dict) -> dict:
     with open(APP_STATE_SETTINGS_FILE, "w", encoding="utf-8") as file:
         json.dump(current, file, indent=2, ensure_ascii=False)
     return current
+
+
+def get_initial_llm_panel_settings(settings: dict | None = None) -> dict:
+    if settings is None:
+        settings = load_app_state_settings()
+
+    provider_name = str(
+        settings.get("llm_provider", DEFAULT_AUTOSAVE_SETTINGS["llm_provider"])
+        or DEFAULT_AUTOSAVE_SETTINGS["llm_provider"]
+    )
+    if provider_name not in LLM_PROVIDER_CONFIGS:
+        provider_name = DEFAULT_AUTOSAVE_SETTINGS["llm_provider"]
+
+    provider_config = _get_provider_config(provider_name)
+    base_url = str(settings.get("llm_base_url", "") or "").strip() or provider_config["base_url"]
+    api_key = str(settings.get("llm_api_key", "") or "")
+    model_id = (
+        str(settings.get("llm_model_id", "") or "").strip() or provider_config["default_model"]
+    )
+    system_prompt = str(settings.get("llm_system_prompt", "") or "")
+    if not system_prompt:
+        system_prompt = DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
+
+    model_choices = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
+    if provider_config["default_model"] and provider_config["default_model"] not in model_choices:
+        model_choices.insert(0, provider_config["default_model"])
+    if model_id and model_id not in model_choices:
+        model_choices.insert(0, model_id)
+
+    return {
+        "provider": provider_name,
+        "base_url": base_url,
+        "api_key": api_key,
+        "model_id": model_id,
+        "model_choices": model_choices,
+        "system_prompt": system_prompt,
+    }
+
+
+def save_llm_panel_settings(
+    provider_name: str,
+    base_url: str,
+    model_id: str,
+    api_key: str,
+    system_prompt: str,
+):
+    try:
+        normalized_provider = str(provider_name or "").strip()
+        if normalized_provider not in LLM_PROVIDER_CONFIGS:
+            normalized_provider = DEFAULT_AUTOSAVE_SETTINGS["llm_provider"]
+
+        save_app_state_settings(
+            {
+                "llm_provider": normalized_provider,
+                "llm_base_url": str(base_url or "").strip(),
+                "llm_model_id": str(model_id or "").strip(),
+                "llm_api_key": str(api_key or ""),
+                "llm_system_prompt": (
+                    ""
+                    if str(system_prompt or "") == DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
+                    else str(system_prompt or "")
+                ),
+            }
+        )
+    except Exception as error:
+        print(f"⚠️ Failed to save LLM settings: {error}")
 
 
 def save_output_storage_settings(mode_label: str, custom_path: str):
@@ -6183,40 +6254,13 @@ def _apply_local_narration_transform(source_text: str, mode: str) -> str:
 
 # Provider configuration — structured dict replaces per-function tuple lookups
 LLM_PROVIDER_CONFIGS = {
-    "Ollama (OpenAI-compatible)": {
-        "base_url": "http://localhost:11434/v1",
-        "default_model": "qwen3:30b-a3b",
+    "Custom OpenAI-compatible": {
+        "base_url": "http://localhost:8000/v1",
+        "default_model": "",
         "env_var": "OPENAI_API_KEY",
         "requires_api_key": False,
-        "kind": "local",
+        "kind": "custom",
         "auth_style": "bearer",
-        "headers": {},
-    },
-    "LM Studio OpenAI Server": {
-        "base_url": "http://localhost:1234/v1",
-        "default_model": "qwen/qwen3-30b-a3b-instruct-2507",
-        "env_var": "OPENAI_API_KEY",
-        "requires_api_key": False,
-        "kind": "local",
-        "auth_style": "bearer",
-        "headers": {},
-    },
-    "Google Gemini API (OpenAI-compatible)": {
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "default_model": "gemini-2.0-flash",
-        "env_var": "GOOGLE_API_KEY",
-        "requires_api_key": True,
-        "kind": "cloud",
-        "auth_style": "bearer",
-        "headers": {},
-    },
-    "Microsoft Foundry (OpenAI-compatible)": {
-        "base_url": "https://eastus2.api.cognitive.microsoft.com",
-        "default_model": "gpt-4o-mini",
-        "env_var": "AZURE_AI_API_KEY",
-        "requires_api_key": True,
-        "kind": "cloud",
-        "auth_style": "api-key",
         "headers": {},
     },
     "GitHub Models (OpenAI-compatible)": {
@@ -6231,6 +6275,42 @@ LLM_PROVIDER_CONFIGS = {
             "X-GitHub-Api-Version": "2026-03-10",
         },
     },
+    "Google Gemini API (OpenAI-compatible)": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "default_model": "gemini-2.0-flash",
+        "env_var": "GOOGLE_API_KEY",
+        "requires_api_key": True,
+        "kind": "cloud",
+        "auth_style": "bearer",
+        "headers": {},
+    },
+    "LM Studio OpenAI Server": {
+        "base_url": "http://localhost:1234/v1",
+        "default_model": "qwen/qwen3-30b-a3b-instruct-2507",
+        "env_var": "OPENAI_API_KEY",
+        "requires_api_key": False,
+        "kind": "local",
+        "auth_style": "bearer",
+        "headers": {},
+    },
+    "Microsoft Foundry (OpenAI-compatible)": {
+        "base_url": "https://eastus2.api.cognitive.microsoft.com",
+        "default_model": "gpt-4o-mini",
+        "env_var": "AZURE_AI_API_KEY",
+        "requires_api_key": True,
+        "kind": "cloud",
+        "auth_style": "api-key",
+        "headers": {},
+    },
+    "Ollama (OpenAI-compatible)": {
+        "base_url": "http://localhost:11434/v1",
+        "default_model": "qwen3:30b-a3b",
+        "env_var": "OPENAI_API_KEY",
+        "requires_api_key": False,
+        "kind": "local",
+        "auth_style": "bearer",
+        "headers": {},
+    },
     "vLLM OpenAI Server": {
         "base_url": "http://localhost:8000/v1",
         "default_model": "Qwen/Qwen3-30B-A3B-Instruct-2507",
@@ -6240,33 +6320,25 @@ LLM_PROVIDER_CONFIGS = {
         "auth_style": "bearer",
         "headers": {},
     },
-    "Custom OpenAI-compatible": {
-        "base_url": "http://localhost:8000/v1",
-        "default_model": "",
-        "env_var": "OPENAI_API_KEY",
-        "requires_api_key": False,
-        "kind": "custom",
-        "auth_style": "bearer",
-        "headers": {},
-    },
 }
 
 LLM_PROVIDER_MODEL_SUGGESTIONS = {
-    "Ollama (OpenAI-compatible)": [
-        "qwen3:30b-a3b",
-        "qwen3:8b",
-        "llama3.1:8b",
-        "mistral:7b",
-        "gemma2:9b",
-    ],
-    "LM Studio OpenAI Server": [
-        "lmstudio-community/qwen3-30b-a3b",
-        "lmstudio-community/llama-3.1-8b",
+    "Custom OpenAI-compatible": [],
+    "GitHub Models (OpenAI-compatible)": [
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1-mini",
+        "openai/gpt-4.1-nano",
+        "meta-llama/Llama-3.1-8B-Instruct",
     ],
     "Google Gemini API (OpenAI-compatible)": [
         "gemini-2.0-flash",
         "gemini-2.5-flash-preview-05-20",
         "gemini-2.5-pro-preview-05-06",
+    ],
+    "LM Studio OpenAI Server": [
+        "qwen/qwen3-30b-a3b-instruct-2507",
+        "lmstudio-community/qwen3-30b-a3b",
+        "lmstudio-community/llama-3.1-8b",
     ],
     "Microsoft Foundry (OpenAI-compatible)": [
         "gpt-4o-mini",
@@ -6274,17 +6346,17 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
         "gpt-4.1-mini",
         "gpt-4.1-nano",
     ],
-    "GitHub Models (OpenAI-compatible)": [
-        "openai/gpt-4o-mini",
-        "openai/gpt-4.1-mini",
-        "openai/gpt-4.1-nano",
-        "meta-llama/Llama-3.1-8B-Instruct",
+    "Ollama (OpenAI-compatible)": [
+        "qwen3:30b-a3b",
+        "qwen3:8b",
+        "llama3.1:8b",
+        "mistral:7b",
+        "gemma2:9b",
     ],
     "vLLM OpenAI Server": [
         "Qwen/Qwen3-30B-A3B",
         "meta-llama/Llama-3.1-8B-Instruct",
     ],
-    "Custom OpenAI-compatible": [],
 }
 
 _DEFAULT_PROVIDER_CONFIG = {
@@ -6353,9 +6425,10 @@ def fetch_provider_models(
     api_key: str = "",
     timeout_sec: float = 5.0,
 ) -> tuple[list[str], str]:
-    """Fetch model IDs from an OpenAI-compatible models endpoint."""
+    """Fetch model IDs from provider model discovery endpoints."""
     import json as _json
     import urllib.error
+    import urllib.parse
     import urllib.request
 
     cfg = _get_provider_config(provider_name)
@@ -6364,7 +6437,13 @@ def fetch_provider_models(
         return [], "❌ Base URL is required to fetch models."
 
     if "/openai" in clean_base:
-        models_url = clean_base.rsplit("/openai", 1)[0] + "/models?api-version=2024-10-21"
+        base_without_openai = clean_base.rsplit("/openai", 1)[0]
+        if cfg.get("auth_style") == "api-key":
+            models_url = base_without_openai + "/models?api-version=2024-10-21"
+        else:
+            models_url = base_without_openai + "/models"
+    elif cfg.get("auth_style") == "api-key":
+        models_url = clean_base + "/models?api-version=2024-10-21"
     else:
         models_url = clean_base + "/models"
 
@@ -6379,17 +6458,33 @@ def fetch_provider_models(
         env_var = get_llm_provider_env_var(provider_name)
         return [], f"⚠ API key required. Set {env_var} or enter it in the API Key field."
 
+    if "generativelanguage.googleapis.com" in models_url and resolved_key:
+        separator = "&" if "?" in models_url else "?"
+        encoded_key = urllib.parse.quote(resolved_key, safe="")
+        models_url = models_url + separator + "key=" + encoded_key
+        headers.pop("Authorization", None)
+
     try:
         req = urllib.request.Request(url=models_url, method="GET", headers=headers)
         with urllib.request.urlopen(req, timeout=timeout_sec) as response:
             payload = _json.loads(response.read().decode("utf-8"))
 
-        items = payload.get("data", []) if isinstance(payload, dict) else []
+        if isinstance(payload, dict):
+            items = payload.get("data", [])
+            if not items:
+                items = payload.get("models", [])
+        else:
+            items = []
+
         models = []
         seen = set()
         for item in items:
-            if isinstance(item, dict) and item.get("id"):
-                model_id = str(item["id"])
+            if isinstance(item, dict):
+                model_id = str(item.get("id") or "")
+                if not model_id and item.get("name"):
+                    model_id = str(item["name"])
+                    if model_id.startswith("models/"):
+                        model_id = model_id[7:]
                 if model_id not in seen:
                     seen.add(model_id)
                     models.append(model_id)
@@ -6875,10 +6970,10 @@ def generate_unified_tts(
     qwen_seed: int = -1,
     # Optional LLM narration transform parameters
     llm_transform_enabled: bool = False,
-    llm_provider: str = "Ollama (OpenAI-compatible)",
-    llm_base_url: str = "http://localhost:11434/v1",
+    llm_provider: str = "LM Studio OpenAI Server",
+    llm_base_url: str = "http://localhost:1234/v1",
     llm_api_key: str = "",
-    llm_model_id: str = "",
+    llm_model_id: str = "qwen/qwen3-30b-a3b-instruct-2507",
     llm_mode: str = "NORMALIZE",
     llm_locale: str = "en-US",
     llm_style: str = "cinematic_audiobook",
@@ -7660,6 +7755,7 @@ def generate_unified_tts_wrapped(*all_args):
 def create_gradio_interface():
     """Create the unified Gradio interface."""
     current_storage_settings = load_app_state_settings()
+    current_llm_settings = get_initial_llm_panel_settings(current_storage_settings)
     current_storage_mode, current_storage_path = resolve_output_storage_settings(
         current_storage_settings
     )
@@ -9331,17 +9427,16 @@ def create_gradio_interface():
                                 llm_provider = gr.Dropdown(
                                     label="LLM Provider",
                                     choices=list(LLM_PROVIDER_CONFIGS.keys()),
-                                    value="Ollama (OpenAI-compatible)",
+                                    value=current_llm_settings["provider"],
+                                    info="Choose which AI service processes your text. Local providers (LM Studio, Ollama) run on your PC. Cloud providers need an API key.",
                                 )
 
                             with gr.Row():
                                 llm_model_id = gr.Dropdown(
                                     label="Model ID",
-                                    choices=LLM_PROVIDER_MODEL_SUGGESTIONS[
-                                        "Ollama (OpenAI-compatible)"
-                                    ],
-                                    value="qwen3:30b-a3b",
-                                    info="Select or type a model ID. Click Refresh to fetch live models.",
+                                    choices=current_llm_settings["model_choices"],
+                                    value=current_llm_settings["model_id"],
+                                    info="The specific AI model to use. Click Refresh to see models available from your provider.",
                                     allow_custom_value=True,
                                     scale=4,
                                 )
@@ -9355,14 +9450,16 @@ def create_gradio_interface():
                             with gr.Row():
                                 llm_base_url = gr.Textbox(
                                     label="Base URL",
-                                    value="http://localhost:11434/v1",
+                                    value=current_llm_settings["base_url"],
                                     placeholder="OpenAI-compatible base URL",
+                                    info="The API endpoint URL. Auto-filled when you select a provider. Only change this if you have a custom setup.",
                                 )
                                 llm_api_key = gr.Textbox(
                                     label="API Key (required for cloud providers)",
-                                    value="",
+                                    value=current_llm_settings["api_key"],
                                     type="password",
                                     placeholder="Optional in UI. Prefer shell env var for safety: GOOGLE_API_KEY or OPENAI_API_KEY",
+                                    info="Required for cloud providers (Gemini, GitHub, Foundry). Can also be set as an environment variable for security.",
                                 )
 
                             with gr.Row():
@@ -9370,6 +9467,7 @@ def create_gradio_interface():
                                     choices=["STRICT", "NORMALIZE", "EXPRESSIVE"],
                                     value="NORMALIZE",
                                     label="Transform Mode",
+                                    info="STRICT: no changes to your text. NORMALIZE: cleans up numbers, dates, abbreviations for natural speech. EXPRESSIVE: adds dramatic flair and emotional cues.",
                                 )
                                 llm_locale = gr.Dropdown(
                                     label="Locale",
@@ -9397,6 +9495,7 @@ def create_gradio_interface():
                                     ],
                                     value="en-US",
                                     allow_custom_value=True,
+                                    info="Target language and region. Affects how numbers, dates, and currency are spoken (e.g., en-US vs en-GB).",
                                 )
                                 llm_style = gr.Dropdown(
                                     label="Style",
@@ -9414,6 +9513,7 @@ def create_gradio_interface():
                                     ],
                                     value="cinematic_audiobook",
                                     allow_custom_value=True,
+                                    info="Sets the narration tone. The AI adapts pacing, emphasis, and delivery to match the chosen style.",
                                 )
 
                             with gr.Row():
@@ -9423,6 +9523,7 @@ def create_gradio_interface():
                                     step=0.05,
                                     value=0.35,
                                     label="Max tag density (tags per sentence)",
+                                    info="Controls how many audio/voice direction tags the AI adds. Lower = cleaner text, higher = more expressive markup.",
                                 )
                                 llm_timeout_seconds = gr.Slider(
                                     10,
@@ -9430,12 +9531,13 @@ def create_gradio_interface():
                                     step=5,
                                     value=60,
                                     label="LLM timeout (seconds)",
+                                    info="Maximum wait time for the AI to respond. Increase for slower connections or larger texts.",
                                 )
 
                             llm_allow_local_fallback = gr.Checkbox(
                                 value=True,
                                 label="Use local fallback when LLM is unavailable",
-                                info="If no model is configured or endpoint fails, apply deterministic local normalization so generation can continue.",
+                                info="If the AI provider is unavailable, automatically use built-in text cleanup instead of failing.",
                             )
 
                             with gr.Row():
@@ -9445,6 +9547,7 @@ def create_gradio_interface():
                                     step=0.05,
                                     value=0.2,
                                     label="LLM temperature",
+                                    info="Controls creativity. Low (0.0-0.3) = predictable and consistent. High (0.8+) = more creative and varied.",
                                 )
                                 llm_top_p = gr.Slider(
                                     0.1,
@@ -9452,6 +9555,7 @@ def create_gradio_interface():
                                     step=0.05,
                                     value=0.9,
                                     label="LLM top-p",
+                                    info="Controls word choice diversity. Lower values make output more focused. Usually best left at 0.9.",
                                 )
                                 llm_max_tokens = gr.Slider(
                                     128,
@@ -9459,12 +9563,15 @@ def create_gradio_interface():
                                     step=64,
                                     value=1024,
                                     label="LLM max tokens",
+                                    info="Maximum length of the AI's response. Increase for longer texts to avoid truncation.",
                                 )
 
                             llm_system_prompt = gr.Textbox(
                                 label="LLM System Prompt",
-                                lines=5,
-                                value=DEFAULT_LLM_NARRATION_SYSTEM_PROMPT,
+                                lines=8,
+                                max_lines=20,
+                                value=current_llm_settings["system_prompt"],
+                                info="Instructions that tell the AI how to transform your text. Edit to customize behavior, or click Reset to restore default.",
                             )
 
                             with gr.Row():
@@ -13355,16 +13462,45 @@ Alice: I went to Japan. It was absolutely incredible!""",
             fn=on_llm_provider_change,
             inputs=[llm_provider],
             outputs=[llm_base_url, llm_api_key, llm_model_id, llm_connection_status],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+        )
+
+        llm_model_id.change(
+            fn=save_llm_panel_settings,
+            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+        )
+
+        llm_base_url.change(
+            fn=save_llm_panel_settings,
+            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+        )
+
+        llm_api_key.change(
+            fn=save_llm_panel_settings,
+            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+        )
+
+        llm_system_prompt.change(
+            fn=save_llm_panel_settings,
+            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
         )
 
         llm_refresh_models_btn.click(
             fn=refresh_llm_models,
             inputs=[llm_provider, llm_base_url, llm_api_key],
             outputs=[llm_model_id, llm_connection_status],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
         )
 
         llm_prompt_reset_btn.click(
             fn=lambda: DEFAULT_LLM_NARRATION_SYSTEM_PROMPT, outputs=[llm_system_prompt]
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
         )
 
         llm_test_btn.click(
