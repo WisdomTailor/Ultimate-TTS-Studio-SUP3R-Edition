@@ -1,3 +1,7 @@
+# NOTE: Before editing this file, read Docs/launch-py-index.md.
+# app/launch.py is a large coupled Gradio/runtime module; use the index first
+# to find the correct section, handlers, and event bindings.
+
 import random
 import numpy as np
 import torch
