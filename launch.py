@@ -7165,6 +7165,77 @@ def apply_llm_transform_to_textbox(
     return transformed_text, status
 
 
+def format_provenance(status_text: str) -> str:
+    normalized_status = (status_text or "").lower()
+    if "deterministic" in normalized_status or "fallback" in normalized_status:
+        return "⚠️ **Fallback result** — LLM was unavailable; deterministic rules applied."
+    return "✨ **AI-transformed** — Review changes before accepting."
+
+
+def on_transform_preview(
+    source_text: str,
+    provider_name: str,
+    base_url: str,
+    api_key: str,
+    model_id: str,
+    mode: str,
+    locale: str,
+    style: str,
+    max_tag_density: float,
+    system_prompt: str,
+    timeout_seconds: int,
+    temperature: float,
+    top_p: float,
+    max_tokens: int,
+    allow_local_fallback: bool,
+    engine: str = "",
+):
+    transformed_text, status = apply_llm_transform_to_textbox(
+        source_text=source_text,
+        provider_name=provider_name,
+        base_url=base_url,
+        api_key=api_key,
+        model_id=model_id,
+        mode=mode,
+        locale=locale,
+        style=style,
+        max_tag_density=max_tag_density,
+        system_prompt=system_prompt,
+        timeout_seconds=timeout_seconds,
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+        allow_local_fallback=allow_local_fallback,
+        engine=engine,
+    )
+    banner = format_provenance(status)
+    return (
+        gr.update(visible=True),
+        source_text,
+        transformed_text,
+        gr.update(value=banner, visible=True),
+        gr.update(visible=True),
+        status,
+    )
+
+
+def on_accept_transform(transformed_text: str):
+    return (
+        transformed_text,
+        gr.update(visible=False),
+        gr.update(visible=False),
+        gr.update(visible=False),
+    )
+
+
+def on_reject_transform():
+    return (
+        gr.update(visible=False),
+        gr.update(visible=False),
+        gr.update(visible=False),
+    )
+
+
 def apply_llm_narration_transform(
     source_text: str,
     enabled: bool,
@@ -10020,6 +10091,30 @@ def create_gradio_interface():
                                 interactive=False,
                                 value="LLM transform disabled by default.",
                             )
+
+                            with gr.Row(visible=False) as preview_row:
+                                with gr.Column(scale=1):
+                                    gr.Markdown("### Original")
+                                    original_preview = gr.Textbox(
+                                        label="Original Text",
+                                        lines=10,
+                                        max_lines=20,
+                                        interactive=False,
+                                    )
+                                with gr.Column(scale=1):
+                                    gr.Markdown("### Transformed")
+                                    transformed_preview = gr.Textbox(
+                                        label="Transformed Text",
+                                        lines=10,
+                                        max_lines=20,
+                                        interactive=False,
+                                    )
+
+                            provenance_banner = gr.Markdown(visible=False)
+
+                            with gr.Row(visible=False) as action_row:
+                                accept_btn = gr.Button("✓ Accept", variant="primary", size="sm")
+                                reject_btn = gr.Button("✗ Reject", variant="secondary", size="sm")
 
                     # Conversation Mode Tab
                     with gr.TabItem("🎭 CONVERSATION MODE", id="conversation_mode"):
@@ -14004,7 +14099,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
 
         llm_apply_btn.click(
-            fn=apply_llm_transform_to_textbox,
+            fn=on_transform_preview,
             inputs=[
                 text,
                 llm_provider,
@@ -14023,7 +14118,25 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_allow_local_fallback,
                 tts_engine,
             ],
-            outputs=[text, llm_connection_status],
+            outputs=[
+                preview_row,
+                original_preview,
+                transformed_preview,
+                provenance_banner,
+                action_row,
+                llm_connection_status,
+            ],
+        )
+
+        accept_btn.click(
+            fn=on_accept_transform,
+            inputs=[transformed_preview],
+            outputs=[text, preview_row, provenance_banner, action_row],
+        )
+
+        reject_btn.click(
+            fn=on_reject_transform,
+            outputs=[preview_row, provenance_banner, action_row],
         )
 
         # Main generation event handler
