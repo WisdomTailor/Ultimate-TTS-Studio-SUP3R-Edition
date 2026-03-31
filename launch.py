@@ -13,9 +13,11 @@ import logging
 import hashlib
 import inspect
 import importlib
+import importlib.util as importlib_util
 import unicodedata
 import urllib.request
 import urllib.error
+from typing import Any, Optional
 from datetime import datetime
 from pathlib import Path
 
@@ -45,6 +47,8 @@ os.environ["TORCH_DISTRIBUTED_DEBUG"] = "OFF"
 # Redirect stderr temporarily to suppress specific warnings during imports
 import contextlib
 from io import StringIO
+
+AudioSegment = None
 
 
 # Custom context manager to suppress specific warning patterns
@@ -151,6 +155,9 @@ try:
     FISH_SPEECH_AVAILABLE = True
 except Exception as error:
     FISH_SPEECH_AVAILABLE = False
+    ServeTTSRequest = None
+    ServeReferenceAudio = None
+    audio_to_bytes = lambda *args, **kwargs: b""
     print(f"⚠️ Fish Speech not available. Some features will be disabled. Error: {error}")
 
 # F5-TTS imports
@@ -168,6 +175,66 @@ except Exception as error:
 def _get_higgs_audio_handler_placeholder():
     """Placeholder for get_higgs_audio_handler when handler is unavailable"""
     return None
+
+
+def _tts_unavailable(*args, **kwargs):
+    """Common placeholder for unavailable TTS generation functions."""
+    return None, "❌ TTS handler not available"
+
+
+def _init_unavailable(*args, **kwargs):
+    """Common placeholder for unavailable model init functions."""
+    return False, "❌ TTS handler not available"
+
+
+def _unload_unavailable(*args, **kwargs):
+    """Common placeholder for unavailable model unload functions."""
+    return "❌ TTS handler not available"
+
+
+def _transcribe_unavailable(*args, **kwargs):
+    """Common placeholder for unavailable transcription functions."""
+    return ""
+
+
+# Provide safe defaults so static analysis does not treat these as unbound.
+generate_kitten_tts = _tts_unavailable
+init_kitten_tts = _init_unavailable
+unload_kitten_tts = _unload_unavailable
+KITTEN_VOICES = []
+
+generate_vibevoice_podcast = _tts_unavailable
+init_vibevoice = _init_unavailable
+unload_vibevoice = _unload_unavailable
+get_vibevoice_status = _transcribe_unavailable
+get_vibevoice_voices = lambda *args, **kwargs: []
+scan_vibevoice_models = lambda *args, **kwargs: []
+download_vibevoice_model = _init_unavailable
+
+generate_chatterbox_turbo_tts = _tts_unavailable
+init_chatterbox_turbo = _init_unavailable
+unload_chatterbox_turbo = _unload_unavailable
+get_chatterbox_turbo_status = _transcribe_unavailable
+
+init_qwen_tts = _init_unavailable
+unload_qwen_tts = _unload_unavailable
+get_qwen_tts_status = _transcribe_unavailable
+generate_qwen_voice_design_tts = _tts_unavailable
+generate_qwen_voice_clone_tts = _tts_unavailable
+generate_qwen_custom_voice_tts = _tts_unavailable
+transcribe_qwen_audio = _transcribe_unavailable
+
+generate_indextts2_tts = _tts_unavailable
+init_indextts2 = _init_unavailable
+unload_indextts2 = _unload_unavailable
+get_indextts2_status = _transcribe_unavailable
+check_indextts2_models = lambda *args, **kwargs: False
+download_indextts2_models = _init_unavailable
+EMOTION_PRESETS = {}
+
+generate_higgs_audio_tts = _tts_unavailable
+
+transcribe_voxcpm_audio = _transcribe_unavailable
 
 
 try:
@@ -337,6 +404,8 @@ def init_higgs_audio():
 
     try:
         handler = get_higgs_audio_handler()
+        if handler is None:
+            return False, "❌ Higgs Audio handler unavailable"
         success = handler.initialize_engine()
         if success:
             MODEL_STATUS["higgs_audio"] = {"loaded": True}
@@ -351,6 +420,8 @@ def unload_higgs_audio():
     """Unload Higgs Audio model"""
     try:
         handler = get_higgs_audio_handler()
+        if handler is None:
+            return "⚠️ Higgs Audio handler unavailable"
         handler.engine = None  # Clear the engine
         MODEL_STATUS["higgs_audio"] = {"loaded": False}
 
@@ -511,10 +582,10 @@ def init_qwen_tts_model(model_type: str = "Base", model_size: str = "1.7B"):
         return False, f"❌ Error loading Qwen TTS: {str(e)}"
 
 
-def unload_qwen_tts_model(model_type: str = None, model_size: str = None):
+def unload_qwen_tts_model(model_type: Optional[str] = None, model_size: Optional[str] = None):
     """Unload Qwen TTS model"""
     try:
-        message = unload_qwen_tts(model_type, model_size)
+        message = unload_qwen_tts(model_type or "Base", model_size or "1.7B")
         MODEL_STATUS["qwen_tts"] = {"loaded": False, "loading": False}
 
         # Force garbage collection
@@ -638,13 +709,13 @@ IndexTTS = None
 
 def _has_indextts_package() -> bool:
     try:
-        if importlib.util.find_spec("indextts.infer") is not None:
+        if importlib_util.find_spec("indextts.infer") is not None:
             return True
     except Exception:
         pass
 
     try:
-        if importlib.util.find_spec("indextts.indextts.infer") is not None:
+        if importlib_util.find_spec("indextts.indextts.infer") is not None:
             return True
     except Exception:
         pass
@@ -876,9 +947,10 @@ def generate_conversation_audio_simple(
                 print(f"� {speaker} -> No voice sample")
 
             # Map reference text for this speaker
-            if i < len(ref_texts) and ref_texts[i] is not None and ref_texts[i].strip():
-                speaker_ref_text_map[speaker] = ref_texts[i].strip()
-                print(f"📝 {speaker} -> ref_text: {ref_texts[i][:30]}...")
+            ref_text_value = ref_texts[i] if i < len(ref_texts) else None
+            if isinstance(ref_text_value, str) and ref_text_value.strip():
+                speaker_ref_text_map[speaker] = ref_text_value.strip()
+                print(f"📝 {speaker} -> ref_text: {ref_text_value[:30]}...")
             else:
                 speaker_ref_text_map[speaker] = None
                 print(f"📝 {speaker} -> No reference text")
@@ -889,7 +961,7 @@ def generate_conversation_audio_simple(
 
         conversation_audio_chunks = []
         conversation_info = []
-        sample_rate = None
+        sample_rate = 22050
 
         # Generate audio for each conversation line
         for i, line in enumerate(conversation):
@@ -1280,7 +1352,7 @@ def generate_conversation_audio_simple(
         total_duration = len(final_conversation_audio) / sample_rate
         unique_speakers = len(set([info["speaker"] for info in conversation_info]))
         meta_path, script_path = write_generation_sidecar_metadata(
-            filepath if "filepath" in locals() else None,
+            filepath if "filepath" in locals() else "",
             {
                 "mode": "conversation",
                 "engine": selected_engine,
@@ -1367,7 +1439,7 @@ def generate_conversation_audio_kokoro(
 
         conversation_audio_chunks = []
         conversation_info = []
-        sample_rate = None
+        sample_rate = 22050
 
         # Generate audio for each conversation line
         for i, line in enumerate(conversation):
@@ -1383,7 +1455,7 @@ def generate_conversation_audio_kokoro(
                 result = generate_kokoro_tts(
                     text,
                     selected_voice,
-                    1.0,  # speed
+                    1,  # speed
                     effects_settings,
                     audio_format,
                     skip_file_saving=True,
@@ -1541,7 +1613,7 @@ def generate_conversation_audio_kokoro(
         total_duration = len(final_conversation_audio) / sample_rate
         unique_speakers = len(set([info["speaker"] for info in conversation_info]))
         meta_path, script_path = write_generation_sidecar_metadata(
-            filepath if "filepath" in locals() else None,
+            filepath if "filepath" in locals() else "",
             {
                 "mode": "conversation",
                 "engine": selected_engine,
@@ -1601,7 +1673,7 @@ def generate_kokoro_conversation_tts(
         result = generate_kokoro_tts(
             text,
             assigned_voice,
-            1.0,  # speed
+            1,  # speed
             effects_settings,
             audio_format,
             skip_file_saving=True,
@@ -1664,7 +1736,7 @@ def generate_conversation_audio_kitten(
 
         conversation_audio_chunks = []
         conversation_info = []
-        sample_rate = None
+        sample_rate = 22050
 
         # Generate audio for each conversation line
         for i, line in enumerate(conversation):
@@ -1764,7 +1836,7 @@ def generate_conversation_audio_kitten(
         total_duration = len(final_conversation_audio) / sample_rate
         unique_speakers = len(set([info["speaker"] for info in conversation_info]))
         meta_path, script_path = write_generation_sidecar_metadata(
-            filepath if "filepath" in locals() else None,
+            filepath if "filepath" in locals() else "",
             {
                 "mode": "conversation",
                 "engine": selected_engine,
@@ -1858,7 +1930,7 @@ def generate_conversation_audio_indextts2(
 
         conversation_audio_chunks = []
         conversation_info = []
-        sample_rate = None
+        sample_rate = 22050
 
         # Generate audio for each conversation line
         for i, line in enumerate(conversation):
@@ -2033,7 +2105,7 @@ def generate_conversation_audio_indextts2(
         total_duration = len(final_conversation_audio) / sample_rate
         unique_speakers = len(set([info["speaker"] for info in conversation_info]))
         meta_path, script_path = write_generation_sidecar_metadata(
-            filepath if "filepath" in locals() else None,
+            filepath if "filepath" in locals() else "",
             {
                 "mode": "conversation",
                 "engine": selected_engine,
@@ -2673,10 +2745,10 @@ def _json_safe(value):
 
 def write_generation_sidecar_metadata(
     audio_path: str,
-    metadata: dict = None,
-    script_text: str = None,
-    original_text: str = None,
-    transformed_text: str = None,
+    metadata: Optional[dict[str, Any]] = None,
+    script_text: Optional[str] = None,
+    original_text: Optional[str] = None,
+    transformed_text: Optional[str] = None,
 ):
     if not audio_path:
         return None, None
@@ -2712,10 +2784,14 @@ def write_generation_sidecar_metadata(
             },
         }
 
+    safe_metadata = _json_safe(metadata or {})
+    if not isinstance(safe_metadata, dict):
+        safe_metadata = {}
+
     payload = {
         "timestamp": datetime.now().isoformat(),
         "audio_path": abs_audio_path,
-        **(_json_safe(metadata or {})),
+        **safe_metadata,
     }
 
     if text_versions_payload:
@@ -2853,7 +2929,9 @@ def init_chatterbox_multilingual():
         MODEL_STATUS["chatterbox_multilingual"]["loading"] = True
         print("🔄 Loading ChatterboxMultilingualTTS...")
         with suppress_specific_warnings():
-            CHATTERBOX_MULTILINGUAL_MODEL = ChatterboxMultilingualTTS.from_pretrained(DEVICE)
+            CHATTERBOX_MULTILINGUAL_MODEL = ChatterboxMultilingualTTS.from_pretrained(
+                torch.device(DEVICE)
+            )
         MODEL_STATUS["chatterbox_multilingual"]["loaded"] = True
         MODEL_STATUS["chatterbox_multilingual"]["loading"] = False
         print("✅ ChatterboxMultilingualTTS loaded successfully")
@@ -3616,14 +3694,25 @@ def apply_eq_filter(audio, sr, freq, gain_db, q_factor=1.0, filter_type="peak"):
 
         if filter_type == "lowpass":
             # Low-pass filter for bass boost
-            b, a = butter(2, norm_freq, btype="low")
+            coeffs = signal.butter(2, norm_freq, btype="low")
+            if coeffs is None:
+                return audio
+            b, a = coeffs[0], coeffs[1]
         elif filter_type == "highpass":
             # High-pass filter for treble boost
-            b, a = butter(2, norm_freq, btype="high")
+            coeffs = signal.butter(2, norm_freq, btype="high")
+            if coeffs is None:
+                return audio
+            b, a = coeffs[0], coeffs[1]
         elif filter_type == "peak":
             # Peaking EQ filter (more complex, simplified version)
             # This is a basic implementation - for production use, consider more sophisticated EQ
-            b, a = butter(2, [max(0.01, norm_freq - 0.1), min(0.99, norm_freq + 0.1)], btype="band")
+            coeffs = signal.butter(
+                2, [max(0.01, norm_freq - 0.1), min(0.99, norm_freq + 0.1)], btype="band"
+            )
+            if coeffs is None:
+                return audio
+            b, a = coeffs[0], coeffs[1]
 
         # Apply filter
         filtered = filtfilt(b, a, audio)
@@ -4686,9 +4775,9 @@ def generate_kokoro_tts(
 
 def generate_indextts_tts(
     text_input: str,
-    indextts_ref_audio: str = None,
+    indextts_ref_audio: Optional[str] = None,
     indextts_temperature: float = 0.8,
-    indextts_seed: int = None,
+    indextts_seed: Optional[int] = None,
     effects_settings=None,
     audio_format: str = "wav",
     skip_file_saving: bool = False,
@@ -4699,6 +4788,10 @@ def generate_indextts_tts(
         return None, "❌ IndexTTS not available - check installation"
 
     if not MODEL_STATUS["indextts"]["loaded"] or INDEXTTS_MODEL is None:
+        return None, "❌ IndexTTS model not loaded. Please load the model first."
+
+    model = INDEXTTS_MODEL
+    if model is None:
         return None, "❌ IndexTTS model not loaded. Please load the model first."
 
     if not text_input.strip():
@@ -4746,7 +4839,7 @@ def generate_indextts_tts(
         def generate_audio():
             try:
                 with suppress_specific_warnings():
-                    INDEXTTS_MODEL.infer(
+                    model.infer(
                         audio_prompt=indextts_ref_audio,
                         text=text_input.strip(),
                         output_path=temp_output_path,
@@ -4946,12 +5039,12 @@ def generate_indextts2_unified_tts(
 # ===== F5-TTS FUNCTIONS =====
 def generate_f5_tts(
     text_input: str,
-    f5_ref_audio: str = None,
-    f5_ref_text: str = None,
+    f5_ref_audio: Optional[str] = None,
+    f5_ref_text: Optional[str] = None,
     f5_speed: float = 1.0,
     f5_cross_fade: float = 0.15,
     f5_remove_silence: bool = False,
-    f5_seed: int = None,
+    f5_seed: Optional[int] = None,
     effects_settings=None,
     audio_format: str = "wav",
     skip_file_saving: bool = False,
@@ -5877,8 +5970,8 @@ def get_ebook_info_display(analysis_result):
 # # ===== VOXCPM FUNCTIONS =====
 def generate_voxcpm_unified_tts(
     text_input: str,
-    voxcpm_ref_audio: str = None,
-    voxcpm_ref_text: str = None,
+    voxcpm_ref_audio: Optional[str] = None,
+    voxcpm_ref_text: Optional[str] = None,
     voxcpm_cfg_value: float = 2.0,
     voxcpm_inference_timesteps: int = 10,
     voxcpm_normalize: bool = True,
@@ -5887,7 +5980,7 @@ def generate_voxcpm_unified_tts(
     voxcpm_retry_badcase_max_times: int = 3,
     voxcpm_retry_badcase_ratio_threshold: float = 6.0,
     voxcpm_seed: int | None = None,
-    effects_settings: dict = None,
+    effects_settings: Optional[dict[str, Any]] = None,
     audio_format: str = "wav",
 ):
     """Generate TTS audio using VoxCPM with voice cloning capabilities."""
@@ -5926,8 +6019,6 @@ def generate_voxcpm_unified_tts(
         # Apply effects if specified
         if effects_settings:
             try:
-                from tools.audio_effects import apply_audio_effects
-
                 print("🎛️ Applying audio effects...")
                 audio_array = apply_audio_effects(audio_array, sample_rate, effects_settings)
             except Exception as e:
