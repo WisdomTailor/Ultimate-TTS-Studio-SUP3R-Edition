@@ -2445,6 +2445,7 @@ DEFAULT_AUTOSAVE_SETTINGS = {
     "output_storage_mode": "project",
     "output_storage_path": "",
     "llm_provider": "LM Studio OpenAI Server",
+    "llm_preset": "Balanced",
     "llm_base_url": "",
     "llm_model_id": "",
     "llm_api_key": "",
@@ -2555,6 +2556,19 @@ def save_app_state_settings(updates: dict) -> dict:
     return current
 
 
+def normalize_llm_outcome_preset(preset_name: str | None) -> str:
+    candidate = str(preset_name or "").strip()
+    if candidate not in LLM_OUTCOME_PRESETS:
+        return DEFAULT_LLM_OUTCOME_PRESET
+    return candidate
+
+
+def get_llm_outcome_preset_values(preset_name: str | None) -> tuple[float, float, int]:
+    normalized_preset = normalize_llm_outcome_preset(preset_name)
+    params = LLM_OUTCOME_PRESETS[normalized_preset]
+    return float(params["temperature"]), float(params["top_p"]), int(params["max_tokens"])
+
+
 def get_initial_llm_panel_settings(settings: dict | None = None) -> dict:
     if settings is None:
         settings = load_app_state_settings()
@@ -2565,6 +2579,9 @@ def get_initial_llm_panel_settings(settings: dict | None = None) -> dict:
     )
     if provider_name not in LLM_PROVIDER_CONFIGS:
         provider_name = DEFAULT_AUTOSAVE_SETTINGS["llm_provider"]
+
+    preset_name = normalize_llm_outcome_preset(settings.get("llm_preset"))
+    temperature, top_p, max_tokens = get_llm_outcome_preset_values(preset_name)
 
     provider_config = _get_provider_config(provider_name)
     base_url = str(settings.get("llm_base_url", "") or "").strip() or provider_config["base_url"]
@@ -2584,6 +2601,10 @@ def get_initial_llm_panel_settings(settings: dict | None = None) -> dict:
 
     return {
         "provider": provider_name,
+        "preset": preset_name,
+        "temperature": temperature,
+        "top_p": top_p,
+        "max_tokens": max_tokens,
         "base_url": base_url,
         "api_key": api_key,
         "model_id": model_id,
@@ -2598,15 +2619,19 @@ def save_llm_panel_settings(
     model_id: str,
     api_key: str,
     system_prompt: str,
+    preset_name: str | None = None,
 ):
     try:
         normalized_provider = str(provider_name or "").strip()
         if normalized_provider not in LLM_PROVIDER_CONFIGS:
             normalized_provider = DEFAULT_AUTOSAVE_SETTINGS["llm_provider"]
 
+        normalized_preset = normalize_llm_outcome_preset(preset_name)
+
         save_app_state_settings(
             {
                 "llm_provider": normalized_provider,
+                "llm_preset": normalized_preset,
                 "llm_base_url": str(base_url or "").strip(),
                 "llm_model_id": str(model_id or "").strip(),
                 "llm_api_key": str(api_key or ""),
@@ -6764,6 +6789,14 @@ _STYLE_DESCRIPTIONS: dict = {
     "children": "bright, friendly, slightly animated and encouraging",
 }
 
+LLM_OUTCOME_PRESETS: dict[str, dict[str, float | int]] = {
+    "Conservative": {"temperature": 0.3, "top_p": 0.8, "max_tokens": 2048},
+    "Balanced": {"temperature": 0.7, "top_p": 0.9, "max_tokens": 4096},
+    "Creative": {"temperature": 1.0, "top_p": 0.95, "max_tokens": 4096},
+}
+
+DEFAULT_LLM_OUTCOME_PRESET = "Balanced"
+
 _DEFAULT_ENGINE_EXPRESSIVENESS = {
     "bracket_cues": False,
     "ssml": False,
@@ -8153,6 +8186,9 @@ def create_gradio_interface():
         f"Audiobooks: {os.path.abspath(get_runtime_output_dir('audiobooks', current_storage_settings))}\n"
         f"Autosave: {os.path.abspath(get_runtime_output_dir('autosave', current_storage_settings))}"
     )
+
+    def on_preset_change(preset_name: str):
+        return get_llm_outcome_preset_values(preset_name)
 
     # Kokoro voices will be preloaded when the model is loaded
 
@@ -9925,31 +9961,39 @@ def create_gradio_interface():
                                 info="If the AI provider is unavailable, automatically use built-in text cleanup instead of failing.",
                             )
 
-                            with gr.Row():
-                                llm_temperature = gr.Slider(
-                                    0.0,
-                                    1.2,
-                                    step=0.05,
-                                    value=0.2,
-                                    label="LLM temperature",
-                                    info="Controls creativity. Low (0.0-0.3) = predictable and consistent. High (0.8+) = more creative and varied.",
-                                )
-                                llm_top_p = gr.Slider(
-                                    0.1,
-                                    1.0,
-                                    step=0.05,
-                                    value=0.9,
-                                    label="LLM top-p",
-                                    info="Controls word choice diversity. Lower values make output more focused. Usually best left at 0.9.",
-                                )
-                                llm_max_tokens = gr.Slider(
-                                    128,
-                                    4096,
-                                    step=64,
-                                    value=1024,
-                                    label="LLM max tokens",
-                                    info="Maximum length of the AI's response. Increase for longer texts to avoid truncation.",
-                                )
+                            llm_preset = gr.Dropdown(
+                                choices=list(LLM_OUTCOME_PRESETS.keys()),
+                                value=current_llm_settings["preset"],
+                                label="Outcome Preset",
+                                info="Controls creativity vs faithfulness. Advanced users can override below.",
+                            )
+
+                            with gr.Accordion("Advanced LLM Parameters", open=False):
+                                with gr.Row():
+                                    llm_temperature = gr.Slider(
+                                        0.0,
+                                        1.2,
+                                        step=0.05,
+                                        value=current_llm_settings["temperature"],
+                                        label="LLM temperature",
+                                        info="Controls creativity. Low (0.0-0.3) = predictable and consistent. High (0.8+) = more creative and varied.",
+                                    )
+                                    llm_top_p = gr.Slider(
+                                        0.1,
+                                        1.0,
+                                        step=0.05,
+                                        value=current_llm_settings["top_p"],
+                                        label="LLM top-p",
+                                        info="Controls word choice diversity. Lower values make output more focused. Usually best left at 0.9.",
+                                    )
+                                    llm_max_tokens = gr.Slider(
+                                        128,
+                                        4096,
+                                        step=64,
+                                        value=current_llm_settings["max_tokens"],
+                                        label="LLM max tokens",
+                                        info="Maximum length of the AI's response. Increase for longer texts to avoid truncation.",
+                                    )
 
                             llm_system_prompt = gr.Textbox(
                                 label="LLM System Prompt",
@@ -13849,27 +13893,78 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[llm_base_url, llm_api_key, llm_model_id, llm_connection_status],
         ).then(
             fn=save_llm_panel_settings,
-            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_system_prompt,
+                llm_preset,
+            ],
         )
 
         llm_model_id.change(
             fn=save_llm_panel_settings,
-            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_system_prompt,
+                llm_preset,
+            ],
         )
 
         llm_base_url.change(
             fn=save_llm_panel_settings,
-            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_system_prompt,
+                llm_preset,
+            ],
         )
 
         llm_api_key.change(
             fn=save_llm_panel_settings,
-            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_system_prompt,
+                llm_preset,
+            ],
         )
 
         llm_system_prompt.change(
             fn=save_llm_panel_settings,
-            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
+        llm_preset.change(
+            fn=on_preset_change,
+            inputs=[llm_preset],
+            outputs=[llm_temperature, llm_top_p, llm_max_tokens],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_system_prompt,
+                llm_preset,
+            ],
         )
 
         llm_refresh_models_btn.click(
@@ -13878,14 +13973,28 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[llm_model_id, llm_connection_status],
         ).then(
             fn=save_llm_panel_settings,
-            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_system_prompt,
+                llm_preset,
+            ],
         )
 
         llm_prompt_reset_btn.click(
             fn=lambda: DEFAULT_LLM_NARRATION_SYSTEM_PROMPT, outputs=[llm_system_prompt]
         ).then(
             fn=save_llm_panel_settings,
-            inputs=[llm_provider, llm_base_url, llm_model_id, llm_api_key, llm_system_prompt],
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_system_prompt,
+                llm_preset,
+            ],
         )
 
         llm_test_btn.click(
