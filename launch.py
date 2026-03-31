@@ -9188,7 +9188,7 @@ def create_gradio_interface():
                                         "Ollama (OpenAI-compatible)"
                                     ],
                                     value="qwen3:30b-a3b",
-                                     info="Examples: qwen3:30b-a3b, gemini-2.0-flash, or Qwen/Qwen3-30B-A3B-Instruct-2507",
+                                        info="Examples: qwen3:30b-a3b, gemini-2.0-flash, or Qwen/Qwen3-30B-A3B-Instruct-2507",
                                     allow_custom_value=True,
                                 )
 
