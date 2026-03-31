@@ -6247,14 +6247,22 @@ def _spell_digits(text: str) -> str:
     return " ".join(_DIGIT_WORDS.get(char, char) for char in text)
 
 
-def _apply_local_narration_transform(source_text: str, mode: str) -> str:
+def deterministic_normalize(source_text: str) -> str:
+    """Apply deterministic narration cleanup before any LLM styling pass.
+
+    This expands rule-based patterns so downstream TTS engines and optional LLM
+    styling receive more speakable text.
+
+    Args:
+        source_text: Raw source text to normalize.
+
+    Returns:
+        The normalized text with deterministic replacements applied.
+    """
     if not isinstance(source_text, str):
         return ""
 
     text = source_text
-
-    if mode == "STRICT":
-        return text
 
     abbreviation_map = {
         r"\bDr\.\b": "Doctor",
@@ -6345,6 +6353,10 @@ def _apply_local_narration_transform(source_text: str, mode: str) -> str:
     )
 
     return text
+
+
+def _apply_local_narration_transform(source_text: str, mode: str) -> str:
+    return deterministic_normalize(source_text)
 
 
 # Provider configuration — structured dict replaces per-function tuple lookups
@@ -6857,6 +6869,8 @@ def apply_llm_transform_to_textbox(
         max_tokens=max_tokens,
         allow_local_fallback=allow_local_fallback,
     )
+    if isinstance(status, str) and status.startswith("LLM transform:"):
+        status = status.replace("LLM transform:", "Narration transform:", 1)
     return transformed_text, status
 
 
@@ -6878,36 +6892,36 @@ def apply_llm_narration_transform(
     max_tokens: int,
     allow_local_fallback: bool = True,
 ):
-    if not enabled:
-        return source_text, "LLM transform: disabled"
-
     if not isinstance(source_text, str) or not source_text.strip():
-        return source_text, "LLM transform: skipped (empty text)"
+        return source_text, "Narration transform: skipped (empty text)"
+
+    deterministic_text = deterministic_normalize(source_text)
+
+    if not enabled:
+        return (
+            deterministic_text,
+            "Narration transform: deterministic normalization applied; LLM disabled",
+        )
 
     if not model_id or not str(model_id).strip():
-        if allow_local_fallback:
-            return (
-                _apply_local_narration_transform(source_text, mode),
-                "LLM transform: no model configured, used local fallback",
-            )
-        return source_text, "LLM transform: skipped (no model ID provided)"
+        return (
+            deterministic_text,
+            "Narration transform: deterministic normalization applied; "
+            "LLM skipped (no model ID provided)",
+        )
 
     cfg = _get_provider_config(provider_name)
     resolved_api_key, key_source = resolve_llm_api_key(provider_name, api_key)
     if cfg["requires_api_key"] and not resolved_api_key:
-        if allow_local_fallback:
-            return _apply_local_narration_transform(source_text, mode), (
-                f"LLM transform: {provider_name} API key missing, used local fallback\n"
-                + get_llm_shell_key_setup_hint(provider_name)
-            )
-        return source_text, (
-            f"LLM transform: {provider_name} API key missing, using original text\n"
+        return deterministic_text, (
+            "Narration transform: deterministic normalization applied; "
+            f"LLM skipped ({provider_name} API key missing)\n"
             + get_llm_shell_key_setup_hint(provider_name)
         )
 
     effective_system_prompt = (system_prompt or "").strip() or DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
     user_prompt = _build_llm_transform_user_prompt(
-        source_text=source_text,
+        source_text=deterministic_text,
         mode=mode,
         locale=locale,
         style=style,
@@ -6930,9 +6944,20 @@ def apply_llm_narration_transform(
         )
         cleaned = _clean_llm_transform_output(raw_output)
         if not cleaned:
-            return source_text, "LLM transform: empty response, using original text"
+            if allow_local_fallback:
+                return (
+                    deterministic_text,
+                    "Narration transform: deterministic normalization applied; "
+                    "LLM returned empty output, returned deterministic result",
+                )
+            return (
+                source_text,
+                "Narration transform: deterministic normalization applied; "
+                "LLM returned empty output, using original text",
+            )
         return cleaned, (
-            f"LLM transform: applied\n"
+            "Narration transform: deterministic normalization applied; "
+            "LLM styling applied\n"
             f"Provider: {provider_name}\n"
             f"Model: {model_id}\n"
             f"API key source: {key_source}\n"
@@ -6941,10 +6966,15 @@ def apply_llm_narration_transform(
     except Exception as error:
         if allow_local_fallback:
             return (
-                _apply_local_narration_transform(source_text, mode),
-                f"LLM transform: failed ({error}), used local fallback",
+                deterministic_text,
+                "Narration transform: deterministic normalization applied; "
+                f"LLM failed ({error}), returned deterministic result",
             )
-        return source_text, f"LLM transform: failed ({error}), using original text"
+        return (
+            source_text,
+            "Narration transform: deterministic normalization applied; "
+            f"LLM failed ({error}), using original text",
+        )
 
 
 # ===== MAIN GENERATION FUNCTION =====
@@ -7882,7 +7912,7 @@ def create_gradio_interface():
             // Force dark mode on page load
             document.body.classList.remove('light');
             document.body.classList.add('dark');
-            
+
             // Override any theme preference detection
             const style = document.createElement('style');
             style.textContent = `
@@ -7890,10 +7920,10 @@ def create_gradio_interface():
                 body, .gradio-container { color-scheme: dark !important; }
             `;
             document.head.appendChild(style);
-            
+
             // Set localStorage to persist dark mode
             localStorage.setItem('theme', 'dark');
-            
+
             // Watch for theme changes and revert to dark
             const observer = new MutationObserver((mutations) => {
                 mutations.forEach((mutation) => {
@@ -7925,7 +7955,7 @@ def create_gradio_interface():
             --space-3: 16px;
             --space-4: 20px;
         }
-        
+
         /* Force Dark Mode Variables for Light Mode */
         .light :root,
         [data-theme="light"] :root,
@@ -7943,7 +7973,7 @@ def create_gradio_interface():
             --accent-color-2: #22d3ee !important;
             --accent-color-3: #f472b6 !important;
             --gradient-bg: linear-gradient(160deg, #050816 0%, #0f172a 48%, #1e1b4b 100%) !important;
-            
+
             /* Override Gradio default light theme vars */
             --body-background-fill: transparent !important;
             --background-fill-primary: rgba(255, 255, 255, 0.05) !important;
@@ -7966,13 +7996,13 @@ def create_gradio_interface():
             --neutral-900: #ffffff !important;
             --neutral-950: #ffffff !important;
         }
-        
+
         /* Force background for light mode */
         body.light, .gradio-container.light {
             background: var(--gradient-bg) !important;
             color: white !important;
         }
-        
+
         /* Global Styles */
         .gradio-container {
             max-width: 1680px !important;
@@ -7983,7 +8013,7 @@ def create_gradio_interface():
             padding: 0 var(--space-3) 36px var(--space-3) !important;
             line-height: 1.45 !important;
         }
-        
+
         /* Animated Background - Responsive */
         .gradio-container::before {
             content: '';
@@ -7992,7 +8022,7 @@ def create_gradio_interface():
             left: 0;
             width: 100%;
             height: 100%;
-            background-image: 
+            background-image:
                 radial-gradient(circle at 16% 80%, rgba(139, 92, 246, 0.18) 0%, transparent 52%),
                 radial-gradient(circle at 82% 18%, rgba(34, 211, 238, 0.14) 0%, transparent 52%),
                 radial-gradient(circle at 48% 38%, rgba(244, 114, 182, 0.12) 0%, transparent 56%);
@@ -8001,14 +8031,14 @@ def create_gradio_interface():
             z-index: 0;
             animation-play-state: paused;
         }
-        
+
         /* Light mode background adjustment removed */
-        
+
         @keyframes gradientShift {
             0%, 100% { transform: rotate(0deg) scale(1); }
             50% { transform: rotate(180deg) scale(1.1); }
         }
-        
+
         /* Main Title Styling - Compact */
         .main-title {
             text-align: center;
@@ -8024,13 +8054,13 @@ def create_gradio_interface():
             z-index: 1;
             line-height: 1.1;
         }
-        
+
         @keyframes gradientMove {
             0% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
-        
+
         .subtitle {
             text-align: center;
             color: var(--text-primary);
@@ -8043,7 +8073,7 @@ def create_gradio_interface():
             z-index: 1;
             line-height: 1.3;
         }
-        
+
         /* Glassmorphism Cards - Compact */
         .card, .settings-card, .gr-group {
             background: var(--bg-primary) !important;
@@ -8053,7 +8083,7 @@ def create_gradio_interface():
             padding: var(--space-3) !important;
             margin: var(--space-1) 0 !important;
             border: 1px solid var(--border-color) !important;
-            box-shadow: 
+            box-shadow:
                 0 2px 10px 0 rgba(31, 38, 135, 0.2),
                 inset 0 0 0 1px var(--border-color) !important;
             transition: all 0.3s ease !important;
@@ -8061,14 +8091,14 @@ def create_gradio_interface():
             overflow: visible;
             z-index: 1;
         }
-        
+
         .card:hover, .settings-card:hover, .gr-group:hover {
-            box-shadow: 
+            box-shadow:
                 0 6px 18px 0 rgba(31, 38, 135, 0.28),
                 inset 0 0 0 1px var(--border-color) !important;
             background: var(--bg-secondary) !important;
         }
-        
+
         /* Gradient Borders */
         .card::before, .settings-card::before, .gr-group::before {
             content: '';
@@ -8080,8 +8110,8 @@ def create_gradio_interface():
             border-radius: 20px;
             padding: 2px;
             background: linear-gradient(45deg, var(--accent-color), #6d28d9, var(--accent-color-3), var(--accent-color-2));
-            -webkit-mask: 
-                linear-gradient(#fff 0 0) content-box, 
+            -webkit-mask:
+                linear-gradient(#fff 0 0) content-box,
                 linear-gradient(#fff 0 0);
             -webkit-mask-composite: xor;
             mask-composite: exclude;
@@ -8089,11 +8119,11 @@ def create_gradio_interface():
             transition: opacity 0.3s ease;
             pointer-events: none; /* ensure overlay doesn't block clicks */
         }
-        
+
         .card:hover::before, .settings-card:hover::before, .gr-group:hover::before {
             opacity: 0.5;
         }
-        
+
         /* Generate Button - Compact */
         .generate-btn {
             background: linear-gradient(135deg, var(--accent-color) 0%, #6d28d9 100%) !important;
@@ -8104,7 +8134,7 @@ def create_gradio_interface():
             font-weight: 700 !important;
             color: white !important;
             text-shadow: 0 2px 4px rgba(0,0,0,0.3) !important;
-            box-shadow: 
+            box-shadow:
                 0 6px 16px rgba(139, 92, 246, 0.38),
                 inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
             transition: all 0.3s ease !important;
@@ -8116,7 +8146,7 @@ def create_gradio_interface():
             display: block !important;
             width: min(100%, 320px) !important;
         }
-        
+
         .generate-btn::before {
             content: '';
             position: absolute;
@@ -8127,22 +8157,22 @@ def create_gradio_interface():
             background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
             transition: left 0.5s ease;
         }
-        
+
         .generate-btn:hover {
             transform: translateY(-2px) !important;
-            box-shadow: 
+            box-shadow:
                 0 10px 26px rgba(139, 92, 246, 0.55),
                 inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
         }
-        
+
         .generate-btn:hover::before {
             left: 100%;
         }
-        
+
         .generate-btn:active {
             transform: translateY(-1px) scale(1.02) !important;
         }
-        
+
         /* Input Fields */
         .gr-textbox, .gr-dropdown, .gr-slider, .gr-audio, .gr-number {
             background: var(--bg-primary) !important;
@@ -8151,25 +8181,25 @@ def create_gradio_interface():
             color: var(--text-primary) !important;
             transition: all 0.3s ease !important;
         }
-        
+
         .gr-textbox:focus, .gr-dropdown:focus, .gr-number:focus {
             border-color: var(--accent-color) !important;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2) !important;
             background: var(--bg-secondary) !important;
         }
-        
+
         /* Dropdown specific fixes */
         .gr-dropdown {
             position: relative !important;
             z-index: 9999 !important;
         }
-        
+
         /* Ensure dropdown container allows overflow and is stable */
         .gr-dropdown > div,
         .gr-dropdown .wrap {
             position: relative !important;
         }
-        
+
         /* Dropdown menu styling - Multiple selectors for better compatibility */
         .gr-dropdown .choices,
         .gr-dropdown ul[role="listbox"],
@@ -8181,7 +8211,7 @@ def create_gradio_interface():
             -webkit-backdrop-filter: blur(20px) !important;
             border: 2px solid var(--accent-color) !important;
             border-radius: 12px !important;
-            box-shadow: 
+            box-shadow:
                 0 20px 60px rgba(0, 0, 0, 0.8),
                 0 0 0 1px rgba(102, 126, 234, 0.3) !important;
             z-index: 99999 !important;
@@ -8197,7 +8227,7 @@ def create_gradio_interface():
             transition: none !important;
             pointer-events: auto !important;
         }
-        
+
         /* Dropdown items */
         .gr-dropdown .choices .item,
         .gr-dropdown li[role="option"],
@@ -8212,7 +8242,7 @@ def create_gradio_interface():
             white-space: nowrap !important;
             font-size: 0.9em !important;
         }
-        
+
         .gr-dropdown .choices .item:hover,
         .gr-dropdown li[role="option"]:hover,
         .gr-dropdown .dropdown-item:hover,
@@ -8221,7 +8251,7 @@ def create_gradio_interface():
             color: white !important;
             transform: translateX(2px) !important;
         }
-        
+
         .gr-dropdown .choices .item.selected,
         .gr-dropdown li[role="option"][aria-selected="true"],
         .gr-dropdown .dropdown-item.selected,
@@ -8230,7 +8260,7 @@ def create_gradio_interface():
             color: white !important;
             font-weight: 600 !important;
         }
-        
+
         /* Fix dropdown container overflow - Apply to all parent containers */
         .gr-group,
         .gr-column,
@@ -8239,7 +8269,7 @@ def create_gradio_interface():
         .gradio-container {
             overflow: visible !important;
         }
-        
+
         /* Specific fix for accordion content */
 
         .gr-accordion .gr-accordion-header {
@@ -8251,7 +8281,7 @@ def create_gradio_interface():
         .gr-accordion .gr-accordion-content {
             overflow: visible !important;
         }
-        
+
         /* When a card/group contains a dropdown, increase its z-index and disable transforms */
         .card:has(.gr-dropdown),
         .settings-card:has(.gr-dropdown),
@@ -8259,20 +8289,20 @@ def create_gradio_interface():
             z-index: 9998 !important;
             overflow: visible !important;
         }
-        
+
         .card:has(.gr-dropdown):hover,
         .settings-card:has(.gr-dropdown):hover,
         .gr-group:has(.gr-dropdown):hover {
             transform: none !important;
         }
-        
+
         /* Prevent parent hover effects from affecting dropdown */
         .gr-group:hover .gr-dropdown,
         .card:hover .gr-dropdown,
         .settings-card:hover .gr-dropdown {
             transform: none !important;
         }
-        
+
         /* Ensure dropdown trigger button is properly styled */
         .gr-dropdown button,
         .gr-dropdown .dropdown-toggle {
@@ -8287,7 +8317,7 @@ def create_gradio_interface():
             z-index: 1 !important;
             transform: none !important;
         }
-        
+
         /* Prevent any parent transforms from affecting dropdown positioning */
         .gr-dropdown,
         .gr-dropdown > *,
@@ -8296,13 +8326,13 @@ def create_gradio_interface():
             transform: none !important;
             will-change: auto !important;
         }
-        
+
         .gr-dropdown button:hover,
         .gr-dropdown .dropdown-toggle:hover {
             border-color: var(--accent-color) !important;
             background: var(--bg-secondary) !important;
         }
-        
+
         /* Arrow icon styling */
         .gr-dropdown button::after,
         .gr-dropdown .dropdown-toggle::after {
@@ -8310,12 +8340,12 @@ def create_gradio_interface():
             float: right !important;
             transition: transform 0.2s ease !important;
         }
-        
+
         .gr-dropdown button[aria-expanded="true"]::after,
         .gr-dropdown .dropdown-toggle.open::after {
             transform: rotate(180deg) !important;
         }
-        
+
         /* Labels */
         label, .gr-label {
             color: var(--text-primary) !important;
@@ -8392,14 +8422,14 @@ def create_gradio_interface():
             max-height: 72vh !important;
             line-height: 1.5 !important;
         }
-        
+
         /* Sliders */
         .gr-slider input[type="range"] {
             background: rgba(255, 255, 255, 0.1) !important;
             border-radius: 10px !important;
             height: 8px !important;
         }
-        
+
         .gr-slider input[type="range"]::-webkit-slider-thumb {
             background: linear-gradient(135deg, #667eea, #764ba2) !important;
             border: 2px solid white !important;
@@ -8410,12 +8440,12 @@ def create_gradio_interface():
             cursor: pointer !important;
             transition: all 0.2s ease !important;
         }
-        
+
         .gr-slider input[type="range"]::-webkit-slider-thumb:hover {
             transform: scale(1.2) !important;
             box-shadow: 0 4px 20px rgba(102, 126, 234, 0.7) !important;
         }
-        
+
         /* Accordion Styling - Compact */
         .gr-accordion {
             background: var(--bg-secondary) !important;
@@ -8424,7 +8454,7 @@ def create_gradio_interface():
             overflow: hidden !important;
             margin: 12px 0 !important;
         }
-        
+
         .gr-accordion-header {
             background: var(--bg-primary) !important;
             padding: 12px 15px !important;
@@ -8456,16 +8486,16 @@ def create_gradio_interface():
             border-color: rgba(139, 92, 246, 0.5) !important;
             color: var(--text-primary) !important;
         }
-        
+
         .gr-accordion-header:hover {
             background: var(--bg-secondary) !important;
         }
-        
+
         /* Radio Buttons */
         .gr-radio {
             gap: 15px !important;
         }
-        
+
         .gr-radio label {
             background: var(--bg-primary) !important;
             border: 2px solid var(--border-color) !important;
@@ -8476,19 +8506,19 @@ def create_gradio_interface():
             position: relative !important;
             overflow: hidden !important;
         }
-        
+
         .gr-radio label:hover {
             background: var(--bg-secondary) !important;
             border-color: var(--accent-color) !important;
             transform: translateY(-2px) !important;
         }
-        
+
         .gr-radio input[type="radio"]:checked + label {
             background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2)) !important;
             border-color: rgba(102, 126, 234, 0.5) !important;
             box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3) !important;
         }
-        
+
         /* Voice Grid Layout */
         .voice-grid {
             display: grid !important;
@@ -8501,7 +8531,7 @@ def create_gradio_interface():
             border-radius: 15px !important;
             border: 1px solid var(--border-color) !important;
         }
-        
+
         /* Conversation Mode Voice Grid - More compact */
         .conversation-voice-grid .voice-grid {
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
@@ -8509,18 +8539,18 @@ def create_gradio_interface():
             max-height: 300px !important;
             padding: 8px !important;
         }
-        
+
         /* Make conversation voice labels smaller */
         .conversation-voice-grid .voice-grid label {
             font-size: 0.8em !important;
             padding: 6px 10px !important;
             min-height: 35px !important;
         }
-        
+
         .voice-grid .gr-radio {
             display: contents !important;
         }
-        
+
         .voice-grid label {
             background: var(--bg-primary) !important;
             border: 1px solid var(--border-color) !important;
@@ -8539,13 +8569,13 @@ def create_gradio_interface():
             align-items: center !important;
             justify-content: center !important;
         }
-        
+
         .voice-grid label:hover {
             background: rgba(102, 126, 234, 0.2) !important;
             border-color: var(--accent-color) !important;
             transform: scale(1.02) !important;
         }
-        
+
         /* Multiple selectors to ensure Gradio compatibility */
         .voice-grid input[type="radio"]:checked + label,
         .voice-grid input:checked + label,
@@ -8555,14 +8585,14 @@ def create_gradio_interface():
             border: 2px solid #667eea !important;
             color: white !important;
             font-weight: 700 !important;
-            box-shadow: 
+            box-shadow:
                 0 4px 20px rgba(102, 126, 234, 0.6),
                 inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
             transform: scale(1.05) !important;
             z-index: 10 !important;
             position: relative !important;
         }
-        
+
         /* Ensure selected state persists even on hover */
         .voice-grid input[type="radio"]:checked + label:hover,
         .voice-grid input:checked + label:hover,
@@ -8572,11 +8602,11 @@ def create_gradio_interface():
             transform: scale(1.05) !important;
             border: 2px solid #5a67d8 !important;
         }
-        
+
         .voice-grid input[type="radio"] {
             display: none !important;
         }
-        
+
         /* Add a checkmark or indicator for selected voice */
         .voice-grid input[type="radio"]:checked + label::after,
         .voice-grid input:checked + label::after,
@@ -8591,12 +8621,12 @@ def create_gradio_interface():
             color: white !important;
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8) !important;
         }
-        
+
         /* Ensure the label has relative positioning for the checkmark */
         .voice-grid label {
             position: relative !important;
         }
-        
+
         /* Add a subtle glow animation for selected voice */
         .voice-grid input[type="radio"]:checked + label,
         .voice-grid input:checked + label,
@@ -8604,7 +8634,7 @@ def create_gradio_interface():
         .voice-grid [data-testid="radio"] input:checked + label {
             animation: selectedGlow 2s ease-in-out infinite alternate !important;
         }
-        
+
         /* Force override any Gradio default styles */
         .voice-grid .gr-radio label[data-selected="true"],
         .voice-grid label[aria-checked="true"],
@@ -8615,13 +8645,13 @@ def create_gradio_interface():
             color: white !important;
             font-weight: 700 !important;
             transform: scale(1.05) !important;
-            box-shadow: 
+            box-shadow:
                 0 4px 20px rgba(102, 126, 234, 0.6),
                 inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
             z-index: 10 !important;
             position: relative !important;
         }
-        
+
         /* Checkmark for custom selected class */
         .voice-grid label.voice-selected::after,
         .voice-grid label[data-selected="true"]::after {
@@ -8634,26 +8664,26 @@ def create_gradio_interface():
             color: white !important;
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8) !important;
         }
-        
+
         /* Animation for custom selected class */
         .voice-grid label.voice-selected,
         .voice-grid label[data-selected="true"] {
             animation: selectedGlow 2s ease-in-out infinite alternate !important;
         }
-        
+
         @keyframes selectedGlow {
-            0% { 
-                box-shadow: 
+            0% {
+                box-shadow:
                     0 4px 20px rgba(102, 126, 234, 0.6),
                     inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
             }
-            100% { 
-                box-shadow: 
+            100% {
+                box-shadow:
                     0 6px 30px rgba(102, 126, 234, 0.8),
                     inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
             }
         }
-        
+
         /* Checkboxes */
         .gr-checkbox {
             background: var(--bg-primary) !important;
@@ -8661,19 +8691,19 @@ def create_gradio_interface():
             border-radius: 8px !important;
             transition: all 0.3s ease !important;
         }
-        
+
         .gr-checkbox:checked {
             background: linear-gradient(135deg, #667eea, #764ba2) !important;
             border-color: transparent !important;
         }
-        
+
         /* Audio Component */
         .gr-audio {
             background: var(--bg-secondary) !important;
             border-radius: 15px !important;
             padding: 20px !important;
         }
-        
+
         /* Section Headers - Compact */
         h2, h3 {
             color: var(--text-primary) !important;
@@ -8684,7 +8714,7 @@ def create_gradio_interface():
             font-size: 1.05em !important;
             line-height: 1.2 !important;
         }
-        
+
         h2::before, h3::before {
             content: '';
             position: absolute;
@@ -8696,7 +8726,7 @@ def create_gradio_interface():
             background: linear-gradient(135deg, #667eea, #764ba2);
             border-radius: 2px;
         }
-        
+
         /* Settings Group Headers - Smaller and more subtle */
         .gr-group h3, .settings-card h3 {
             font-size: 1.05em !important;
@@ -8705,25 +8735,25 @@ def create_gradio_interface():
             padding-left: 10px !important;
             color: var(--text-primary) !important;
         }
-        
+
         .gr-group h3::before, .settings-card h3::before {
             width: 2px !important;
             height: 50% !important;
         }
-        
+
         /* Info Text */
         .gr-info {
             color: var(--text-muted) !important;
             font-size: 0.85em !important;
             font-style: italic !important;
         }
-        
+
         /* Markdown Styling */
         .gr-markdown {
             color: var(--text-primary) !important;
             line-height: 1.6 !important;
         }
-        
+
         .gr-markdown h3 {
             font-size: 1.05em !important;
             font-weight: 500 !important;
@@ -8731,12 +8761,12 @@ def create_gradio_interface():
             padding-left: 8px !important;
             color: var(--text-primary) !important;
         }
-        
+
         .gr-markdown h3::before {
             width: 2px !important;
             height: 45% !important;
         }
-        
+
         .gr-markdown h4 {
             font-size: 0.95em !important;
             font-weight: 500 !important;
@@ -8744,56 +8774,56 @@ def create_gradio_interface():
             padding-left: 6px !important;
             color: var(--text-secondary) !important;
         }
-        
+
         .gr-markdown h4::before {
             width: 1.5px !important;
             height: 40% !important;
         }
-        
+
         .gr-markdown strong {
             color: var(--text-primary) !important;
             font-weight: 600 !important;
         }
-        
+
         .gr-markdown code {
             background: var(--bg-primary) !important;
             padding: 2px 6px !important;
             border-radius: 4px !important;
             font-family: 'Fira Code', monospace !important;
         }
-        
+
         /* Status Output */
         .gr-textbox[readonly] {
             background: rgba(255, 255, 255, 0.04) !important;
             border-color: rgba(255, 255, 255, 0.14) !important;
             color: var(--text-primary) !important;
         }
-        
+
         /* Scrollbar Styling */
         ::-webkit-scrollbar {
             width: 10px;
             height: 10px;
         }
-        
+
         ::-webkit-scrollbar-track {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 5px;
         }
-        
+
         ::-webkit-scrollbar-thumb {
             background: linear-gradient(135deg, var(--accent-color), #6d28d9);
             border-radius: 5px;
         }
-        
+
         ::-webkit-scrollbar-thumb:hover {
             background: linear-gradient(135deg, #6d28d9, var(--accent-color));
         }
-        
+
         /* Loading Animation */
         .gr-loading {
             color: #667eea !important;
         }
-        
+
         /* Feature Cards - Compact */
         .feature-card {
             background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(34, 211, 238, 0.07));
@@ -8804,19 +8834,19 @@ def create_gradio_interface():
             transition: all 0.3s ease;
             text-align: center;
         }
-        
+
         .feature-card:hover {
             transform: translateY(-3px);
             box-shadow: 0 10px 24px rgba(139, 92, 246, 0.28);
         }
-        
+
         /* Glow Effects */
         .glow {
-            box-shadow: 
+            box-shadow:
                 0 0 10px rgba(139, 92, 246, 0.34),
                 0 0 20px rgba(34, 211, 238, 0.16);
         }
-        
+
         /* Responsive Design - Compact */
         @media (max-width: 1200px) {
             .workspace-row {
@@ -8834,52 +8864,52 @@ def create_gradio_interface():
             .main-title {
                 font-size: 2.2em;
             }
-            
+
             .subtitle {
                 font-size: 0.9em;
                 margin-bottom: 15px;
             }
-            
+
             .generate-btn {
                 width: 100% !important;
                 padding: 12px 25px !important;
                 font-size: 1.0em !important;
             }
-            
+
             .card, .settings-card, .gr-group {
                 padding: 12px !important;
                 margin: 5px 0 !important;
             }
-            
+
             .feature-card {
                 padding: 8px;
                 margin: 3px;
             }
         }
-        
+
         /* Additional light mode fixes removed */
-        
+
         /* Dark Theme Overrides */
         .dark {
             --tw-bg-opacity: 0 !important;
         }
-        
+
         /* Custom Animations */
         @keyframes pulse {
             0% { transform: scale(1); }
             50% { transform: scale(1.05); }
             100% { transform: scale(1); }
         }
-        
+
         .pulse {
             animation: pulse 2s infinite;
         }
-        
+
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        
+
         .fade-in {
             animation: fadeIn 0.5s ease-out;
         }
@@ -8895,23 +8925,23 @@ def create_gradio_interface():
                 container.removeAttribute('data-theme');
             }
         }
-        
+
         // Run on load
         document.addEventListener('DOMContentLoaded', updateTheme);
-        
+
         // Watch for theme changes
         const observer = new MutationObserver(updateTheme);
-        observer.observe(document.body, { 
-            attributes: true, 
+        observer.observe(document.body, {
+            attributes: true,
             attributeFilter: ['class', 'data-theme'],
-            subtree: true 
+            subtree: true
         });
-        
+
         // Also watch for system theme changes
         if (window.matchMedia) {
             window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', updateTheme);
         }
-        
+
         // Voice selection highlighting fix
         function setupVoiceSelection() {
             const voiceGrids = document.querySelectorAll('.voice-grid');
@@ -8925,7 +8955,7 @@ def create_gradio_interface():
                             label.classList.remove('voice-selected');
                             label.removeAttribute('data-selected');
                         });
-                        
+
                         // Add selected class to the current label
                         if (this.checked) {
                             const label = this.nextElementSibling;
@@ -8938,10 +8968,10 @@ def create_gradio_interface():
                 });
             });
         }
-        
+
         // Run voice selection setup after DOM loads and when content changes
         document.addEventListener('DOMContentLoaded', setupVoiceSelection);
-        
+
         // Also run when new content is added (Gradio dynamic updates)
         const contentObserver = new MutationObserver(function(mutations) {
             mutations.forEach(function(mutation) {
@@ -8952,20 +8982,20 @@ def create_gradio_interface():
                 }
             });
         });
-        
+
         contentObserver.observe(document.body, {
             childList: true,
             subtree: true
         });
-        
+
         // Tab switching functionality
         function setupTabSwitching() {
             const tabs = document.querySelectorAll('.gradio-tabs .tab-nav button');
-            
+
             function findButtonByText(text) {
                 return Array.from(document.querySelectorAll('button')).find(btn => btn.textContent.includes(text));
             }
-            
+
             function findTextboxByLabel(labelText) {
                 const labels = Array.from(document.querySelectorAll('label'));
                 const label = labels.find(l => l.textContent.includes(labelText));
@@ -8975,7 +9005,7 @@ def create_gradio_interface():
                 }
                 return null;
             }
-            
+
             tabs.forEach((tab, index) => {
                 tab.addEventListener('click', function() {
                     setTimeout(() => {
@@ -8983,7 +9013,7 @@ def create_gradio_interface():
                         const generateConversationBtn = findButtonByText('🎭 Generate Conversation');
                         const statusOutput = findTextboxByLabel('📊 Status');
                         const conversationInfo = findTextboxByLabel('📊 Conversation Summary');
-                        
+
                         if (tab.textContent.includes('TEXT TO SYNTHESIZE')) {
                             // Single voice mode
                             if (generateSpeechBtn) generateSpeechBtn.closest('.gradio-column').style.display = 'block';
@@ -10405,7 +10435,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         if EBOOK_CONVERTER_AVAILABLE:
                             gr.Markdown(
                                 """
-                            <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); 
+                            <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                                         padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
                                 <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>📖 Convert eBooks to Audiobooks</h3>
                                 <p style='margin: 0; opacity: 0.8; font-size: 0.9em;'>
@@ -10554,7 +10584,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     ):
                                         gr.Markdown(
                                             """
-                                        <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); 
+                                        <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                                                     padding: 10px; border-radius: 8px; margin-bottom: 10px;'>
                                             <p style='margin: 0; opacity: 0.8; font-size: 0.85em;'>
                                                 🔇 Control the silence duration between chunks and chapters in your audiobook
@@ -10632,7 +10662,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         if VIBEVOICE_AVAILABLE:
                             gr.Markdown(
                                 """
-                            <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); 
+                            <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                                         padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
                                 <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>🎙️ VibeVoice Podcast Generation</h3>
                                 <p style='margin: 0; opacity: 0.8; font-size: 0.9em;'>
@@ -11539,7 +11569,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         ):
                             gr.Markdown(
                                 """
-                            <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); 
+                            <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                                         padding: 12px; border-radius: 12px; margin-bottom: 15px;'>
                                 <h3 style='margin: 0 0 5px 0; padding: 0; font-size: 1.0em;'>📁 Upload Your Custom Voices</h3>
                                 <p style='margin: 0; opacity: 0.8; font-size: 0.85em;'>Add your own .pt voice files to use with Kokoro TTS</p>
@@ -11597,8 +11627,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 """
                             <div style='margin-top: 10px; padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
                                 <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
-                                    <strong>💡 Tips:</strong> Upload .pt voice files compatible with Kokoro TTS. 
-                                    Custom voices will appear with a 👤 prefix in the voice selector above. 
+                                    <strong>💡 Tips:</strong> Upload .pt voice files compatible with Kokoro TTS.
+                                    Custom voices will appear with a 👤 prefix in the voice selector above.
                                     Use the refresh button to update the voice list after uploading.
                                 </p>
                             </div>
@@ -12273,7 +12303,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     """
                                 **Voice Guide:**
                                 - `expr-voice-2-f/m` - Expressive female/male voice
-                                - `expr-voice-3-f/m` - Natural female/male voice  
+                                - `expr-voice-3-f/m` - Natural female/male voice
                                 - `expr-voice-4-f/m` - Clear female/male voice
                                 - `expr-voice-5-f/m` - Warm female/male voice
                                 """,
@@ -12462,7 +12492,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         with gr.Accordion("🎵 Audio Effects Studio", open=False, elem_classes=["fade-in"]):
             gr.Markdown(
                 """
-            <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); 
+            <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                         padding: 12px; border-radius: 12px; margin-bottom: 15px;'>
                 <h3 style='margin: 0 0 5px 0; padding: 0; font-size: 1.0em;'>🎚️ Professional Audio Processing</h3>
                 <p style='margin: 0; opacity: 0.8; font-size: 0.85em;'>Add studio-quality effects to enhance your generated speech</p>
@@ -12580,12 +12610,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
         # Footer with credits - Compact
         gr.Markdown(
             """
-        <div style='text-align: center; margin-top: 20px; padding: 15px; 
-                    background: linear-gradient(135deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05)); 
+        <div style='text-align: center; margin-top: 20px; padding: 15px;
+                    background: linear-gradient(135deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
                     border-radius: 12px; border: 1px solid rgba(102, 126, 234, 0.1);'>
             <p style='opacity: 0.7; margin: 0; font-size: 0.85em;'>
-                Made with ❤️ by SUP3RMASS1VE | 
-                <a href='https://github.com/SUP3RMASS1VE/Ultimate-TTS-Studio-SUP3R-Edition-Pinokio' target='_blank' style='color: #667eea; text-decoration: none;'>GitHub</a> | 
+                Made with ❤️ by SUP3RMASS1VE |
+                <a href='https://github.com/SUP3RMASS1VE/Ultimate-TTS-Studio-SUP3R-Edition-Pinokio' target='_blank' style='color: #667eea; text-decoration: none;'>GitHub</a> |
                 <a href='https://discord.gg/mvDcrA57AQ' target='_blank' style='color: #667eea; text-decoration: none;'>Discord</a>
             </p>
         </div>
