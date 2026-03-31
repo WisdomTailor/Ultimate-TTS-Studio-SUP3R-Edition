@@ -6166,14 +6166,27 @@ def generate_voxcpm_unified_tts(
         return None, error_msg
 
 
-DEFAULT_LLM_NARRATION_SYSTEM_PROMPT = """You are a TTS narration text transformer for Eleven v3.
+DEFAULT_LLM_NARRATION_SYSTEM_PROMPT = """You are a TTS script preparation specialist. Your sole task is to transform raw text into clean, speakable narration for ElevenLabs v3 TTS.
 
-Rules:
-1) No SSML tags in output.
-2) Output plain narration text only. No explanations, no markdown.
-3) Preserve meaning and intent.
-4) Keep audio tags sparse and voice-related.
-5) Use punctuation for pacing naturally.
+OUTPUT RULES — apply unconditionally:
+- Return plain narration text only. No SSML, no markdown, no code fences.
+- Do not include explanations, meta-commentary, or framing phrases.
+- Preserve speaker attributions (e.g., "Alice:" or "NARRATOR:") exactly as written.
+- Respect the LOCALE provided: use the appropriate spoken forms, idioms, and spelling.
+- Never emit SSML break tags (<break/>). Use punctuation for pacing.
+
+MODE CONTRACTS:
+Minimal — Only resolve what deterministic rules cannot: ambiguous abbreviations, context-dependent
+expressions, initialisms that need spelt-out or spoken form based on surrounding context. Do NOT
+rephrase, restructure, reorder, or add any styling, emphasis, or audio tags.
+
+Polish — Everything Minimal does, plus: split overly long run-on sentences, smooth genuinely
+awkward phrasing, remove markdown artifacts (**, __, ##, bullet dashes), convert parenthetical
+asides to natural spoken equivalents. Do NOT add emotional cues, audio tags, or ALL-CAPS emphasis.
+
+Vivid — Everything Polish does, plus: add sparse [emotional] audio cues honoring MAX_TAG_DENSITY
+(tags per 100 words), use em-dashes (\u2014) for pivots or interruptions, ellipses (\u2026) for
+dramatic pauses, occasional ALL-CAPS for spoken stress. Calibrate tone and rhythm to the STYLE.
 """
 
 _DIGIT_WORDS = {
@@ -6355,8 +6368,25 @@ def deterministic_normalize(source_text: str) -> str:
     return text
 
 
-def _apply_local_narration_transform(source_text: str, mode: str) -> str:
-    return deterministic_normalize(source_text)
+def _apply_local_narration_transform(source_text: str, mode: str) -> tuple:
+    """Apply local (non-LLM) narration transform with mode-aware status reporting.
+
+    Args:
+        source_text: Raw source text to transform.
+        mode: One of "Minimal", "Polish", or "Vivid".
+
+    Returns:
+        Tuple of (transformed_text, status_message).
+    """
+    result = deterministic_normalize(source_text)
+    if mode == "Vivid":
+        status = (
+            "Narration transform: deterministic normalization applied; "
+            "Vivid expressive styling requires an LLM \u2014 connect a provider for full effect"
+        )
+    else:
+        status = "Narration transform: deterministic normalization applied"
+    return result, status
 
 
 # Provider configuration — structured dict replaces per-function tuple lookups
@@ -6712,18 +6742,42 @@ def _clean_llm_transform_output(text: str) -> str:
     return cleaned.strip()
 
 
+_MODE_BEHAVIORAL_REMINDERS: dict = {
+    "Minimal": "fix only undetermined abbreviations and context-dependent expansions; do not rephrase or add styling",
+    "Polish": "normalize + smooth phrasing and remove markdown artifacts; no emotional cues or audio tags",
+    "Vivid": "normalize + polish + add sparse emotional cues and expressive punctuation per STYLE",
+}
+
+_STYLE_DESCRIPTIONS: dict = {
+    "neutral": "plain, clear delivery with no emotional coloring",
+    "dramatic": "heightened tension, deliberate pacing, weight on key moments",
+    "conversational": "warm, natural, relaxed \u2014 like speaking to a friend",
+    "documentary": "measured, authoritative, informative tone",
+    "children": "bright, friendly, slightly animated and encouraging",
+}
+
+
 def _build_llm_transform_user_prompt(
     source_text: str, mode: str, locale: str, style: str, max_tag_density: float
 ) -> str:
-    return (
-        f"MODE: {mode}\n"
-        f"LOCALE: {locale}\n"
-        f"STYLE: {style}\n"
-        f"MAX_TAG_DENSITY: {max_tag_density}\n\n"
-        "Transform the text for TTS narration while preserving meaning. "
-        "Do not include SSML or commentary. Return only transformed narration text.\n\n"
-        f"TEXT:\n{source_text}"
+    mode_reminder = _MODE_BEHAVIORAL_REMINDERS.get(
+        mode, "apply appropriate narration normalization"
     )
+    style_key = (style or "neutral").lower()
+    style_desc = _STYLE_DESCRIPTIONS.get(style_key, style or "neutral")
+    lines = [
+        f"MODE: {mode} \u2014 {mode_reminder}",
+        f"LOCALE: {locale}",
+        f"STYLE: {style} \u2014 {style_desc}",
+    ]
+    if mode == "Vivid":
+        lines.append(f"MAX_TAG_DENSITY: {max_tag_density} audio tags per 100 words")
+    lines.append("")
+    lines.append("Return ONLY the transformed text. No commentary.")
+    lines.append("")
+    lines.append("TEXT:")
+    lines.append(source_text)
+    return "\n".join(lines)
 
 
 def call_openai_compatible_chat(
@@ -9589,10 +9643,10 @@ def create_gradio_interface():
 
                             with gr.Row():
                                 llm_mode = gr.Radio(
-                                    choices=["STRICT", "NORMALIZE", "EXPRESSIVE"],
-                                    value="NORMALIZE",
+                                    choices=["Minimal", "Polish", "Vivid"],
+                                    value="Polish",
                                     label="Transform Mode",
-                                    info="STRICT: no changes to your text. NORMALIZE: cleans up numbers, dates, abbreviations for natural speech. EXPRESSIVE: adds dramatic flair and emotional cues.",
+                                    info="Minimal: fix only ambiguous items the automatic pass cannot resolve. Polish: normalize plus smooth phrasing and remove markdown. Vivid: Polish plus sparse emotional audio cues and expressive punctuation.",
                                 )
                                 llm_locale = gr.Dropdown(
                                     label="Locale",
