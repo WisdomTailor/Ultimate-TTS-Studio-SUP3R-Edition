@@ -6302,7 +6302,7 @@ def _get_provider_config(provider_name: str) -> dict:
     return LLM_PROVIDER_CONFIGS.get(provider_name, _DEFAULT_PROVIDER_CONFIG)
 
 
-def get_llm_provider_defaults(provider_name: str):
+def get_llm_provider_static_defaults(provider_name: str):
     cfg = _get_provider_config(provider_name)
     suggestions = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
     default_model = cfg["default_model"]
@@ -6341,6 +6341,157 @@ def resolve_llm_api_key(provider_name: str, api_key: str):
         return env_value.strip(), "env"
 
     return "", "missing"
+
+
+def _resolve_api_key_internal(provider_name: str, api_key: str):
+    return resolve_llm_api_key(provider_name, api_key)
+
+
+def fetch_provider_models(
+    provider_name: str,
+    base_url: str,
+    api_key: str = "",
+    timeout_sec: float = 5.0,
+) -> tuple[list[str], str]:
+    """Fetch model IDs from an OpenAI-compatible models endpoint."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    cfg = _get_provider_config(provider_name)
+    clean_base = (base_url or "").strip().rstrip("/")
+    if not clean_base:
+        return [], "❌ Base URL is required to fetch models."
+
+    if "/openai" in clean_base:
+        models_url = clean_base.rsplit("/openai", 1)[0] + "/models?api-version=2024-10-21"
+    else:
+        models_url = clean_base + "/models"
+
+    headers = dict(cfg.get("headers", {}))
+    resolved_key, _key_source = _resolve_api_key_internal(provider_name, api_key)
+    if resolved_key:
+        if cfg.get("auth_style") == "api-key":
+            headers["api-key"] = resolved_key
+        else:
+            headers["Authorization"] = f"Bearer {resolved_key}"
+    elif cfg.get("requires_api_key"):
+        env_var = get_llm_provider_env_var(provider_name)
+        return [], f"⚠ API key required. Set {env_var} or enter it in the API Key field."
+
+    try:
+        req = urllib.request.Request(url=models_url, method="GET", headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout_sec) as response:
+            payload = _json.loads(response.read().decode("utf-8"))
+
+        items = payload.get("data", []) if isinstance(payload, dict) else []
+        models = []
+        seen = set()
+        for item in items:
+            if isinstance(item, dict) and item.get("id"):
+                model_id = str(item["id"])
+                if model_id not in seen:
+                    seen.add(model_id)
+                    models.append(model_id)
+
+        if models:
+            return models, f"✅ Found {len(models)} model(s)"
+        return [], "⚠ API responded but no models were listed. Load a model first."
+    except urllib.error.HTTPError as error:
+        return [], f"❌ HTTP {error.code}: {error.reason}"
+    except (urllib.error.URLError, TimeoutError):
+        return [], f"❌ Cannot reach {provider_name} API at {clean_base}"
+    except Exception as error:
+        return [], f"❌ Error fetching models: {error}"
+
+
+def try_start_lm_studio() -> str:
+    """Attempt to launch LM Studio if it is not already running."""
+    import time
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url="http://localhost:1234/v1/models", method="GET")
+        with urllib.request.urlopen(req, timeout=2.0) as response:
+            if response.status in (200, 204):
+                return "✅ LM Studio already running"
+    except Exception:
+        pass
+
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "LM Studio" / "LM Studio.exe",
+        Path("C:/Program Files/LM Studio/LM Studio.exe"),
+        Path("C:/Program Files (x86)/LM Studio/LM Studio.exe"),
+        Path("/Applications/LM Studio.app/Contents/MacOS/LM Studio"),
+    ]
+
+    launched = False
+    for candidate in candidates:
+        if candidate.exists():
+            try:
+                subprocess.Popen([str(candidate)], cwd=str(candidate.parent))
+                launched = True
+                break
+            except Exception:
+                continue
+
+    if not launched:
+        return "❌ LM Studio not found. Install it or start it manually."
+
+    deadline = time.time() + 25.0
+    while time.time() < deadline:
+        try:
+            req = urllib.request.Request(url="http://localhost:1234/v1/models", method="GET")
+            with urllib.request.urlopen(req, timeout=2.0) as response:
+                if response.status in (200, 204):
+                    return "✅ LM Studio started successfully"
+        except Exception:
+            pass
+        time.sleep(1.5)
+
+    return (
+        "⚠ LM Studio launched but the API is not ready yet. "
+        "Enable the local server in the Developer tab."
+    )
+
+
+def on_llm_provider_change(provider_name: str):
+    """Update provider defaults, optionally start LM Studio, and fetch live models."""
+    cfg = _get_provider_config(provider_name)
+    base_url = cfg["base_url"]
+    default_model = cfg["default_model"]
+
+    start_status = ""
+    if provider_name == "LM Studio OpenAI Server":
+        start_status = try_start_lm_studio()
+
+    models, fetch_status = fetch_provider_models(provider_name, base_url)
+    if not models:
+        models = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
+
+    if default_model and default_model not in models:
+        models.insert(0, default_model)
+
+    value = models[0] if models else default_model
+    status_parts = [part for part in [start_status, fetch_status] if part]
+    status = " | ".join(status_parts) if status_parts else ""
+
+    return base_url, "", gr.update(choices=models, value=value), status
+
+
+def refresh_llm_models(provider_name: str, base_url: str, api_key: str):
+    """Manual refresh for provider model discovery."""
+    models, status = fetch_provider_models(provider_name, base_url, api_key)
+
+    if not models:
+        cfg = _get_provider_config(provider_name)
+        models = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
+        default_model = cfg["default_model"]
+        if default_model and default_model not in models:
+            models.insert(0, default_model)
+
+    value = models[0] if models else ""
+    return gr.update(choices=models, value=value), status
 
 
 def _clean_llm_transform_output(text: str) -> str:
@@ -9182,14 +9333,23 @@ def create_gradio_interface():
                                     choices=list(LLM_PROVIDER_CONFIGS.keys()),
                                     value="Ollama (OpenAI-compatible)",
                                 )
+
+                            with gr.Row():
                                 llm_model_id = gr.Dropdown(
                                     label="Model ID",
                                     choices=LLM_PROVIDER_MODEL_SUGGESTIONS[
                                         "Ollama (OpenAI-compatible)"
                                     ],
                                     value="qwen3:30b-a3b",
-                                        info="Examples: qwen3:30b-a3b, gemini-2.0-flash, or Qwen/Qwen3-30B-A3B-Instruct-2507",
+                                    info="Select or type a model ID. Click Refresh to fetch live models.",
                                     allow_custom_value=True,
+                                    scale=4,
+                                )
+                                llm_refresh_models_btn = gr.Button(
+                                    "🔄 Refresh Models",
+                                    variant="secondary",
+                                    scale=1,
+                                    elem_classes=["fade-in"],
                                 )
 
                             with gr.Row():
@@ -13192,9 +13352,15 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
 
         llm_provider.change(
-            fn=get_llm_provider_defaults,
+            fn=on_llm_provider_change,
             inputs=[llm_provider],
-            outputs=[llm_base_url, llm_api_key, llm_model_id],
+            outputs=[llm_base_url, llm_api_key, llm_model_id, llm_connection_status],
+        )
+
+        llm_refresh_models_btn.click(
+            fn=refresh_llm_models,
+            inputs=[llm_provider, llm_base_url, llm_api_key],
+            outputs=[llm_model_id, llm_connection_status],
         )
 
         llm_prompt_reset_btn.click(
