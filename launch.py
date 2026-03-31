@@ -6726,7 +6726,7 @@ def refresh_llm_models(provider_name: str, base_url: str, api_key: str):
     return gr.update(choices=models, value=value), status
 
 
-def _clean_llm_transform_output(text: str) -> str:
+def _clean_llm_transform_output(text: str, engine: str | None = None) -> str:
     if not isinstance(text, str):
         return ""
 
@@ -6734,11 +6734,19 @@ def _clean_llm_transform_output(text: str) -> str:
     cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
     cleaned = re.sub(
-        r"<\s*(speak|break|phoneme|prosody|lexicon|voice)\b[^>]*>", "", cleaned, flags=re.IGNORECASE
+        r"<\s*(speak|break|phoneme|prosody|lexicon|voice)\b[^>]*>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
     )
     cleaned = re.sub(
-        r"</\s*(speak|phoneme|prosody|lexicon|voice)\s*>", "", cleaned, flags=re.IGNORECASE
+        r"</\s*(speak|phoneme|prosody|lexicon|voice)\s*>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
     )
+    if engine:
+        cleaned = strip_unsupported_cues(cleaned, engine)
     return cleaned.strip()
 
 
@@ -6755,6 +6763,200 @@ _STYLE_DESCRIPTIONS: dict = {
     "documentary": "measured, authoritative, informative tone",
     "children": "bright, friendly, slightly animated and encouraging",
 }
+
+_DEFAULT_ENGINE_EXPRESSIVENESS = {
+    "bracket_cues": False,
+    "ssml": False,
+    "allcaps_emphasis": False,
+    "ellipsis_pause": True,
+    "emotion_vectors": False,
+}
+
+_BRACKET_CUE_PATTERN = re.compile(r"\[(?=[^\]\n]*[A-Za-z])[^\]\n]{1,80}\]")
+_PAREN_STAGE_DIRECTION_PATTERN = re.compile(r"\((?=[^\)\n]*[A-Za-z])[^\)\n]{1,80}\)")
+_SSML_TAG_PATTERN = re.compile(r"</?\s*[A-Za-z][\w:-]*(?:\s+[^<>]*)?\s*/?>")
+_MULTISPACE_PATTERN = re.compile(r"[ \t]{2,}")
+_SPACE_BEFORE_PUNCT_PATTERN = re.compile(r"\s+([,.;:!?])")
+_EXCESS_BLANK_LINES_PATTERN = re.compile(r"\n{3,}")
+_ALLCAPS_WORD_PATTERN = re.compile(r"\b[A-Z][A-Z'-]{2,}\b")
+_PRESERVED_ALLCAPS_ACRONYMS = {
+    "AI",
+    "API",
+    "ASCII",
+    "CIA",
+    "CLI",
+    "CPU",
+    "CSS",
+    "CSV",
+    "DVD",
+    "EU",
+    "FAQ",
+    "FBI",
+    "GPU",
+    "HTML",
+    "HTTP",
+    "HTTPS",
+    "IDE",
+    "JSON",
+    "LLM",
+    "ML",
+    "NASA",
+    "NATO",
+    "NLP",
+    "OCR",
+    "PDF",
+    "RAM",
+    "SDK",
+    "SQL",
+    "SSH",
+    "TCP",
+    "TTS",
+    "UI",
+    "UN",
+    "URI",
+    "URL",
+    "USA",
+    "USB",
+    "UX",
+    "UDP",
+    "WAV",
+    "XML",
+    "YAML",
+}
+
+ENGINE_EXPRESSIVENESS: dict[str, dict[str, bool]] = {
+    "ChatterboxTTS": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "Chatterbox Multilingual": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "Chatterbox Turbo": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "Kokoro TTS": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "Fish Speech": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "IndexTTS": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "IndexTTS2": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": True,
+    },
+    "F5-TTS": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "Higgs Audio": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "VoxCPM": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "KittenTTS": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "Qwen Voice Design": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "Qwen Voice Clone": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+    "Qwen Custom Voice": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
+}
+
+
+def _normalize_allcaps_word(match: re.Match[str]) -> str:
+    word = match.group(0)
+    if word in _PRESERVED_ALLCAPS_ACRONYMS:
+        return word
+    return word.title()
+
+
+def strip_unsupported_cues(text: str, engine: str) -> str:
+    """Strip expressive markup that the selected engine will read literally."""
+    if not isinstance(text, str):
+        return ""
+
+    capabilities = ENGINE_EXPRESSIVENESS.get(engine, _DEFAULT_ENGINE_EXPRESSIVENESS)
+    cleaned = text
+
+    if not capabilities.get("bracket_cues", False):
+        cleaned = _BRACKET_CUE_PATTERN.sub("", cleaned)
+        cleaned = _PAREN_STAGE_DIRECTION_PATTERN.sub("", cleaned)
+        cleaned = _MULTISPACE_PATTERN.sub(" ", cleaned)
+        cleaned = _SPACE_BEFORE_PUNCT_PATTERN.sub(r"\1", cleaned)
+
+    if not capabilities.get("ssml", False):
+        cleaned = _SSML_TAG_PATTERN.sub("", cleaned)
+
+    if not capabilities.get("allcaps_emphasis", False):
+        cleaned = _ALLCAPS_WORD_PATTERN.sub(_normalize_allcaps_word, cleaned)
+
+    cleaned = _MULTISPACE_PATTERN.sub(" ", cleaned)
+    cleaned = _SPACE_BEFORE_PUNCT_PATTERN.sub(r"\1", cleaned)
+    cleaned = _EXCESS_BLANK_LINES_PATTERN.sub("\n\n", cleaned)
+    return cleaned.strip()
 
 
 def _build_llm_transform_user_prompt(
@@ -6904,6 +7106,7 @@ def apply_llm_transform_to_textbox(
     top_p: float,
     max_tokens: int,
     allow_local_fallback: bool,
+    engine: str = "",
 ):
     transformed_text, status = apply_llm_narration_transform(
         source_text=source_text,
@@ -6922,6 +7125,7 @@ def apply_llm_transform_to_textbox(
         top_p=top_p,
         max_tokens=max_tokens,
         allow_local_fallback=allow_local_fallback,
+        engine=engine,
     )
     if isinstance(status, str) and status.startswith("LLM transform:"):
         status = status.replace("LLM transform:", "Narration transform:", 1)
@@ -6945,6 +7149,7 @@ def apply_llm_narration_transform(
     top_p: float,
     max_tokens: int,
     allow_local_fallback: bool = True,
+    engine: str = "",
 ):
     if not isinstance(source_text, str) or not source_text.strip():
         return source_text, "Narration transform: skipped (empty text)"
@@ -6996,7 +7201,7 @@ def apply_llm_narration_transform(
             extra_headers=cfg["headers"],
             auth_style=cfg["auth_style"],
         )
-        cleaned = _clean_llm_transform_output(raw_output)
+        cleaned = _clean_llm_transform_output(raw_output, engine=engine)
         if not cleaned:
             if allow_local_fallback:
                 return (
@@ -7791,6 +7996,7 @@ def generate_unified_tts_wrapped(*all_args):
             top_p=base_args[param_idx["llm_top_p"]],
             max_tokens=base_args[param_idx["llm_max_tokens"]],
             allow_local_fallback=bool(base_args[param_idx["llm_allow_local_fallback"]]),
+            engine=tts_engine,
         )
         base_args[param_idx["text_input"]] = transformed_text
         text_input = transformed_text
@@ -13706,6 +13912,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_top_p,
                 llm_max_tokens,
                 llm_allow_local_fallback,
+                tts_engine,
             ],
             outputs=[text, llm_connection_status],
         )
