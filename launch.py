@@ -15304,18 +15304,33 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 outputs=[vibevoice_output, vibevoice_status],
             )
 
+        # ── MCP security integration (Phase 4a WI-5) ─────────────────────
+        def _extract_bearer_token(request: gr.Request) -> str:
+            """Extract bearer token from Gradio request headers."""
+            if request is None:
+                return ""
+            try:
+                auth_header = request.headers.get("authorization", "")
+                if auth_header.lower().startswith("bearer "):
+                    return auth_header[7:].strip()
+            except (AttributeError, TypeError):
+                pass
+            return ""
+
         # ── MCP read-only tools (Phase 4a WI-3) ─────────────────────────
-        def mcp_list_engines() -> list[dict[str, object]]:
+        def mcp_list_engines(request: gr.Request) -> list[dict[str, object]]:
             """List all available TTS engines with their capabilities and status.
 
             Returns:
                 A list of engine objects with name, capabilities, voice mode, and service status.
             """
+            from mcp_security import get_security
             from tts_service import list_engines
 
+            get_security().guard("list_engines", _extract_bearer_token(request))
             return list_engines()
 
-        def mcp_get_engine_info(engine_name: str) -> dict[str, object]:
+        def mcp_get_engine_info(engine_name: str, request: gr.Request) -> dict[str, object]:
             """Get detailed information about a specific TTS engine.
 
             Args:
@@ -15324,11 +15339,13 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             Returns:
                 Engine details including capabilities, supported cues, voice mode, and parameter schema.
             """
+            from mcp_security import get_security
             from tts_service import get_engine_info
 
+            get_security().guard("get_engine_info", _extract_bearer_token(request))
             return get_engine_info(engine_name)
 
-        def mcp_list_voices(engine_name: str = "") -> list[dict[str, object]]:
+        def mcp_list_voices(engine_name: str = "", request: gr.Request | None = None) -> list[dict[str, object]]:
             """List available voices, optionally filtered by engine.
 
             Args:
@@ -15337,30 +15354,37 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             Returns:
                 A list of voice objects with id, name, engine, and type fields.
             """
+            from mcp_security import get_security
             from tts_service import list_voices
 
+            get_security().guard("list_voices", _extract_bearer_token(request))
             return list_voices(engine_name if engine_name else None)
 
-        def mcp_list_outputs() -> list[dict[str, object]]:
+        def mcp_list_outputs(request: gr.Request) -> list[dict[str, object]]:
             """List generated audio output files sorted by most recent first.
 
             Returns:
                 A list of output file objects with path, filename, size_bytes, and modified_at.
             """
+            from mcp_security import get_security
             from tts_service import list_outputs
 
+            get_security().guard("list_outputs", _extract_bearer_token(request))
             return list_outputs()
 
-        def mcp_get_app_version() -> dict[str, str]:
+        def mcp_get_app_version(request: gr.Request) -> dict[str, str]:
             """Get the current application version and MCP server status.
 
             Returns:
                 A dictionary with app_name, mcp_status, mcp_version, and tool_count fields.
             """
+            from mcp_security import get_security
+
+            get_security().guard("get_app_version", _extract_bearer_token(request))
             return {
                 "app_name": "Ultimate TTS Studio",
                 "mcp_status": "active",
-                "mcp_version": "0.4.0",
+                "mcp_version": "0.5.0",
                 "tool_count": "9",
             }
 
@@ -15371,7 +15395,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         gr.api(mcp_get_app_version, api_name="get_app_version")
 
         # ── MCP stateless transform tools (Phase 4a WI-4) ────────────────
-        def mcp_normalize_text(text: str) -> str:
+        def mcp_normalize_text(text: str, request: gr.Request) -> str:
             """Apply deterministic text normalization without LLM processing.
 
             Expands abbreviations, converts phone numbers, currencies, dates, times,
@@ -15383,8 +15407,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             Returns:
                 The normalized text with expansions applied.
             """
+            from mcp_security import get_security
             from narration_transform import deterministic_normalize
 
+            get_security().guard("normalize_text", _extract_bearer_token(request))
             return deterministic_normalize(text)
 
         def mcp_transform_text(
@@ -15401,6 +15427,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             top_p: str = "0.9",
             max_tokens: str = "1024",
             timeout_seconds: str = "60",
+            request: gr.Request | None = None,
         ) -> dict[str, str]:
             """Transform text using LLM narration processing for TTS optimization.
 
@@ -15426,8 +15453,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             Returns:
                 A dictionary with "transformed_text" and "status" fields.
             """
+            from mcp_security import get_security
             from narration_transform import LLM_PROVIDER_CONFIGS, apply_llm_narration_transform
 
+            get_security().guard("transform_text", _extract_bearer_token(request))
             if not base_url and provider_name in LLM_PROVIDER_CONFIGS:
                 base_url = LLM_PROVIDER_CONFIGS[provider_name].get("base_url", "")
             if not model_id and provider_name in LLM_PROVIDER_CONFIGS:
@@ -15454,7 +15483,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             )
             return {"transformed_text": transformed, "status": status}
 
-        def mcp_structure_conversation(script_text: str) -> dict[str, object]:
+        def mcp_structure_conversation(
+            script_text: str,
+            request: gr.Request | None = None,
+        ) -> dict[str, object]:
             """Parse a conversation script into structured speaker and line data.
 
             Accepts text in "Speaker: dialogue" format (one speaker per line) and
@@ -15468,8 +15500,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker/text dicts), and "line_count". Returns an "error" field if
                 parsing fails.
             """
+            from mcp_security import get_security
             from conversation_logic import get_speaker_names_from_script, parse_conversation_script
 
+            get_security().guard("structure_conversation", _extract_bearer_token(request))
             lines, error = parse_conversation_script(script_text)
             if error:
                 return {"error": error, "speakers": [], "lines": [], "line_count": 0}
@@ -15481,7 +15515,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 "line_count": len(lines),
             }
 
-        def mcp_list_llm_providers() -> list[dict[str, str]]:
+        def mcp_list_llm_providers(request: gr.Request) -> list[dict[str, str]]:
             """List available LLM providers and their default configuration.
 
             Returns provider names, base URLs, default models, and whether an API key
@@ -15492,8 +15526,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 A list of provider objects with name, base_url, default_model,
                 requires_api_key, and kind fields.
             """
+            from mcp_security import get_security
             from narration_transform import LLM_PROVIDER_CONFIGS
 
+            get_security().guard("list_llm_providers", _extract_bearer_token(request))
             return [
                 {
                     "name": name,
@@ -15520,4 +15556,12 @@ if __name__ == "__main__":
     # Create and launch the interface
     with suppress_specific_warnings():
         demo = create_gradio_interface()
+        from mcp_security import initialize_security
+
+        _mcp_token = initialize_security(
+            token_path=Path(".mcp_token"),
+            log_dir=Path("logs") / "mcp",
+            auth_enabled=True,
+        )
+        print("MCP security initialized. Token file: .mcp_token")
         demo.launch(share=False, show_error=True, mcp_server=True)

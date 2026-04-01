@@ -52,11 +52,15 @@ audiobooks/
 *.secret
 *.secrets
 *.token
+.mcp_token
 *.key
 *.pem
 *.p12
 *.pfx
 *.jks
+
+# MCP security artifacts
+logs/mcp/
 
 # Tooling and test artifacts
 .pytest_cache/
