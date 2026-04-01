@@ -379,6 +379,12 @@ from narration_transform import (
     apply_llm_transform_to_textbox,
     format_provenance,
 )
+from pronunciation import (
+    PronunciationOverride,
+    ProtectedTerm,
+    load_lexicon,
+    save_lexicon,
+)
 from conversation_logic import (
     create_default_speaker_settings,
     format_conversation_with_llm,
@@ -7092,6 +7098,7 @@ def create_gradio_interface():
     """Create the unified Gradio interface."""
     current_storage_settings = load_app_state_settings()
     current_llm_settings = get_initial_llm_panel_settings(current_storage_settings)
+    lexicon_path = Path(__file__).parent / "app_state" / "lexicon.json"
     current_storage_mode, current_storage_path = resolve_output_storage_settings(
         current_storage_settings
     )
@@ -7107,6 +7114,52 @@ def create_gradio_interface():
 
     def on_preset_change(preset_name: str):
         return get_llm_outcome_preset_values(preset_name)
+
+    def _to_bool(value: Any, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().casefold()
+            if normalized in {"true", "1", "yes", "y", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "n", "off"}:
+                return False
+        return default
+
+    def _lexicon_terms_to_rows(protected_terms: list[ProtectedTerm]) -> list[list[Any]]:
+        return [
+            [protected_term.term, protected_term.case_sensitive]
+            for protected_term in protected_terms
+            if protected_term.term
+        ]
+
+    def _lexicon_overrides_to_rows(overrides: list[PronunciationOverride]) -> list[list[Any]]:
+        return [
+            [override.word, override.phonetic, override.case_sensitive]
+            for override in overrides
+            if override.word and override.phonetic
+        ]
+
+    def _load_glossary_rows() -> tuple[list[list[Any]], list[list[Any]], str]:
+        if not lexicon_path.exists():
+            return [], [], f"ℹ️ Glossary file not found yet: {lexicon_path.name}"
+
+        try:
+            protected_terms, overrides = load_lexicon(lexicon_path)
+        except (FileNotFoundError, ValueError, OSError) as error:
+            return [], [], f"❌ Failed to load glossary: {error}"
+
+        protected_rows = _lexicon_terms_to_rows(protected_terms)
+        override_rows = _lexicon_overrides_to_rows(overrides)
+        return (
+            protected_rows,
+            override_rows,
+            f"✅ Loaded glossary from {lexicon_path.name} ({len(protected_rows)} terms, {len(override_rows)} overrides)",
+        )
+
+    glossary_protected_rows, glossary_override_rows, glossary_status_message = _load_glossary_rows()
 
     # Kokoro voices will be preloaded when the model is loaded
 
@@ -8962,6 +9015,124 @@ def create_gradio_interface():
                             with gr.Row(visible=False) as action_row:
                                 accept_btn = gr.Button("✓ Accept", variant="primary", size="sm")
                                 reject_btn = gr.Button("✗ Reject", variant="secondary", size="sm")
+
+                            with gr.Accordion(
+                                "📖 Pronunciation Glossary",
+                                open=False,
+                                elem_classes=["fade-in"],
+                            ):
+                                gr.Markdown(
+                                    "Terms that will be preserved unchanged through AI narration transform.",
+                                    elem_classes=["fade-in"],
+                                )
+
+                                protected_terms_df = gr.Dataframe(
+                                    headers=["Term", "Case Sensitive"],
+                                    datatype=["str", "bool"],
+                                    value=glossary_protected_rows,
+                                    interactive=True,
+                                    wrap=True,
+                                    label="Protected Terms",
+                                    elem_classes=["fade-in"],
+                                )
+
+                                with gr.Row():
+                                    protected_term_input = gr.Textbox(
+                                        label="New Term",
+                                        placeholder="Enter a term to preserve",
+                                        elem_classes=["fade-in"],
+                                        scale=3,
+                                    )
+                                    protected_term_case_sensitive = gr.Checkbox(
+                                        value=True,
+                                        label="Case Sensitive",
+                                        elem_classes=["fade-in"],
+                                        scale=1,
+                                    )
+
+                                with gr.Row():
+                                    add_protected_term_btn = gr.Button(
+                                        "➕ Add Term",
+                                        variant="secondary",
+                                        elem_classes=["fade-in"],
+                                    )
+                                    remove_protected_term_btn = gr.Button(
+                                        "🗑️ Remove Selected",
+                                        variant="secondary",
+                                        elem_classes=["fade-in"],
+                                    )
+
+                                gr.Markdown(
+                                    "Word-to-phonetic mappings applied before TTS synthesis.",
+                                    elem_classes=["fade-in"],
+                                )
+
+                                pronunciation_overrides_df = gr.Dataframe(
+                                    headers=["Word", "Phonetic", "Case Sensitive"],
+                                    datatype=["str", "str", "bool"],
+                                    value=glossary_override_rows,
+                                    interactive=True,
+                                    wrap=True,
+                                    label="Pronunciation Overrides",
+                                    elem_classes=["fade-in"],
+                                )
+
+                                with gr.Row():
+                                    override_word_input = gr.Textbox(
+                                        label="Word",
+                                        placeholder="Enter the source word",
+                                        elem_classes=["fade-in"],
+                                        scale=2,
+                                    )
+                                    override_phonetic_input = gr.Textbox(
+                                        label="Phonetic",
+                                        placeholder="Enter the phonetic spelling",
+                                        elem_classes=["fade-in"],
+                                        scale=2,
+                                    )
+                                    override_case_sensitive = gr.Checkbox(
+                                        value=False,
+                                        label="Case Sensitive",
+                                        elem_classes=["fade-in"],
+                                        scale=1,
+                                    )
+
+                                with gr.Row():
+                                    add_override_btn = gr.Button(
+                                        "➕ Add Override",
+                                        variant="secondary",
+                                        elem_classes=["fade-in"],
+                                    )
+                                    remove_override_btn = gr.Button(
+                                        "🗑️ Remove Selected",
+                                        variant="secondary",
+                                        elem_classes=["fade-in"],
+                                    )
+
+                                with gr.Row():
+                                    save_glossary_btn = gr.Button(
+                                        "💾 Save Glossary",
+                                        variant="primary",
+                                        elem_classes=["fade-in"],
+                                    )
+                                    load_glossary_btn = gr.Button(
+                                        "📂 Load Glossary",
+                                        variant="secondary",
+                                        elem_classes=["fade-in"],
+                                    )
+                                    clear_glossary_btn = gr.Button(
+                                        "🗑️ Clear All",
+                                        variant="secondary",
+                                        elem_classes=["fade-in"],
+                                    )
+
+                                glossary_status = gr.Textbox(
+                                    label="Glossary Status",
+                                    lines=3,
+                                    interactive=False,
+                                    value=glossary_status_message,
+                                    elem_classes=["fade-in"],
+                                )
 
                     # Conversation Mode Tab
                     with gr.TabItem("🎭 CONVERSATION MODE", id="conversation_mode"):
@@ -12821,6 +12992,99 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             return message, update_f5_model_status()
 
+        def _normalize_protected_df_rows(current_df: Any) -> list[list[Any]]:
+            normalized_rows: list[list[Any]] = []
+            for row in current_df or []:
+                if not isinstance(row, (list, tuple)) or len(row) < 2:
+                    continue
+                term = str(row[0]).strip() if row[0] is not None else ""
+                if not term:
+                    continue
+                normalized_rows.append([term, _to_bool(row[1], True)])
+            return normalized_rows
+
+        def _normalize_override_df_rows(current_df: Any) -> list[list[Any]]:
+            normalized_rows: list[list[Any]] = []
+            for row in current_df or []:
+                if not isinstance(row, (list, tuple)) or len(row) < 3:
+                    continue
+                word = str(row[0]).strip() if row[0] is not None else ""
+                phonetic = str(row[1]).strip() if row[1] is not None else ""
+                if not word or not phonetic:
+                    continue
+                normalized_rows.append([word, phonetic, _to_bool(row[2], False)])
+            return normalized_rows
+
+        def handle_load_glossary():
+            protected_rows, override_rows, status = _load_glossary_rows()
+            return protected_rows, override_rows, status
+
+        def handle_save_glossary(protected_df: Any, overrides_df: Any):
+            protected_rows = _normalize_protected_df_rows(protected_df)
+            override_rows = _normalize_override_df_rows(overrides_df)
+
+            protected_terms = [
+                ProtectedTerm(term=row[0], case_sensitive=row[1]) for row in protected_rows
+            ]
+            overrides = [
+                PronunciationOverride(word=row[0], phonetic=row[1], case_sensitive=row[2])
+                for row in override_rows
+            ]
+
+            try:
+                save_lexicon(lexicon_path, protected_terms, overrides)
+            except OSError as error:
+                return protected_rows, override_rows, f"❌ Failed to save glossary: {error}"
+
+            return (
+                protected_rows,
+                override_rows,
+                f"✅ Saved glossary to {lexicon_path.name} ({len(protected_rows)} terms, {len(override_rows)} overrides)",
+            )
+
+        def handle_add_protected_term(term_text: str, case_sensitive: bool, current_df: Any):
+            protected_rows = _normalize_protected_df_rows(current_df)
+            normalized_term = term_text.strip()
+            if not normalized_term:
+                return protected_rows, "⚠️ Enter a term before adding it."
+
+            protected_rows.append([normalized_term, bool(case_sensitive)])
+            return protected_rows, f"✅ Added protected term: {normalized_term}"
+
+        def handle_remove_protected_term(current_df: Any):
+            protected_rows = _normalize_protected_df_rows(current_df)
+            if not protected_rows:
+                return protected_rows, "ℹ️ No protected terms to remove."
+
+            removed_term = protected_rows.pop()[0]
+            return protected_rows, f"✅ Removed protected term: {removed_term}"
+
+        def handle_add_pronunciation_override(
+            word: str,
+            phonetic: str,
+            case_sensitive: bool,
+            current_df: Any,
+        ):
+            override_rows = _normalize_override_df_rows(current_df)
+            normalized_word = word.strip()
+            normalized_phonetic = phonetic.strip()
+            if not normalized_word or not normalized_phonetic:
+                return override_rows, "⚠️ Enter both a word and phonetic spelling before adding it."
+
+            override_rows.append([normalized_word, normalized_phonetic, bool(case_sensitive)])
+            return override_rows, f"✅ Added override for: {normalized_word}"
+
+        def handle_remove_pronunciation_override(current_df: Any):
+            override_rows = _normalize_override_df_rows(current_df)
+            if not override_rows:
+                return override_rows, "ℹ️ No pronunciation overrides to remove."
+
+            removed_word = override_rows.pop()[0]
+            return override_rows, f"✅ Removed override for: {removed_word}"
+
+        def handle_clear_glossary():
+            return [], [], "🧹 Cleared glossary tables. Save to persist the empty glossary."
+
         # F5-TTS event handlers
         if F5_TTS_AVAILABLE:
             # Initial status update
@@ -12848,6 +13112,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
         if QWEN_TTS_AVAILABLE:
             demo.load(fn=update_qwen_model_status, outputs=[qwen_model_status])
             demo.load(fn=get_qwen_loaded_model_display, outputs=[qwen_loaded_model_status])
+
+        demo.load(
+            fn=handle_load_glossary,
+            outputs=[protected_terms_df, pronunciation_overrides_df, glossary_status],
+        )
 
         # Cleanup management
         clear_temp_btn.click(
@@ -13033,6 +13302,51 @@ Alice: I went to Japan. It was absolutely incredible!""",
             fn=test_llm_connection,
             inputs=[llm_provider, llm_base_url, llm_api_key, llm_model_id, llm_timeout_seconds],
             outputs=[llm_connection_status],
+        )
+
+        add_protected_term_btn.click(
+            fn=handle_add_protected_term,
+            inputs=[protected_term_input, protected_term_case_sensitive, protected_terms_df],
+            outputs=[protected_terms_df, glossary_status],
+        )
+
+        remove_protected_term_btn.click(
+            fn=handle_remove_protected_term,
+            inputs=[protected_terms_df],
+            outputs=[protected_terms_df, glossary_status],
+        )
+
+        add_override_btn.click(
+            fn=handle_add_pronunciation_override,
+            inputs=[
+                override_word_input,
+                override_phonetic_input,
+                override_case_sensitive,
+                pronunciation_overrides_df,
+            ],
+            outputs=[pronunciation_overrides_df, glossary_status],
+        )
+
+        remove_override_btn.click(
+            fn=handle_remove_pronunciation_override,
+            inputs=[pronunciation_overrides_df],
+            outputs=[pronunciation_overrides_df, glossary_status],
+        )
+
+        save_glossary_btn.click(
+            fn=handle_save_glossary,
+            inputs=[protected_terms_df, pronunciation_overrides_df],
+            outputs=[protected_terms_df, pronunciation_overrides_df, glossary_status],
+        )
+
+        load_glossary_btn.click(
+            fn=handle_load_glossary,
+            outputs=[protected_terms_df, pronunciation_overrides_df, glossary_status],
+        )
+
+        clear_glossary_btn.click(
+            fn=handle_clear_glossary,
+            outputs=[protected_terms_df, pronunciation_overrides_df, glossary_status],
         )
 
         llm_apply_btn.click(
