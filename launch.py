@@ -15304,35 +15304,69 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 outputs=[vibevoice_output, vibevoice_status],
             )
 
-        # MCP probe tools (Phase 4a spike)
+        # ── MCP read-only tools (Phase 4a WI-3) ─────────────────────────
         def mcp_list_engines() -> list[dict[str, object]]:
-            """List all available TTS engines and their capabilities.
+            """List all available TTS engines with their capabilities and status.
 
             Returns:
-                A list of engine objects with name, display_name, and expressiveness info.
+                A list of engine objects with name, capabilities, voice mode, and service status.
             """
-            return [
-                {
-                    "name": name,
-                    "display_name": name,
-                    "supports_expressiveness": data.get("supports_expressiveness", False),
-                }
-                for name, data in ENGINE_EXPRESSIVENESS.items()
-            ]
+            from tts_service import list_engines
+
+            return list_engines()
+
+        def mcp_get_engine_info(engine_name: str) -> dict[str, object]:
+            """Get detailed information about a specific TTS engine.
+
+            Args:
+                engine_name: The engine identifier (e.g., "F5-TTS", "ChatterboxTTS", "Kokoro TTS").
+
+            Returns:
+                Engine details including capabilities, supported cues, voice mode, and parameter schema.
+            """
+            from tts_service import get_engine_info
+
+            return get_engine_info(engine_name)
+
+        def mcp_list_voices(engine_name: str = "") -> list[dict[str, object]]:
+            """List available voices, optionally filtered by engine.
+
+            Args:
+                engine_name: If provided, filter voices for this engine only. Leave empty to list all.
+
+            Returns:
+                A list of voice objects with id, name, engine, and type fields.
+            """
+            from tts_service import list_voices
+
+            return list_voices(engine_name if engine_name else None)
+
+        def mcp_list_outputs() -> list[dict[str, object]]:
+            """List generated audio output files sorted by most recent first.
+
+            Returns:
+                A list of output file objects with path, filename, size_bytes, and modified_at.
+            """
+            from tts_service import list_outputs
+
+            return list_outputs()
 
         def mcp_get_app_version() -> dict[str, str]:
-            """Get the current application version and status.
+            """Get the current application version and MCP server status.
 
             Returns:
-                A dictionary with version, app_name, and mcp_status fields.
+                A dictionary with app_name, mcp_status, and mcp_version fields.
             """
             return {
                 "app_name": "Ultimate TTS Studio",
                 "mcp_status": "active",
-                "mcp_version": "spike-v0",
+                "mcp_version": "0.3.0",
             }
 
         gr.api(mcp_list_engines, api_name="list_engines")
+        gr.api(mcp_get_engine_info, api_name="get_engine_info")
+        gr.api(mcp_list_voices, api_name="list_voices")
+        gr.api(mcp_list_outputs, api_name="list_outputs")
         gr.api(mcp_get_app_version, api_name="get_app_version")
 
     return demo
