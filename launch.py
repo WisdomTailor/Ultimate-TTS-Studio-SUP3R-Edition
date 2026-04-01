@@ -15304,6 +15304,37 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 outputs=[vibevoice_output, vibevoice_status],
             )
 
+        # MCP probe tools (Phase 4a spike)
+        def mcp_list_engines() -> list[dict[str, object]]:
+            """List all available TTS engines and their capabilities.
+
+            Returns:
+                A list of engine objects with name, display_name, and expressiveness info.
+            """
+            return [
+                {
+                    "name": name,
+                    "display_name": name,
+                    "supports_expressiveness": data.get("supports_expressiveness", False),
+                }
+                for name, data in ENGINE_EXPRESSIVENESS.items()
+            ]
+
+        def mcp_get_app_version() -> dict[str, str]:
+            """Get the current application version and status.
+
+            Returns:
+                A dictionary with version, app_name, and mcp_status fields.
+            """
+            return {
+                "app_name": "Ultimate TTS Studio",
+                "mcp_status": "active",
+                "mcp_version": "spike-v0",
+            }
+
+        gr.api(mcp_list_engines, api_name="list_engines")
+        gr.api(mcp_get_app_version, api_name="get_app_version")
+
     return demo
 
 
@@ -15314,4 +15345,4 @@ if __name__ == "__main__":
     # Create and launch the interface
     with suppress_specific_warnings():
         demo = create_gradio_interface()
-        demo.launch(share=False, show_error=True)
+        demo.launch(share=False, show_error=True, mcp_server=True)
