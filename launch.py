@@ -15390,7 +15390,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             return {
                 "app_name": "Ultimate TTS Studio",
                 "mcp_status": "active",
-                "mcp_version": "0.7.0",
+                "mcp_version": "0.8.0",
                 "tool_count": "13",
             }
 
@@ -15801,4 +15801,13 @@ if __name__ == "__main__":
         if not mcp_server_enabled:
             print("⚠️ MCP runtime not found. Launching without Gradio MCP server support.")
             print("ℹ️ Install with: uv pip install \"gradio[mcp]\" (or pip install \"gradio[mcp]\")")
-        demo.launch(share=False, show_error=True, mcp_server=mcp_server_enabled)
+        else:
+            print("🔌 MCP server enabled. Endpoint: http://127.0.0.1:<port>/gradio_api/mcp/sse")
+            print("📋 Use .vscode/mcp.json for VS Code Copilot integration.")
+            print(f"🔑 Bearer token: {_mcp_token[:8]}... (full token in .mcp_token)")
+        demo.launch(
+            server_name="127.0.0.1",
+            share=False,
+            show_error=True,
+            mcp_server=mcp_server_enabled,
+        )
