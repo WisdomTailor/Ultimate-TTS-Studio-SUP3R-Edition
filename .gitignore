@@ -34,6 +34,7 @@ outputs/
 *.log
 logs/
 app_state/
+app_state/jobs/
 
 # User data and models
 models/

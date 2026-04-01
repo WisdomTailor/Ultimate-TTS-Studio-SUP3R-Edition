@@ -15390,8 +15390,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             return {
                 "app_name": "Ultimate TTS Studio",
                 "mcp_status": "active",
-                    "mcp_version": "0.6.0",
-                    "tool_count": "10",
+                "mcp_version": "0.7.0",
+                "tool_count": "13",
             }
 
         gr.api(mcp_list_engines, api_name="list_engines")
@@ -15627,6 +15627,152 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             return response
 
         gr.api(mcp_synthesize, api_name="synthesize")
+
+        # ── MCP job tools (Phase 4a WI-7) ────────────────────────────
+        def mcp_submit_synthesis_job(
+            text: str,
+            engine: str = "Kokoro TTS",
+            audio_format: str = "wav",
+            voice: str = "",
+            speed: str = "1.0",
+            temperature: str = "0.7",
+            ref_audio: str = "",
+            request: gr.Request | None = None,
+        ) -> dict[str, str]:
+            """Submit a background TTS synthesis job for asynchronous processing.
+
+            Starts synthesis in an isolated subprocess. The job runs in the
+            background and does not block the caller. Use get_job_status to poll
+            for completion, and cancel_job to abort.
+
+            Args:
+                text: The text to synthesize into speech.
+                engine: TTS engine to use (e.g., "Kokoro TTS", "F5-TTS", "ChatterboxTTS").
+                audio_format: Output audio format - "wav" or "mp3".
+                voice: Voice identifier or reference audio path.
+                speed: Speech speed multiplier (0.5 to 2.0).
+                temperature: Generation temperature (0.0 to 1.5).
+                ref_audio: Path to reference audio file for voice cloning engines.
+                request: Gradio request object (auto-injected, not visible to MCP clients).
+
+            Returns:
+                A dictionary with "job_id" and "status" fields.
+            """
+            from mcp_security import get_security
+
+            get_security().guard("submit_synthesis_job", _extract_bearer_token(request))
+
+            from job_manager import JobRequest, get_job_manager
+
+            engine_params: dict[str, object] = {}
+            if voice:
+                engine_params["voice"] = voice
+            if ref_audio:
+                engine_params["ref_audio"] = ref_audio
+            try:
+                engine_params["speed"] = float(speed)
+            except (ValueError, TypeError):
+                pass
+            try:
+                engine_params["temperature"] = float(temperature)
+            except (ValueError, TypeError):
+                pass
+
+            job_request = JobRequest(
+                text=text,
+                engine=engine,
+                audio_format=audio_format,
+                engine_params=engine_params,
+            )
+            job_id = get_job_manager().submit(job_request)
+            return {"job_id": job_id, "status": "pending"}
+
+        def mcp_get_job_status(
+            job_id: str,
+            request: gr.Request | None = None,
+        ) -> dict[str, str]:
+            """Get the current status of a background synthesis job.
+
+            Poll this endpoint to check whether a submitted job has completed.
+            Terminal states: "completed", "failed", "cancelled".
+
+            Args:
+                job_id: The job identifier returned by submit_synthesis_job.
+                request: Gradio request object (auto-injected, not visible to MCP clients).
+
+            Returns:
+                A dictionary with "job_id", "status", and optionally "output_path",
+                "error", or timing fields.
+            """
+            from mcp_security import get_security
+
+            get_security().guard("get_job_status", _extract_bearer_token(request))
+
+            from job_manager import get_job_manager
+
+            try:
+                info = get_job_manager().get_status(job_id)
+            except KeyError:
+                return {
+                    "job_id": job_id,
+                    "status": "not_found",
+                    "error": f"Unknown job: {job_id}",
+                }
+
+            response: dict[str, str] = {
+                "job_id": info.id,
+                "status": info.status,
+            }
+            if info.error:
+                response["error"] = info.error
+            if info.result:
+                if info.result.get("output_path"):
+                    response["output_path"] = str(info.result["output_path"])
+                if info.result.get("status"):
+                    response["synthesis_status"] = str(info.result["status"])
+            if info.created_at:
+                response["created_at"] = str(info.created_at)
+            if info.completed_at:
+                response["completed_at"] = str(info.completed_at)
+            return response
+
+        def mcp_cancel_job(
+            job_id: str,
+            request: gr.Request | None = None,
+        ) -> dict[str, str]:
+            """Cancel a pending or running synthesis job.
+
+            Terminates the background worker process if the job is still active.
+            Jobs that have already completed, failed, or been cancelled cannot be
+            re-cancelled.
+
+            Args:
+                job_id: The job identifier returned by submit_synthesis_job.
+                request: Gradio request object (auto-injected, not visible to MCP clients).
+
+            Returns:
+                A dictionary with "job_id", "cancelled" (true/false), and "status" fields.
+            """
+            from mcp_security import get_security
+
+            get_security().guard("cancel_job", _extract_bearer_token(request))
+
+            from job_manager import get_job_manager
+
+            try:
+                cancelled = get_job_manager().cancel(job_id)
+            except KeyError:
+                return {"job_id": job_id, "cancelled": "false", "status": "not_found"}
+
+            return {
+                "job_id": job_id,
+                "cancelled": str(cancelled).lower(),
+                "status": "cancelled" if cancelled else "already_terminal",
+            }
+
+        gr.api(mcp_submit_synthesis_job, api_name="submit_synthesis_job")
+        gr.api(mcp_get_job_status, api_name="get_job_status")
+        gr.api(mcp_cancel_job, api_name="cancel_job")
 
     return demo
 

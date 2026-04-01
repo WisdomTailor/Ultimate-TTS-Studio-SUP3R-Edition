@@ -22,11 +22,14 @@ TOOL_TIERS: dict[str, str] = {
     "list_voices": "read",
     "list_outputs": "read",
     "get_app_version": "read",
+    "get_job_status": "read",
     "normalize_text": "read",
     "list_llm_providers": "read",
+    "cancel_job": "transform",
     "transform_text": "transform",
     "structure_conversation": "transform",
     "synthesize": "synthesize",
+    "submit_synthesis_job": "synthesize",
 }
 
 
