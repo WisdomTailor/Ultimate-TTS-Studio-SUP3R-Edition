@@ -359,8 +359,6 @@ from narration_transform import (
     LLM_PROVIDER_MODEL_SUGGESTIONS,
     LLM_OUTCOME_PRESETS,
     DEFAULT_LLM_OUTCOME_PRESET,
-    ENGINE_EXPRESSIVENESS,
-    _DEFAULT_ENGINE_EXPRESSIVENESS,
     _MODE_BEHAVIORAL_REMINDERS,
     _STYLE_DESCRIPTIONS,
     _DEFAULT_PROVIDER_CONFIG,
@@ -383,11 +381,16 @@ from narration_transform import (
 )
 from conversation_logic import (
     create_default_speaker_settings,
+    format_conversation_with_llm,
     format_conversation_info,
     get_speaker_names_from_script,
     parse_conversation_script,
 )
-from engine_registry import ENGINE_METADATA_CONTROL_MAP
+from engine_registry import (
+    ENGINE_EXPRESSIVENESS,
+    ENGINE_METADATA_CONTROL_MAP,
+    _DEFAULT_ENGINE_EXPRESSIVENESS,
+)
 
 
 # ===== VOXCPM MODEL MANAGEMENT =====
@@ -398,6 +401,8 @@ def init_voxcpm():
 
         return handler_init_voxcpm()
     except ImportError:
+        return False
+
 INDEXTTS_MODELS_AVAILABLE = False
 IndexTTS = None
 
@@ -405,6 +410,11 @@ IndexTTS = None
 def _has_indextts_package() -> bool:
     try:
         if importlib_util.find_spec("indextts.infer") is not None:
+            return True
+    except Exception:
+        return False
+
+    return False
 
 
 def generate_conversation_audio_simple(
@@ -1759,14 +1769,6 @@ def _sanitize_fish_speech_text(text_input: str) -> str:
     text = re.sub(r"[\u0000-\u001F\u007F-\u009F]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
-
-
-        return True
-    except Exception:
-        return False
-
-    except Exception as e:
-        return f"Error formatting conversation info: {str(e)}"
 
 
 # ===== HELPER FUNCTIONS =====
@@ -8963,42 +8965,693 @@ def create_gradio_interface():
 
                     # Conversation Mode Tab
                     with gr.TabItem("🎭 CONVERSATION MODE", id="conversation_mode"):
-                        with gr.Row():
-                            with gr.Column(scale=2):
-                                # Script input
-                                conversation_script = gr.Textbox(
-                                    label="📝 Conversation Script",
-                                    placeholder="""Enter conversation in this format:
+                        conversation_speakers_state = gr.State(value=[])
+                        conversation_rows_state = gr.State(value=[])
+                        conversation_selected_speaker_state = gr.State(value=None)
+                        conversation_selected_line_state = gr.State(value=None)
+                        conversation_speaker_settings_state = gr.State(value={})
+
+                        kitten_conversation_voice_choices = [
+                            "expr-voice-2-m",
+                            "expr-voice-2-f",
+                            "expr-voice-3-m",
+                            "expr-voice-3-f",
+                            "expr-voice-4-m",
+                            "expr-voice-4-f",
+                            "expr-voice-5-m",
+                            "expr-voice-5-f",
+                        ]
+
+                        with gr.Column():
+                            conversation_script = gr.Textbox(
+                                label="📝 Conversation Script",
+                                placeholder="""Enter conversation in this format:
 
 Alice: Hello there! How are you doing today?
 Bob: I'm doing great, thanks for asking! How about you?
 Alice: I'm wonderful! I just got back from vacation.
 Bob: That sounds amazing! Where did you go?
 Alice: I went to Japan. It was absolutely incredible!""",
-                                    lines=8,
-                                    info="Format: 'SpeakerName: Text' - Each line should start with speaker name followed by colon",
+                                lines=8,
+                                info="Format: 'SpeakerName: Text' - Each line should start with speaker name followed by a colon.",
+                                elem_classes=["fade-in"],
+                            )
+
+                            with gr.Row():
+                                analyze_script_btn = gr.Button(
+                                    "🔍 Analyze Script",
+                                    variant="secondary",
+                                    elem_classes=["fade-in"],
+                                )
+                                ai_format_script_btn = gr.Button(
+                                    "✨ AI Format",
+                                    variant="secondary",
+                                    elem_classes=["fade-in"],
+                                )
+                                example_script_btn = gr.Button(
+                                    "📋 Load Example",
+                                    variant="secondary",
+                                    elem_classes=["fade-in"],
+                                )
+                                clear_script_btn = gr.Button(
+                                    "🗑️ Clear Script",
+                                    variant="secondary",
                                     elem_classes=["fade-in"],
                                 )
 
-                                # Control buttons
+                            with gr.Group(visible=False, elem_classes=["fade-in"]) as conversation_workspace:
                                 with gr.Row():
-                                    analyze_script_btn = gr.Button(
-                                        "🔍 Analyze Script",
-                                        variant="secondary",
+                                    with gr.Column(scale=1):
+                                        detected_speakers = gr.Textbox(
+                                            label="🔍 Character Roster Summary",
+                                            value="No speakers detected",
+                                            interactive=False,
+                                            lines=8,
+                                            elem_classes=["fade-in"],
+                                        )
+                                        character_roster = gr.Radio(
+                                            label="👥 Character Roster",
+                                            choices=[],
+                                            value=None,
+                                            info="Select a character to edit their voice settings.",
+                                            elem_classes=["fade-in"],
+                                        )
+                                        gr.Markdown(
+                                            """
+                                        <div style='padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
+                                            <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
+                                                <strong>💡 Guided flow:</strong><br/>
+                                                1. Analyze or AI-format the script<br/>
+                                                2. Pick a character in the roster<br/>
+                                                3. Configure the voice for that character<br/>
+                                                4. Select a script line below to edit it in context
+                                            </p>
+                                        </div>
+                                        """
+                                        )
+
+                                    with gr.Column(scale=2):
+                                        selected_character_header = gr.Markdown(
+                                            "### Select a character",
+                                            elem_classes=["fade-in"],
+                                        )
+                                        selected_character_hint = gr.Markdown(
+                                            "Analyze a script to populate the roster, then choose a speaker to edit.",
+                                            elem_classes=["fade-in"],
+                                        )
+                                        selected_character_capabilities = gr.Markdown(
+                                            "",
+                                            elem_classes=["fade-in"],
+                                        )
+
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_1_group:
+                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            speaker_1_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_1_transcribe_btn = gr.Button(
+                                                "📝 Transcribe", size="sm"
+                                            )
+                                            speaker_1_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_2_group:
+                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            speaker_2_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_2_transcribe_btn = gr.Button(
+                                                "📝 Transcribe", size="sm"
+                                            )
+                                            speaker_2_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_3_group:
+                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            speaker_3_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_3_transcribe_btn = gr.Button(
+                                                "📝 Transcribe", size="sm"
+                                            )
+                                            speaker_3_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_4_group:
+                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            speaker_4_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_4_transcribe_btn = gr.Button(
+                                                "📝 Transcribe", size="sm"
+                                            )
+                                            speaker_4_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_5_group:
+                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            speaker_5_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_5_transcribe_btn = gr.Button(
+                                                "📝 Transcribe", size="sm"
+                                            )
+                                            speaker_5_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                        with gr.Accordion(
+                                            "🗣️ Speaker 1 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_1_kokoro_accordion:
+                                            speaker_1_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="af_heart",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🗣️ Speaker 2 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_2_kokoro_accordion:
+                                            speaker_2_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="am_adam",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🗣️ Speaker 3 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_3_kokoro_accordion:
+                                            speaker_3_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="bf_emma",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🗣️ Speaker 4 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_4_kokoro_accordion:
+                                            speaker_4_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="bm_lewis",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🗣️ Speaker 5 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_5_kokoro_accordion:
+                                            speaker_5_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="af_sarah",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🐱 Speaker 1 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_1_kitten_accordion:
+                                            speaker_1_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-2-f",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🐱 Speaker 2 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_2_kitten_accordion:
+                                            speaker_2_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-2-m",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🐱 Speaker 3 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_3_kitten_accordion:
+                                            speaker_3_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-3-f",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🐱 Speaker 4 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_4_kitten_accordion:
+                                            speaker_4_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-3-m",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🐱 Speaker 5 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_5_kitten_accordion:
+                                            speaker_5_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-4-f",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "🎭 Speaker 1 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_1_indextts2_accordion:
+                                            speaker_1_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("📝 Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_1_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="🎵 Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_1_emotion_description = gr.Textbox(
+                                                label="📝 Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_1_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_1_emotion_vectors:
+                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_1_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_1_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_1_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_1_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_1_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_1_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
+                                        with gr.Accordion(
+                                            "🎭 Speaker 2 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_2_indextts2_accordion:
+                                            speaker_2_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("📝 Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_2_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="🎵 Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_2_emotion_description = gr.Textbox(
+                                                label="📝 Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_2_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_2_emotion_vectors:
+                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_2_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_2_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_2_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_2_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_2_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_2_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
+                                        with gr.Accordion(
+                                            "🎭 Speaker 3 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_3_indextts2_accordion:
+                                            speaker_3_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("📝 Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_3_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="🎵 Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_3_emotion_description = gr.Textbox(
+                                                label="📝 Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_3_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_3_emotion_vectors:
+                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_3_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_3_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_3_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_3_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_3_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_3_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
+                                        with gr.Accordion(
+                                            "🎭 Speaker 4 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_4_indextts2_accordion:
+                                            speaker_4_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("📝 Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_4_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="🎵 Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_4_emotion_description = gr.Textbox(
+                                                label="📝 Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_4_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_4_emotion_vectors:
+                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_4_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_4_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_4_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_4_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_4_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_4_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
+                                        with gr.Accordion(
+                                            "🎭 Speaker 5 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_5_indextts2_accordion:
+                                            speaker_5_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("📝 Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_5_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="🎵 Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_5_emotion_description = gr.Textbox(
+                                                label="📝 Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_5_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_5_emotion_vectors:
+                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_5_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_5_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_5_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_5_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_5_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_5_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
+                                conversation_lines_df = gr.Dataframe(
+                                    headers=["Line #", "Speaker", "Text"],
+                                    datatype=["number", "str", "str"],
+                                    value=[],
+                                    interactive=False,
+                                    wrap=True,
+                                    elem_classes=["fade-in"],
+                                    label="📜 Script Overview",
+                                )
+
+                                with gr.Group(visible=False, elem_classes=["fade-in"]) as line_editor_group:
+                                    gr.Markdown("### ✏️ Selected Line Editor")
+                                    with gr.Row():
+                                        line_number_display = gr.Textbox(
+                                            label="Line #",
+                                            interactive=False,
+                                            value="",
+                                            elem_classes=["fade-in"],
+                                            scale=1,
+                                        )
+                                        line_speaker_editor = gr.Dropdown(
+                                            label="Speaker",
+                                            choices=[],
+                                            value=None,
+                                            elem_classes=["fade-in"],
+                                            scale=1,
+                                        )
+                                    line_text_editor = gr.Textbox(
+                                        label="Line Text",
+                                        lines=3,
+                                        placeholder="Edit the selected line text here...",
                                         elem_classes=["fade-in"],
                                     )
-                                    example_script_btn = gr.Button(
-                                        "📋 Load Example",
-                                        variant="secondary",
+                                    line_context_preview = gr.Markdown(
+                                        "Select a line above to edit it in context.",
                                         elem_classes=["fade-in"],
                                     )
-                                    clear_script_btn = gr.Button(
-                                        "🗑️ Clear Script",
-                                        variant="secondary",
+                                    with gr.Row():
+                                        save_line_edit_btn = gr.Button(
+                                            "💾 Save Line",
+                                            variant="primary",
+                                            elem_classes=["fade-in"],
+                                        )
+                                        revert_line_edit_btn = gr.Button(
+                                            "↩️ Revert",
+                                            variant="secondary",
+                                            elem_classes=["fade-in"],
+                                        )
+                                    line_editor_status = gr.Markdown(
+                                        "Select a line from the table to begin editing.",
                                         elem_classes=["fade-in"],
                                     )
 
-                                # Timing controls
                                 with gr.Row():
                                     conversation_pause = gr.Slider(
                                         -0.5,
@@ -9019,660 +9672,99 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         elem_classes=["fade-in"],
                                     )
 
-                            with gr.Column(scale=1):
-                                # Speaker detection results
-                                detected_speakers = gr.Textbox(
-                                    label="🔍 Detected Speakers",
-                                    value="No speakers detected",
-                                    interactive=False,
-                                    lines=8,
-                                    elem_classes=["fade-in"],
-                                )
-
-                                # Simple info about how it works
                                 gr.Markdown(
                                     """
-                                <div style='padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
+                                <div style='margin-top: 10px; padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
                                     <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
-                                        <strong>💡 How it works:</strong><br/>
-                                        • Analyze script to detect speakers<br/>
-                                        • Upload voice samples for each speaker<br/>
-                                        • Select TTS engine below<br/>
-                                        • Generate conversation!
+                                        <strong>💡 Voice setup notes:</strong><br/>
+                                        • Voice-clone engines use uploaded speaker samples and optional reference text<br/>
+                                        • Kokoro TTS and KittenTTS use built-in voices, so no sample upload is required<br/>
+                                        • IndexTTS2 combines voice cloning with emotion control for the selected speaker<br/>
+                                        • The Generate Conversation button still uses the same backend dispatch as before
                                     </p>
                                 </div>
                                 """
                                 )
 
-                        # Voice Samples Section for Conversation Mode
-                        with gr.Group():
-                            gr.Markdown("### 🎤 Voice Samples for Speakers")
-                            gr.Markdown(
-                                "*Upload voice samples for each speaker (required for ChatterboxTTS, Fish Speech, IndexTTS, F5-TTS and VoxCPM only - not needed for KittenTTS or Kokoro TTS)*"
-                            )
+                        conversation_panel_updates = [
+                            speaker_1_group,
+                            speaker_2_group,
+                            speaker_3_group,
+                            speaker_4_group,
+                            speaker_5_group,
+                            speaker_1_kokoro_accordion,
+                            speaker_2_kokoro_accordion,
+                            speaker_3_kokoro_accordion,
+                            speaker_4_kokoro_accordion,
+                            speaker_5_kokoro_accordion,
+                            speaker_1_kitten_accordion,
+                            speaker_2_kitten_accordion,
+                            speaker_3_kitten_accordion,
+                            speaker_4_kitten_accordion,
+                            speaker_5_kitten_accordion,
+                            speaker_1_indextts2_accordion,
+                            speaker_2_indextts2_accordion,
+                            speaker_3_indextts2_accordion,
+                            speaker_4_indextts2_accordion,
+                            speaker_5_indextts2_accordion,
+                        ]
 
-                            # Dynamic voice sample uploads (up to 5 speakers) and Kokoro voice selection
-                            with gr.Row():
-                                with gr.Column(elem_classes=["conversation-voice-grid"]):
-                                    # Voice sample uploads for non-Kokoro engines
-                                    # Speaker 1
-                                    with gr.Group(
-                                        visible=False, elem_classes=["fade-in"]
-                                    ) as speaker_1_group:
-                                        gr.Markdown("**🎤 Speaker 1**")
-                                        speaker_1_audio = gr.Audio(
-                                            sources=["upload", "microphone"],
-                                            type="filepath",
-                                            label="Voice Sample",
-                                            elem_classes=["fade-in"],
-                                        )
-                                        with gr.Row():
-                                            speaker_1_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm", scale=1
-                                            )
-                                        speaker_1_ref_text = gr.Textbox(
-                                            label="Reference Text (auto-filled or manual)",
-                                            placeholder="Transcribed text will appear here...",
-                                            lines=2,
-                                        )
+                        conversation_analysis_outputs = [
+                            detected_speakers,
+                            generate_conversation_btn,
+                            conversation_workspace,
+                            character_roster,
+                            selected_character_header,
+                            selected_character_hint,
+                            selected_character_capabilities,
+                            conversation_lines_df,
+                            line_editor_group,
+                            line_editor_status,
+                            line_number_display,
+                            line_speaker_editor,
+                            line_text_editor,
+                            line_context_preview,
+                            conversation_speakers_state,
+                            conversation_rows_state,
+                            conversation_selected_speaker_state,
+                            conversation_selected_line_state,
+                            conversation_speaker_settings_state,
+                            *conversation_panel_updates,
+                        ]
 
-                                    # Speaker 2
-                                    with gr.Group(
-                                        visible=False, elem_classes=["fade-in"]
-                                    ) as speaker_2_group:
-                                        gr.Markdown("**🎤 Speaker 2**")
-                                        speaker_2_audio = gr.Audio(
-                                            sources=["upload", "microphone"],
-                                            type="filepath",
-                                            label="Voice Sample",
-                                            elem_classes=["fade-in"],
-                                        )
-                                        with gr.Row():
-                                            speaker_2_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm", scale=1
-                                            )
-                                        speaker_2_ref_text = gr.Textbox(
-                                            label="Reference Text (auto-filled or manual)",
-                                            placeholder="Transcribed text will appear here...",
-                                            lines=2,
-                                        )
+                        conversation_component_state_inputs = [
+                            speaker_1_audio,
+                            speaker_2_audio,
+                            speaker_3_audio,
+                            speaker_4_audio,
+                            speaker_5_audio,
+                            speaker_1_ref_text,
+                            speaker_2_ref_text,
+                            speaker_3_ref_text,
+                            speaker_4_ref_text,
+                            speaker_5_ref_text,
+                            speaker_1_kokoro_voice,
+                            speaker_2_kokoro_voice,
+                            speaker_3_kokoro_voice,
+                            speaker_4_kokoro_voice,
+                            speaker_5_kokoro_voice,
+                            speaker_1_kitten_voice,
+                            speaker_2_kitten_voice,
+                            speaker_3_kitten_voice,
+                            speaker_4_kitten_voice,
+                            speaker_5_kitten_voice,
+                            speaker_1_emotion_mode,
+                            speaker_2_emotion_mode,
+                            speaker_3_emotion_mode,
+                            speaker_4_emotion_mode,
+                            speaker_5_emotion_mode,
+                        ]
 
-                                    # Speaker 3
-                                    with gr.Group(
-                                        visible=False, elem_classes=["fade-in"]
-                                    ) as speaker_3_group:
-                                        gr.Markdown("**🎤 Speaker 3**")
-                                        speaker_3_audio = gr.Audio(
-                                            sources=["upload", "microphone"],
-                                            type="filepath",
-                                            label="Voice Sample",
-                                            elem_classes=["fade-in"],
-                                        )
-                                        with gr.Row():
-                                            speaker_3_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm", scale=1
-                                            )
-                                        speaker_3_ref_text = gr.Textbox(
-                                            label="Reference Text (auto-filled or manual)",
-                                            placeholder="Transcribed text will appear here...",
-                                            lines=2,
-                                        )
-
-                                    # Kokoro voice selection radio buttons for each speaker (in accordions)
-                                    with gr.Accordion(
-                                        "🗣️ Speaker 1 Kokoro Voice",
-                                        open=False,
-                                        visible=False,
-                                        elem_classes=["fade-in"],
-                                    ) as speaker_1_kokoro_accordion:
-                                        speaker_1_kokoro_voice = gr.Radio(
-                                            choices=[
-                                                (k, v)
-                                                for k, v in update_kokoro_voice_choices().items()
-                                            ],
-                                            value="af_heart",
-                                            label="",
-                                            elem_classes=["voice-grid"],
-                                            show_label=False,
-                                        )
-
-                                    with gr.Accordion(
-                                        "🗣️ Speaker 2 Kokoro Voice",
-                                        open=False,
-                                        visible=False,
-                                        elem_classes=["fade-in"],
-                                    ) as speaker_2_kokoro_accordion:
-                                        speaker_2_kokoro_voice = gr.Radio(
-                                            choices=[
-                                                (k, v)
-                                                for k, v in update_kokoro_voice_choices().items()
-                                            ],
-                                            value="am_adam",
-                                            label="",
-                                            elem_classes=["voice-grid"],
-                                            show_label=False,
-                                        )
-
-                                    with gr.Accordion(
-                                        "🗣️ Speaker 3 Kokoro Voice",
-                                        open=False,
-                                        visible=False,
-                                        elem_classes=["fade-in"],
-                                    ) as speaker_3_kokoro_accordion:
-                                        speaker_3_kokoro_voice = gr.Radio(
-                                            choices=[
-                                                (k, v)
-                                                for k, v in update_kokoro_voice_choices().items()
-                                            ],
-                                            value="bf_emma",
-                                            label="",
-                                            elem_classes=["voice-grid"],
-                                            show_label=False,
-                                        )
-
-                                with gr.Column(elem_classes=["conversation-voice-grid"]):
-                                    # Speaker 4
-                                    with gr.Group(
-                                        visible=False, elem_classes=["fade-in"]
-                                    ) as speaker_4_group:
-                                        gr.Markdown("**🎤 Speaker 4**")
-                                        speaker_4_audio = gr.Audio(
-                                            sources=["upload", "microphone"],
-                                            type="filepath",
-                                            label="Voice Sample",
-                                            elem_classes=["fade-in"],
-                                        )
-                                        with gr.Row():
-                                            speaker_4_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm", scale=1
-                                            )
-                                        speaker_4_ref_text = gr.Textbox(
-                                            label="Reference Text (auto-filled or manual)",
-                                            placeholder="Transcribed text will appear here...",
-                                            lines=2,
-                                        )
-
-                                    # Speaker 5
-                                    with gr.Group(
-                                        visible=False, elem_classes=["fade-in"]
-                                    ) as speaker_5_group:
-                                        gr.Markdown("**🎤 Speaker 5**")
-                                        speaker_5_audio = gr.Audio(
-                                            sources=["upload", "microphone"],
-                                            type="filepath",
-                                            label="Voice Sample",
-                                            elem_classes=["fade-in"],
-                                        )
-                                        with gr.Row():
-                                            speaker_5_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm", scale=1
-                                            )
-                                        speaker_5_ref_text = gr.Textbox(
-                                            label="Reference Text (auto-filled or manual)",
-                                            placeholder="Transcribed text will appear here...",
-                                            lines=2,
-                                        )
-
-                                    # More Kokoro voice selection radio buttons (in accordions)
-                                    with gr.Accordion(
-                                        "🗣️ Speaker 4 Kokoro Voice",
-                                        open=False,
-                                        visible=False,
-                                        elem_classes=["fade-in"],
-                                    ) as speaker_4_kokoro_accordion:
-                                        speaker_4_kokoro_voice = gr.Radio(
-                                            choices=[
-                                                (k, v)
-                                                for k, v in update_kokoro_voice_choices().items()
-                                            ],
-                                            value="bm_lewis",
-                                            label="",
-                                            elem_classes=["voice-grid"],
-                                            show_label=False,
-                                        )
-
-                                    with gr.Accordion(
-                                        "🗣️ Speaker 5 Kokoro Voice",
-                                        open=False,
-                                        visible=False,
-                                        elem_classes=["fade-in"],
-                                    ) as speaker_5_kokoro_accordion:
-                                        speaker_5_kokoro_voice = gr.Radio(
-                                            choices=[
-                                                (k, v)
-                                                for k, v in update_kokoro_voice_choices().items()
-                                            ],
-                                            value="af_sarah",
-                                            label="",
-                                            elem_classes=["voice-grid"],
-                                            show_label=False,
-                                        )
-
-                            # KittenTTS voice selection accordions (similar to Kokoro but for KittenTTS voices)
-                            with gr.Accordion(
-                                "🐱 Speaker 1 KittenTTS Voice",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_1_kitten_accordion:
-                                speaker_1_kitten_voice = gr.Radio(
-                                    choices=[
-                                        "expr-voice-2-m",
-                                        "expr-voice-2-f",
-                                        "expr-voice-3-m",
-                                        "expr-voice-3-f",
-                                        "expr-voice-4-m",
-                                        "expr-voice-4-f",
-                                        "expr-voice-5-m",
-                                        "expr-voice-5-f",
-                                    ],
-                                    value="expr-voice-2-f",
-                                    label="",
-                                    elem_classes=["voice-grid"],
-                                    show_label=False,
-                                )
-
-                            with gr.Accordion(
-                                "🐱 Speaker 2 KittenTTS Voice",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_2_kitten_accordion:
-                                speaker_2_kitten_voice = gr.Radio(
-                                    choices=[
-                                        "expr-voice-2-m",
-                                        "expr-voice-2-f",
-                                        "expr-voice-3-m",
-                                        "expr-voice-3-f",
-                                        "expr-voice-4-m",
-                                        "expr-voice-4-f",
-                                        "expr-voice-5-m",
-                                        "expr-voice-5-f",
-                                    ],
-                                    value="expr-voice-2-m",
-                                    label="",
-                                    elem_classes=["voice-grid"],
-                                    show_label=False,
-                                )
-
-                            with gr.Accordion(
-                                "🐱 Speaker 3 KittenTTS Voice",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_3_kitten_accordion:
-                                speaker_3_kitten_voice = gr.Radio(
-                                    choices=[
-                                        "expr-voice-2-m",
-                                        "expr-voice-2-f",
-                                        "expr-voice-3-m",
-                                        "expr-voice-3-f",
-                                        "expr-voice-4-m",
-                                        "expr-voice-4-f",
-                                        "expr-voice-5-m",
-                                        "expr-voice-5-f",
-                                    ],
-                                    value="expr-voice-3-f",
-                                    label="",
-                                    elem_classes=["voice-grid"],
-                                    show_label=False,
-                                )
-
-                            with gr.Accordion(
-                                "🐱 Speaker 4 KittenTTS Voice",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_4_kitten_accordion:
-                                speaker_4_kitten_voice = gr.Radio(
-                                    choices=[
-                                        "expr-voice-2-m",
-                                        "expr-voice-2-f",
-                                        "expr-voice-3-m",
-                                        "expr-voice-3-f",
-                                        "expr-voice-4-m",
-                                        "expr-voice-4-f",
-                                        "expr-voice-5-m",
-                                        "expr-voice-5-f",
-                                    ],
-                                    value="expr-voice-3-m",
-                                    label="",
-                                    elem_classes=["voice-grid"],
-                                    show_label=False,
-                                )
-
-                            with gr.Accordion(
-                                "🐱 Speaker 5 KittenTTS Voice",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_5_kitten_accordion:
-                                speaker_5_kitten_voice = gr.Radio(
-                                    choices=[
-                                        "expr-voice-2-m",
-                                        "expr-voice-2-f",
-                                        "expr-voice-3-m",
-                                        "expr-voice-3-f",
-                                        "expr-voice-4-m",
-                                        "expr-voice-4-f",
-                                        "expr-voice-5-m",
-                                        "expr-voice-5-f",
-                                    ],
-                                    value="expr-voice-4-f",
-                                    label="",
-                                    elem_classes=["voice-grid"],
-                                    show_label=False,
-                                )
-
-                            # IndexTTS2 emotion control accordions for each speaker
-                            with gr.Accordion(
-                                "🎭 Speaker 1 IndexTTS2 Emotions",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_1_indextts2_accordion:
-                                with gr.Row():
-                                    speaker_1_emotion_mode = gr.Radio(
-                                        choices=[
-                                            ("🎵 Audio Reference", "audio_reference"),
-                                            ("🎛️ Manual Control", "vector_control"),
-                                            ("📝 Text Description", "text_description"),
-                                        ],
-                                        value="audio_reference",
-                                        label="Emotion Control Mode",
-                                        elem_classes=["fade-in"],
-                                    )
-                                speaker_1_emotion_audio = gr.Audio(
-                                    sources=["upload"],
-                                    type="filepath",
-                                    label="🎵 Emotion Reference Audio",
-                                    visible=True,
-                                    elem_classes=["fade-in"],
-                                )
-                                speaker_1_emotion_description = gr.Textbox(
-                                    label="📝 Emotion Description",
-                                    placeholder="e.g., 'happy and excited', 'sad and melancholic', 'angry and frustrated'",
-                                    visible=False,
-                                    elem_classes=["fade-in"],
-                                )
-                                speaker_1_emotion_vectors = gr.Group(
-                                    visible=False, elem_classes=["fade-in"]
-                                )
-                                with speaker_1_emotion_vectors:
-                                    gr.Markdown("**🎛️ Emotion Intensity Controls**")
-                                    with gr.Row():
-                                        speaker_1_happy = gr.Slider(
-                                            0, 1, 0, step=0.1, label="😊 Happy"
-                                        )
-                                        speaker_1_sad = gr.Slider(0, 1, 0, step=0.1, label="😢 Sad")
-                                    with gr.Row():
-                                        speaker_1_angry = gr.Slider(
-                                            0, 1, 0, step=0.1, label="😠 Angry"
-                                        )
-                                        speaker_1_afraid = gr.Slider(
-                                            0, 1, 0, step=0.1, label="😨 Afraid"
-                                        )
-                                    with gr.Row():
-                                        speaker_1_surprised = gr.Slider(
-                                            0, 1, 0, step=0.1, label="😲 Surprised"
-                                        )
-                                        speaker_1_calm = gr.Slider(
-                                            0, 1, 1, step=0.1, label="😌 Calm"
-                                        )
-
-                            with gr.Accordion(
-                                "🎭 Speaker 2 IndexTTS2 Emotions",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_2_indextts2_accordion:
-                                with gr.Row():
-                                    speaker_2_emotion_mode = gr.Radio(
-                                        choices=[
-                                            ("🎵 Audio Reference", "audio_reference"),
-                                            ("🎛️ Manual Control", "vector_control"),
-                                            ("📝 Text Description", "text_description"),
-                                        ],
-                                        value="audio_reference",
-                                        label="Emotion Control Mode",
-                                        elem_classes=["fade-in"],
-                                    )
-                                speaker_2_emotion_audio = gr.Audio(
-                                    sources=["upload"],
-                                    type="filepath",
-                                    label="🎵 Emotion Reference Audio",
-                                    visible=True,
-                                    elem_classes=["fade-in"],
-                                )
-                                speaker_2_emotion_description = gr.Textbox(
-                                    label="📝 Emotion Description",
-                                    placeholder="e.g., 'happy and excited', 'sad and melancholic', 'angry and frustrated'",
-                                    visible=False,
-                                    elem_classes=["fade-in"],
-                                )
-                                speaker_2_emotion_vectors = gr.Group(
-                                    visible=False, elem_classes=["fade-in"]
-                                )
-                                with speaker_2_emotion_vectors:
-                                    gr.Markdown("**🎛️ Emotion Intensity Controls**")
-                                    with gr.Row():
-                                        speaker_2_happy = gr.Slider(
-                                            0, 1, 0, step=0.1, label="😊 Happy"
-                                        )
-                                        speaker_2_sad = gr.Slider(0, 1, 0, step=0.1, label="😢 Sad")
-                                    with gr.Row():
-                                        speaker_2_angry = gr.Slider(
-                                            0, 1, 0, step=0.1, label="😠 Angry"
-                                        )
-                                        speaker_2_afraid = gr.Slider(
-                                            0, 1, 0, step=0.1, label=" 28 Afraid"
-                                        )
-                                    with gr.Row():
-                                        speaker_2_surprised = gr.Slider(
-                                            0, 1, 0, step=0.1, label="😲 Surprised"
-                                        )
-                                        speaker_2_calm = gr.Slider(
-                                            0, 1, 1, step=0.1, label="😌 Calm"
-                                        )
-
-                            with gr.Accordion(
-                                "🎭 Speaker 3 IndexTTS2 Emotions",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_3_indextts2_accordion:
-                                with gr.Row():
-                                    speaker_3_emotion_mode = gr.Radio(
-                                        choices=[
-                                            ("🎵 Audio Reference", "audio_reference"),
-                                            ("🎛️ Manual Control", "vector_control"),
-                                            ("📝 Text Description", "text_description"),
-                                        ],
-                                        value="audio_reference",
-                                        label="Emotion Control Mode",
-                                        elem_classes=["fade-in"],
-                                    )
-                                with gr.Row():
-                                    with gr.Column():
-                                        speaker_3_emotion_audio = gr.Audio(
-                                            sources=["upload"],
-                                            type="filepath",
-                                            label="🎵 Emotion Reference Audio",
-                                            visible=True,
-                                            elem_classes=["fade-in"],
-                                        )
-                                        speaker_3_emotion_description = gr.Textbox(
-                                            label="📝 Emotion Description",
-                                            placeholder="e.g., 'happy and excited', 'sad and melancholic', 'angry and frustrated'",
-                                            visible=False,
-                                            elem_classes=["fade-in"],
-                                        )
-                                    with gr.Column():
-                                        speaker_3_emotion_vectors = gr.Group(
-                                            visible=False, elem_classes=["fade-in"]
-                                        )
-                                        with speaker_3_emotion_vectors:
-                                            gr.Markdown("**🎛️ Emotion Intensity Controls**")
-                                            with gr.Row():
-                                                speaker_3_happy = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😊 Happy"
-                                                )
-                                                speaker_3_sad = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😢 Sad"
-                                                )
-                                            with gr.Row():
-                                                speaker_3_angry = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😠 Angry"
-                                                )
-                                                speaker_3_afraid = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😨 Afraid"
-                                                )
-                                            with gr.Row():
-                                                speaker_3_surprised = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😲 Surprised"
-                                                )
-                                                speaker_3_calm = gr.Slider(
-                                                    0, 1, 1, step=0.1, label="😌 Calm"
-                                                )
-
-                            with gr.Accordion(
-                                "🎭 Speaker 4 IndexTTS2 Emotions",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_4_indextts2_accordion:
-                                with gr.Row():
-                                    speaker_4_emotion_mode = gr.Radio(
-                                        choices=[
-                                            ("🎵 Audio Reference", "audio_reference"),
-                                            ("🎛️ Manual Control", "vector_control"),
-                                            ("📝 Text Description", "text_description"),
-                                        ],
-                                        value="audio_reference",
-                                        label="Emotion Control Mode",
-                                        elem_classes=["fade-in"],
-                                    )
-                                with gr.Row():
-                                    with gr.Column():
-                                        speaker_4_emotion_audio = gr.Audio(
-                                            sources=["upload"],
-                                            type="filepath",
-                                            label="🎵 Emotion Reference Audio",
-                                            visible=True,
-                                            elem_classes=["fade-in"],
-                                        )
-                                        speaker_4_emotion_description = gr.Textbox(
-                                            label="📝 Emotion Description",
-                                            placeholder="e.g., 'happy and excited', 'sad and melancholic', 'angry and frustrated'",
-                                            visible=False,
-                                            elem_classes=["fade-in"],
-                                        )
-                                    with gr.Column():
-                                        speaker_4_emotion_vectors = gr.Group(
-                                            visible=False, elem_classes=["fade-in"]
-                                        )
-                                        with speaker_4_emotion_vectors:
-                                            gr.Markdown("**🎛️ Emotion Intensity Controls**")
-                                            with gr.Row():
-                                                speaker_4_happy = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😊 Happy"
-                                                )
-                                                speaker_4_sad = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😢 Sad"
-                                                )
-                                            with gr.Row():
-                                                speaker_4_angry = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😠 Angry"
-                                                )
-                                                speaker_4_afraid = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😨 Afraid"
-                                                )
-                                            with gr.Row():
-                                                speaker_4_surprised = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😲 Surprised"
-                                                )
-                                                speaker_4_calm = gr.Slider(
-                                                    0, 1, 1, step=0.1, label="😌 Calm"
-                                                )
-
-                            with gr.Accordion(
-                                "🎭 Speaker 5 IndexTTS2 Emotions",
-                                open=False,
-                                visible=False,
-                                elem_classes=["fade-in"],
-                            ) as speaker_5_indextts2_accordion:
-                                with gr.Row():
-                                    speaker_5_emotion_mode = gr.Radio(
-                                        choices=[
-                                            ("🎵 Audio Reference", "audio_reference"),
-                                            ("🎛️ Manual Control", "vector_control"),
-                                            ("📝 Text Description", "text_description"),
-                                        ],
-                                        value="audio_reference",
-                                        label="Emotion Control Mode",
-                                        elem_classes=["fade-in"],
-                                    )
-                                with gr.Row():
-                                    with gr.Column():
-                                        speaker_5_emotion_audio = gr.Audio(
-                                            sources=["upload"],
-                                            type="filepath",
-                                            label="🎵 Emotion Reference Audio",
-                                            visible=True,
-                                            elem_classes=["fade-in"],
-                                        )
-                                        speaker_5_emotion_description = gr.Textbox(
-                                            label="📝 Emotion Description",
-                                            placeholder="e.g., 'happy and excited', 'sad and melancholic', 'angry and frustrated'",
-                                            visible=False,
-                                            elem_classes=["fade-in"],
-                                        )
-                                    with gr.Column():
-                                        speaker_5_emotion_vectors = gr.Group(
-                                            visible=False, elem_classes=["fade-in"]
-                                        )
-                                        with speaker_5_emotion_vectors:
-                                            gr.Markdown("**🎛️ Emotion Intensity Controls**")
-                                            with gr.Row():
-                                                speaker_5_happy = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😊 Happy"
-                                                )
-                                                speaker_5_sad = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😢 Sad"
-                                                )
-                                            with gr.Row():
-                                                speaker_5_angry = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😠 Angry"
-                                                )
-                                                speaker_5_afraid = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😨 Afraid"
-                                                )
-                                            with gr.Row():
-                                                speaker_5_surprised = gr.Slider(
-                                                    0, 1, 0, step=0.1, label="😲 Surprised"
-                                                )
-                                                speaker_5_calm = gr.Slider(
-                                                    0, 1, 1, step=0.1, label="😌 Calm"
-                                                )
-
-                            # Help text for voice samples
-                            gr.Markdown(
-                                """
-                            <div style='margin-top: 10px; padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
-                                <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
-                                    <strong>💡 Voice Sample Tips:</strong><br/>
-                                    • Upload clear audio samples (3-10 seconds work best)<br/>
-                                    • <strong>ChatterboxTTS:</strong> Voice samples required for voice cloning ✅<br/>
-                                    • <strong>Fish Speech:</strong> Voice samples help with voice matching ✅<br/>
-                                    • <strong>IndexTTS:</strong> Voice samples required for voice cloning ✅<br/>
-                                    • <strong>IndexTTS2:</strong> Voice samples + emotion controls for advanced expression ✅<br/>
-                                    • <strong>VoxCPM:</strong> Voice samples required for voice cloning (auto-transcribed with Whisper) ✅<br/>
-                                    • <strong>Kokoro TTS:</strong> ✅ Uses pre-trained voices (no samples needed - voices auto-assigned)<br/>
-                                    • Voice samples will be automatically assigned when you analyze the script
-                                </p>
-                            </div>
-                            """
-                            )
+                        conversation_analyze_inputs = [
+                            conversation_script,
+                            tts_engine,
+                            *conversation_component_state_inputs,
+                        ]
 
                     # eBook to Audiobook Tab
                     with gr.TabItem("📚 EBOOK TO AUDIOBOOK", id="ebook_mode"):
@@ -13129,172 +13221,375 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
 
         # Conversation Mode Event Handlers
-        def handle_analyze_script(script_text, selected_engine):
-            """Analyze the conversation script and return detected speakers."""
-            if not script_text.strip():
-                return (
-                    "No script provided",
-                    gr.update(visible=False),
-                    *[gr.update(visible=False) for _ in range(20)],
-                )  # 5 audio + 5 kokoro + 5 kitten + 5 indextts2
+        def _conversation_engine_family(selected_engine: str) -> str:
+            if selected_engine == "Kokoro TTS":
+                return "kokoro"
+            if selected_engine == "KittenTTS":
+                return "kitten"
+            if selected_engine == "IndexTTS2":
+                return "indextts2"
+            return "voice_clone"
 
-            speakers = get_speaker_names_from_script(script_text)
+        def _coerce_conversation_index(index_value) -> int | None:
+            try:
+                if index_value is None or index_value == "":
+                    return None
+                return int(index_value)
+            except (TypeError, ValueError):
+                return None
 
-            if not speakers:
-                return (
-                    "No speakers detected. Please check script format.",
-                    gr.update(visible=False),
-                    *[gr.update(visible=False) for _ in range(20)],
-                )  # 5 audio + 5 kokoro + 5 kitten + 5 indextts2
+        def _build_conversation_table_rows(conversation_rows):
+            return [
+                [line_index + 1, row.get("speaker", ""), row.get("text", "")]
+                for line_index, row in enumerate(conversation_rows)
+            ]
 
-            speakers_text = f"Found {len(speakers)} speakers:\n" + "\n".join(
-                [f"• {speaker}" for speaker in speakers]
+        def _serialize_conversation_rows(conversation_rows) -> str:
+            serialized_lines = []
+            for row in conversation_rows:
+                speaker = str(row.get("speaker", "") or "").strip()
+                text = str(row.get("text", "") or "").strip().replace("\r", " ")
+                clean_text = " ".join(segment for segment in text.splitlines() if segment.strip())
+                if speaker and clean_text:
+                    serialized_lines.append(f"{speaker}: {clean_text}")
+            return "\n".join(serialized_lines)
+
+        def _build_conversation_line_context(conversation_rows, selected_index: int | None) -> str:
+            if selected_index is None or not (0 <= selected_index < len(conversation_rows)):
+                return "Select a line above to edit it in context."
+
+            previous_line = conversation_rows[selected_index - 1] if selected_index > 0 else None
+            current_line = conversation_rows[selected_index]
+            next_line = (
+                conversation_rows[selected_index + 1]
+                if selected_index + 1 < len(conversation_rows)
+                else None
             )
 
-            # Different instructions based on selected engine
-            if selected_engine == "Kokoro TTS":
-                # For Kokoro TTS, show voice selection radio buttons
-                speakers_text += f"\n\n🗣️ **Select Kokoro Voices for Each Speaker:**\n"
-                speakers_text += f"Click on the speaker names below to select voices.\n"
-                speakers_text += f"\n📝 **Instructions:**\n1. Click each speaker accordion to select their voice ✅\n2. Voice samples not needed for Kokoro TTS\n3. Click 'Generate Conversation'"
+            def _render_line(prefix: str, line: dict | None) -> str:
+                if not line:
+                    return f"- {prefix}: none"
+                return f"- {prefix}: **{line['speaker']}** — {line['text']}"
 
-                # Hide voice sample uploads, show Kokoro voice accordions, hide others
-                audio_updates = []
-                kokoro_accordion_updates = []
-                kitten_accordion_updates = []
-                indextts2_accordion_updates = []
+            return "\n".join(
+                [
+                    "**Context**",
+                    _render_line("Previous", previous_line),
+                    _render_line("Current", current_line),
+                    _render_line("Next", next_line),
+                ]
+            )
 
-                for i in range(5):
-                    if i < len(speakers):
-                        # Hide audio upload, show Kokoro voice accordion with speaker name, hide others
-                        audio_updates.append(gr.update(visible=False))
-                        kokoro_accordion_updates.append(
-                            gr.update(visible=True, label=f"🗣️ {speakers[i]}")
-                        )
-                        kitten_accordion_updates.append(gr.update(visible=False))
-                        indextts2_accordion_updates.append(gr.update(visible=False))
-                    else:
-                        # Hide all components
-                        audio_updates.append(gr.update(visible=False))
-                        kokoro_accordion_updates.append(gr.update(visible=False))
-                        kitten_accordion_updates.append(gr.update(visible=False))
-                        indextts2_accordion_updates.append(gr.update(visible=False))
+        def _conversation_indicator_for_speaker(
+            speaker_name: str,
+            speaker_index: int,
+            selected_engine: str,
+            voice_samples,
+            ref_texts,
+            kokoro_voices,
+            kitten_voices,
+            emotion_modes,
+            speaker_settings,
+        ) -> str:
+            engine_family = _conversation_engine_family(selected_engine)
+            default_settings = speaker_settings.get(speaker_name, {}) if speaker_settings else {}
 
-                all_updates = (
-                    audio_updates
-                    + kokoro_accordion_updates
-                    + kitten_accordion_updates
-                    + indextts2_accordion_updates
+            if engine_family == "kokoro":
+                voice_value = (
+                    kokoro_voices[speaker_index]
+                    if speaker_index < len(kokoro_voices)
+                    else default_settings.get("kokoro_voice", "af_heart")
+                )
+                return f"Kokoro: {voice_value or 'unassigned'}"
+
+            if engine_family == "kitten":
+                voice_value = (
+                    kitten_voices[speaker_index]
+                    if speaker_index < len(kitten_voices)
+                    else "expr-voice-2-f"
+                )
+                return f"Kitten: {voice_value or 'unassigned'}"
+
+            if engine_family == "indextts2":
+                emotion_mode = (
+                    emotion_modes[speaker_index]
+                    if speaker_index < len(emotion_modes)
+                    else "audio_reference"
+                )
+                emotion_label = {
+                    "audio_reference": "Emotion audio",
+                    "vector_control": "Manual emotion",
+                    "text_description": "Text emotion",
+                }.get(emotion_mode, "Emotion control")
+                voice_label = (
+                    "voice sample uploaded"
+                    if speaker_index < len(voice_samples) and voice_samples[speaker_index]
+                    else "awaiting voice sample"
+                )
+                return f"IndexTTS2: {emotion_label}, {voice_label}"
+
+            has_sample = speaker_index < len(voice_samples) and bool(voice_samples[speaker_index])
+            has_ref_text = speaker_index < len(ref_texts) and bool(str(ref_texts[speaker_index] or "").strip())
+            if has_sample:
+                return "Voice sample: uploaded"
+            if has_ref_text:
+                return "Reference text: ready"
+            return "Voice sample: pending"
+
+        def _build_conversation_roster_choices(
+            speakers,
+            selected_engine,
+            voice_samples,
+            ref_texts,
+            kokoro_voices,
+            kitten_voices,
+            emotion_modes,
+            speaker_settings,
+        ):
+            choices = []
+            for speaker_index, speaker_name in enumerate(speakers):
+                indicator = _conversation_indicator_for_speaker(
+                    speaker_name,
+                    speaker_index,
+                    selected_engine,
+                    voice_samples,
+                    ref_texts,
+                    kokoro_voices,
+                    kitten_voices,
+                    emotion_modes,
+                    speaker_settings,
+                )
+                choices.append((f"{speaker_name} — {indicator}", str(speaker_index)))
+            return choices
+
+        def _build_conversation_capabilities(selected_engine: str) -> str:
+            capability_flags = ENGINE_EXPRESSIVENESS.get(
+                selected_engine,
+                _DEFAULT_ENGINE_EXPRESSIVENESS,
+            )
+            enabled_capabilities = []
+            if capability_flags.get("ellipsis_pause"):
+                enabled_capabilities.append("ellipsis pause cues")
+            if capability_flags.get("bracket_cues"):
+                enabled_capabilities.append("bracket cues")
+            if capability_flags.get("emotion_vectors"):
+                enabled_capabilities.append("emotion vectors")
+            if capability_flags.get("ssml"):
+                enabled_capabilities.append("SSML")
+            if capability_flags.get("allcaps_emphasis"):
+                enabled_capabilities.append("all-caps emphasis")
+
+            capability_text = ", ".join(enabled_capabilities) if enabled_capabilities else "basic line delivery"
+            return (
+                f"**Engine profile:** {selected_engine} supports {capability_text}. "
+                "The guided editor keeps the backend generation flow unchanged."
+            )
+
+        def _build_selected_character_hint(selected_engine: str, speaker_name: str) -> str:
+            engine_family = _conversation_engine_family(selected_engine)
+            if engine_family == "kokoro":
+                return (
+                    f"Configure the built-in Kokoro voice for **{speaker_name}**. "
+                    "No uploaded sample is required."
+                )
+            if engine_family == "kitten":
+                return (
+                    f"Choose the KittenTTS preset voice for **{speaker_name}**. "
+                    "No uploaded sample is required."
+                )
+            if engine_family == "indextts2":
+                return (
+                    f"Upload a voice sample for **{speaker_name}** and set the active emotion control mode."
+                )
+            return (
+                f"Upload or record a voice sample for **{speaker_name}**. "
+                "Reference text helps engines that support guided cloning."
+            )
+
+        def _build_conversation_summary(conversation_rows, speakers, selected_engine: str) -> str:
+            line_count = len(conversation_rows)
+            speaker_count = len(speakers)
+            line_counts: dict[str, int] = {}
+            for row in conversation_rows:
+                speaker_name = str(row.get("speaker", "") or "")
+                line_counts[speaker_name] = line_counts.get(speaker_name, 0) + 1
+
+            speaker_breakdown = "\n".join(
+                f"• {speaker}: {line_counts.get(speaker, 0)} lines" for speaker in speakers
+            )
+
+            return (
+                f"Detected {speaker_count} speakers across {line_count} lines.\n"
+                f"Active engine: {selected_engine}\n\n"
+                f"{speaker_breakdown}\n\n"
+                "Select a character from the roster to configure their voice."
+            )
+
+        def _build_conversation_panel_updates(
+            speakers,
+            selected_engine: str,
+            selected_speaker_index: int | None,
+        ):
+            engine_family = _conversation_engine_family(selected_engine)
+            audio_updates = []
+            kokoro_updates = []
+            kitten_updates = []
+            indextts2_updates = []
+
+            for slot_index in range(5):
+                speaker_visible = slot_index < len(speakers) and slot_index == selected_speaker_index
+                speaker_name = speakers[slot_index] if slot_index < len(speakers) else f"Speaker {slot_index + 1}"
+
+                audio_updates.append(
+                    gr.update(
+                        visible=speaker_visible and engine_family in {"voice_clone", "indextts2"}
+                    )
+                )
+                kokoro_updates.append(
+                    gr.update(
+                        visible=speaker_visible and engine_family == "kokoro",
+                        label=f"🗣️ {speaker_name} Kokoro Voice",
+                    )
+                )
+                kitten_updates.append(
+                    gr.update(
+                        visible=speaker_visible and engine_family == "kitten",
+                        label=f"🐱 {speaker_name} KittenTTS Voice",
+                    )
+                )
+                indextts2_updates.append(
+                    gr.update(
+                        visible=speaker_visible and engine_family == "indextts2",
+                        label=f"🎭 {speaker_name} IndexTTS2 Emotions",
+                    )
                 )
 
-            elif selected_engine == "KittenTTS":
-                # For KittenTTS, show voice selection radio buttons
-                speakers_text += f"\n\n🐱 **Select KittenTTS Voices for Each Speaker:**\n"
-                speakers_text += f"Click on the speaker names below to select voices.\n"
-                speakers_text += f"\n📝 **Instructions:**\n1. Click each speaker accordion to select their voice ✅\n2. Voice samples not needed for KittenTTS\n3. Click 'Generate Conversation'"
+            return audio_updates + kokoro_updates + kitten_updates + indextts2_updates
 
-                # Hide voice sample uploads and other accordions, show KittenTTS accordions
-                audio_updates = []
-                kokoro_accordion_updates = []
-                kitten_accordion_updates = []
-                indextts2_accordion_updates = []
+        def _conversation_empty_response(status_message: str):
+            hidden_updates = [gr.update(visible=False) for _ in range(20)]
+            return (
+                status_message,
+                gr.update(visible=False),
+                gr.update(visible=False),
+                gr.update(choices=[], value=None),
+                gr.update(value="### Select a character"),
+                gr.update(
+                    value="Analyze a script to populate the roster, then choose a speaker to edit."
+                ),
+                gr.update(value=""),
+                gr.update(value=[], visible=False),
+                gr.update(visible=False),
+                gr.update(value="Select a line from the table to begin editing."),
+                gr.update(value=""),
+                gr.update(choices=[], value=None),
+                gr.update(value=""),
+                gr.update(value="Select a line above to edit it in context."),
+                [],
+                [],
+                None,
+                None,
+                {},
+                *hidden_updates,
+            )
 
-                for i in range(5):
-                    if i < len(speakers):
-                        # Hide audio upload and other accordions, show KittenTTS accordion with speaker name
-                        audio_updates.append(gr.update(visible=False))
-                        kokoro_accordion_updates.append(gr.update(visible=False))
-                        kitten_accordion_updates.append(
-                            gr.update(visible=True, label=f"🐱 {speakers[i]}")
-                        )
-                        indextts2_accordion_updates.append(gr.update(visible=False))
-                    else:
-                        # Hide all components
-                        audio_updates.append(gr.update(visible=False))
-                        kokoro_accordion_updates.append(gr.update(visible=False))
-                        kitten_accordion_updates.append(gr.update(visible=False))
-                        indextts2_accordion_updates.append(gr.update(visible=False))
+        def _build_conversation_analysis_response(
+            script_text,
+            selected_engine,
+            voice_samples=None,
+            ref_texts=None,
+            kokoro_voices=None,
+            kitten_voices=None,
+            emotion_modes=None,
+            selected_speaker_index: int | None = None,
+        ):
+            if not isinstance(script_text, str) or not script_text.strip():
+                return _conversation_empty_response("No script provided")
 
-                all_updates = (
-                    audio_updates
-                    + kokoro_accordion_updates
-                    + kitten_accordion_updates
-                    + indextts2_accordion_updates
+            conversation_rows, parse_error = parse_conversation_script(script_text)
+            if parse_error:
+                return _conversation_empty_response(f"Script parsing failed: {parse_error}")
+
+            speakers = get_speaker_names_from_script(script_text)
+            if not speakers:
+                return _conversation_empty_response(
+                    "No speakers detected. Please check the Speaker: Text format."
                 )
 
-            elif selected_engine == "IndexTTS2":
-                # For IndexTTS2, show voice samples and emotion controls
-                speakers_text += f"\n\n🎭 **Configure IndexTTS2 Emotions for Each Speaker:**\n"
-                speakers_text += f"Upload voice samples and configure emotion settings below.\n"
-                speakers_text += f"\n📝 **Instructions:**\n1. Upload voice samples for each speaker ✅\n2. Click each speaker's emotion accordion to configure emotions 🎭\n3. Click 'Generate Conversation'"
+            voice_samples = list(voice_samples or [None] * 5)
+            ref_texts = list(ref_texts or [""] * 5)
+            kokoro_voices = list(kokoro_voices or ["af_heart"] * 5)
+            kitten_voices = list(kitten_voices or ["expr-voice-2-f"] * 5)
+            emotion_modes = list(emotion_modes or ["audio_reference"] * 5)
 
-                # Show voice sample uploads and IndexTTS2 emotion accordions, hide others
-                audio_updates = []
-                kokoro_accordion_updates = []
-                kitten_accordion_updates = []
-                indextts2_accordion_updates = []
+            normalized_selected_index = selected_speaker_index
+            if normalized_selected_index is None or not (0 <= normalized_selected_index < len(speakers)):
+                normalized_selected_index = 0
 
-                for i in range(5):
-                    if i < len(speakers):
-                        # Show audio group and IndexTTS2 emotion accordion with speaker name, hide others
-                        audio_updates.append(gr.update(visible=True))
-                        kokoro_accordion_updates.append(gr.update(visible=False))
-                        kitten_accordion_updates.append(gr.update(visible=False))
-                        indextts2_accordion_updates.append(
-                            gr.update(visible=True, label=f"🎭 {speakers[i]} IndexTTS2 Emotions")
-                        )
-                    else:
-                        # Hide all components
-                        audio_updates.append(gr.update(visible=False))
-                        kokoro_accordion_updates.append(gr.update(visible=False))
-                        kitten_accordion_updates.append(gr.update(visible=False))
-                        indextts2_accordion_updates.append(gr.update(visible=False))
+            speaker_settings = create_default_speaker_settings(speakers)
+            roster_choices = _build_conversation_roster_choices(
+                speakers,
+                selected_engine,
+                voice_samples,
+                ref_texts,
+                kokoro_voices,
+                kitten_voices,
+                emotion_modes,
+                speaker_settings,
+            )
+            selected_speaker_name = speakers[normalized_selected_index]
+            conversation_table = _build_conversation_table_rows(conversation_rows)
 
-                all_updates = (
-                    audio_updates
-                    + kokoro_accordion_updates
-                    + kitten_accordion_updates
-                    + indextts2_accordion_updates
-                )
+            return (
+                _build_conversation_summary(conversation_rows, speakers, selected_engine),
+                gr.update(visible=True),
+                gr.update(visible=True),
+                gr.update(choices=roster_choices, value=str(normalized_selected_index)),
+                gr.update(value=f"### {selected_speaker_name}"),
+                gr.update(value=_build_selected_character_hint(selected_engine, selected_speaker_name)),
+                gr.update(value=_build_conversation_capabilities(selected_engine)),
+                gr.update(value=conversation_table, visible=True),
+                gr.update(visible=False),
+                gr.update(value="Select a line from the table to begin editing."),
+                gr.update(value=""),
+                gr.update(choices=speakers, value=selected_speaker_name),
+                gr.update(value=""),
+                gr.update(value="Select a line above to edit it in context."),
+                speakers,
+                conversation_rows,
+                normalized_selected_index,
+                None,
+                speaker_settings,
+                *_build_conversation_panel_updates(
+                    speakers,
+                    selected_engine,
+                    normalized_selected_index,
+                ),
+            )
 
-            else:
-                # For other engines, show upload instructions
-                speakers_text += f"\n\n📝 **Instructions:**\n1. Upload voice samples below\n2. Select TTS engine\n3. Click 'Generate Conversation'"
+        def handle_analyze_script(
+            script_text,
+            selected_engine,
+            *component_values,
+        ):
+            """Analyze the script and populate the guided conversation editor."""
+            voice_samples = component_values[0:5]
+            ref_texts = component_values[5:10]
+            kokoro_voices = component_values[10:15]
+            kitten_voices = component_values[15:20]
+            emotion_modes = component_values[20:25]
+            return _build_conversation_analysis_response(
+                script_text,
+                selected_engine,
+                voice_samples=voice_samples,
+                ref_texts=ref_texts,
+                kokoro_voices=kokoro_voices,
+                kitten_voices=kitten_voices,
+                emotion_modes=emotion_modes,
+            )
 
-                # Show/hide voice sample groups based on number of speakers, hide all accordions
-                audio_updates = []
-                kokoro_accordion_updates = []
-                kitten_accordion_updates = []
-                indextts2_accordion_updates = []
-
-                for i in range(5):
-                    if i < len(speakers):
-                        # Show audio group, hide all accordions
-                        audio_updates.append(gr.update(visible=True))
-                        kokoro_accordion_updates.append(gr.update(visible=False))
-                        kitten_accordion_updates.append(gr.update(visible=False))
-                        indextts2_accordion_updates.append(gr.update(visible=False))
-                    else:
-                        # Hide all components
-                        audio_updates.append(gr.update(visible=False))
-                        kokoro_accordion_updates.append(gr.update(visible=False))
-                        kitten_accordion_updates.append(gr.update(visible=False))
-                        indextts2_accordion_updates.append(gr.update(visible=False))
-
-                all_updates = (
-                    audio_updates
-                    + kokoro_accordion_updates
-                    + kitten_accordion_updates
-                    + indextts2_accordion_updates
-                )
-
-            # Show the conversation generate button when analysis is successful
-            generate_btn_update = gr.update(visible=True)
-
-            return speakers_text, generate_btn_update, *all_updates
-
-        def handle_example_script(selected_engine):
-            """Load an example conversation script."""
+        def handle_example_script(selected_engine, *component_values):
+            """Load the default example and analyze it into the guided editor."""
             example_script = """Alice: Hello there! How are you doing today?
 Bob: I'm doing great, thanks for asking! How about you?
 Alice: I'm wonderful! I just got back from vacation.
@@ -13304,28 +13599,235 @@ Bob: Japan must have been fascinating! What was your favorite part?
 Alice: The food was unbelievable, and the people were so kind.
 Bob: I'd love to visit Japan someday. Any recommendations?
 Alice: Definitely visit Kyoto and try authentic ramen!"""
-
-            # Auto-analyze the example script and return the same format as handle_analyze_script
-            result = handle_analyze_script(example_script, selected_engine)
-
-            # Return the script plus all the analysis results
-            return example_script, *result
+            analysis_response = handle_analyze_script(example_script, selected_engine, *component_values)
+            return example_script, *analysis_response
 
         def handle_clear_script():
-            """Clear the conversation script and reset components."""
-            # Hide all audio groups, Kokoro voice accordions, KittenTTS accordions, IndexTTS2 accordions, and the generate button
-            audio_updates = [gr.update(visible=False) for _ in range(5)]
-            kokoro_accordion_updates = [gr.update(visible=False) for _ in range(5)]
-            kitten_accordion_updates = [gr.update(visible=False) for _ in range(5)]
-            indextts2_accordion_updates = [gr.update(visible=False) for _ in range(5)]
-            generate_btn_update = gr.update(visible=False)
-            all_updates = (
-                audio_updates
-                + kokoro_accordion_updates
-                + kitten_accordion_updates
-                + indextts2_accordion_updates
+            """Reset the conversation tab to its initial empty state."""
+            return "", *_conversation_empty_response("No speakers detected")
+
+        def handle_select_speaker(
+            speaker_index,
+            speakers,
+            selected_engine,
+            *component_values,
+        ):
+            """Select a roster entry and show only that speaker's detail controls."""
+            voice_samples = component_values[0:5]
+            ref_texts = component_values[5:10]
+            kokoro_voices = component_values[10:15]
+            kitten_voices = component_values[15:20]
+            emotion_modes = component_values[20:25]
+            speaker_settings = component_values[25] if len(component_values) > 25 else {}
+
+            if not speakers:
+                hidden_updates = [gr.update(visible=False) for _ in range(20)]
+                return (
+                    gr.update(choices=[], value=None),
+                    gr.update(value="### Select a character"),
+                    gr.update(
+                        value="Analyze a script to populate the roster, then choose a speaker to edit."
+                    ),
+                    gr.update(value=""),
+                    None,
+                    *hidden_updates,
+                )
+
+            normalized_index = _coerce_conversation_index(speaker_index)
+            if normalized_index is None or not (0 <= normalized_index < len(speakers)):
+                normalized_index = 0
+
+            selected_speaker_name = speakers[normalized_index]
+            roster_choices = _build_conversation_roster_choices(
+                speakers,
+                selected_engine,
+                voice_samples,
+                ref_texts,
+                kokoro_voices,
+                kitten_voices,
+                emotion_modes,
+                speaker_settings,
             )
-            return "", "No speakers detected", generate_btn_update, *all_updates
+
+            return (
+                gr.update(choices=roster_choices, value=str(normalized_index)),
+                gr.update(value=f"### {selected_speaker_name}"),
+                gr.update(value=_build_selected_character_hint(selected_engine, selected_speaker_name)),
+                gr.update(value=_build_conversation_capabilities(selected_engine)),
+                normalized_index,
+                *_build_conversation_panel_updates(speakers, selected_engine, normalized_index),
+            )
+
+        def handle_select_line(evt: gr.SelectData, conversation_rows, speakers):
+            """Populate the line editor from the selected dataframe row."""
+            if not conversation_rows:
+                return (
+                    gr.update(visible=False),
+                    gr.update(value="No script lines available."),
+                    gr.update(value=""),
+                    gr.update(choices=[], value=None),
+                    gr.update(value=""),
+                    gr.update(value="Select a line above to edit it in context."),
+                    None,
+                )
+
+            row_index = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+            row_index = _coerce_conversation_index(row_index)
+            if row_index is None or not (0 <= row_index < len(conversation_rows)):
+                return (
+                    gr.update(visible=False),
+                    gr.update(value="Select a valid line from the table."),
+                    gr.update(value=""),
+                    gr.update(choices=speakers or [], value=None),
+                    gr.update(value=""),
+                    gr.update(value="Select a line above to edit it in context."),
+                    None,
+                )
+
+            current_row = conversation_rows[row_index]
+            return (
+                gr.update(visible=True),
+                gr.update(value=f"Editing line {row_index + 1}. Save to rewrite the script text."),
+                gr.update(value=str(row_index + 1)),
+                gr.update(choices=speakers or [], value=current_row.get("speaker", "")),
+                gr.update(value=current_row.get("text", "")),
+                gr.update(value=_build_conversation_line_context(conversation_rows, row_index)),
+                row_index,
+            )
+
+        def handle_save_line_edit(
+            selected_line_index,
+            edited_speaker,
+            edited_text,
+            conversation_rows,
+            current_script,
+            speakers,
+        ):
+            """Apply the line editor changes back into the raw script text."""
+            normalized_index = _coerce_conversation_index(selected_line_index)
+            if normalized_index is None or not conversation_rows or not (
+                0 <= normalized_index < len(conversation_rows)
+            ):
+                return (
+                    current_script,
+                    gr.update(value=_build_conversation_table_rows(conversation_rows or []), visible=True),
+                    gr.update(value="Select a line from the table before saving edits."),
+                    gr.update(value=""),
+                    gr.update(choices=speakers or [], value=None),
+                    gr.update(value=str(edited_text or "")),
+                    gr.update(value="Select a line above to edit it in context."),
+                    conversation_rows,
+                    selected_line_index,
+                )
+
+            clean_speaker = str(edited_speaker or "").strip()
+            clean_text = str(edited_text or "").strip()
+            if not clean_speaker:
+                return (
+                    current_script,
+                    gr.update(value=_build_conversation_table_rows(conversation_rows), visible=True),
+                    gr.update(value="Select a speaker before saving."),
+                    gr.update(value=str(normalized_index + 1)),
+                    gr.update(choices=speakers or [], value=None),
+                    gr.update(value=clean_text),
+                    gr.update(value=_build_conversation_line_context(conversation_rows, normalized_index)),
+                    conversation_rows,
+                    selected_line_index,
+                )
+            if not clean_text:
+                return (
+                    current_script,
+                    gr.update(value=_build_conversation_table_rows(conversation_rows), visible=True),
+                    gr.update(value="Line text cannot be empty."),
+                    gr.update(value=str(normalized_index + 1)),
+                    gr.update(choices=speakers or [], value=clean_speaker),
+                    gr.update(value=""),
+                    gr.update(value=_build_conversation_line_context(conversation_rows, normalized_index)),
+                    conversation_rows,
+                    selected_line_index,
+                )
+
+            updated_rows = [dict(row) for row in conversation_rows]
+            updated_rows[normalized_index] = {
+                "speaker": clean_speaker,
+                "text": " ".join(segment for segment in clean_text.splitlines() if segment.strip()),
+            }
+            updated_script = _serialize_conversation_rows(updated_rows)
+            updated_context = _build_conversation_line_context(updated_rows, normalized_index)
+
+            return (
+                updated_script,
+                gr.update(value=_build_conversation_table_rows(updated_rows), visible=True),
+                gr.update(value=f"Saved line {normalized_index + 1} back into the conversation script."),
+                gr.update(value=str(normalized_index + 1)),
+                gr.update(choices=speakers or [], value=clean_speaker),
+                gr.update(value=updated_rows[normalized_index]["text"]),
+                gr.update(value=updated_context),
+                updated_rows,
+                normalized_index,
+            )
+
+        def handle_revert_line_edit(selected_line_index, conversation_rows, speakers):
+            """Restore the line editor fields from the current parsed row state."""
+            normalized_index = _coerce_conversation_index(selected_line_index)
+            if normalized_index is None or not conversation_rows or not (
+                0 <= normalized_index < len(conversation_rows)
+            ):
+                return (
+                    gr.update(value="Select a line from the table to begin editing."),
+                    gr.update(value=""),
+                    gr.update(choices=speakers or [], value=None),
+                    gr.update(value=""),
+                    gr.update(value="Select a line above to edit it in context."),
+                )
+
+            current_row = conversation_rows[normalized_index]
+            return (
+                gr.update(value=f"Reverted edits for line {normalized_index + 1}."),
+                gr.update(value=str(normalized_index + 1)),
+                gr.update(choices=speakers or [], value=current_row.get("speaker", "")),
+                gr.update(value=current_row.get("text", "")),
+                gr.update(value=_build_conversation_line_context(conversation_rows, normalized_index)),
+            )
+
+        def handle_ai_format_script(
+            script_text,
+            provider_name,
+            base_url,
+            api_key,
+            model_id,
+            timeout_seconds,
+        ):
+            """Use the configured LLM provider to normalize free-form dialogue into Speaker: Text format."""
+            if not isinstance(script_text, str) or not script_text.strip():
+                return script_text, "❌ Enter script text before using AI Format."
+
+            provider_config = _get_provider_config(provider_name)
+            resolved_api_key, _api_key_source = resolve_llm_api_key(provider_name, api_key)
+            narration_script, error_message = format_conversation_with_llm(
+                text=script_text,
+                base_url=str(base_url or "").strip(),
+                api_key=resolved_api_key,
+                model_id=str(model_id or "").strip(),
+                timeout_seconds=int(timeout_seconds),
+                extra_headers=dict(provider_config.get("headers", {})),
+                auth_style=provider_config.get("auth_style", "bearer"),
+            )
+            if error_message:
+                return script_text, f"❌ {error_message}"
+
+            formatted_rows = [
+                {"speaker": line.speaker, "text": line.text}
+                for line in narration_script.lines
+            ]
+            formatted_script = _serialize_conversation_rows(formatted_rows)
+            return (
+                formatted_script,
+                (
+                    f"✨ AI formatted {len(narration_script.lines)} lines across "
+                    f"{len(narration_script.speakers)} speakers."
+                ),
+            )
 
         def handle_tts_engine_change(selected_engine):
             """Handle TTS engine selection changes and update UI accordingly."""
@@ -13338,6 +13840,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 gr.update(visible=True, value=conversation_info_text),  # Reset conversation info
                 gr.update(interactive=True),  # Enable conversation script
                 gr.update(interactive=True),  # Enable analyze button
+                gr.update(interactive=True),  # Enable AI format button
                 gr.update(interactive=True),  # Enable example button
                 gr.update(interactive=True),  # Enable clear button
                 gr.update(interactive=True),  # Enable pause slider
@@ -13485,89 +13988,107 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         # Wire up conversation mode event handlers
         analyze_script_btn.click(
             fn=handle_analyze_script,
-            inputs=[conversation_script, tts_engine],
-            outputs=[
-                detected_speakers,
-                generate_conversation_btn,
-                speaker_1_group,
-                speaker_2_group,
-                speaker_3_group,
-                speaker_4_group,
-                speaker_5_group,
-                speaker_1_kokoro_accordion,
-                speaker_2_kokoro_accordion,
-                speaker_3_kokoro_accordion,
-                speaker_4_kokoro_accordion,
-                speaker_5_kokoro_accordion,
-                speaker_1_kitten_accordion,
-                speaker_2_kitten_accordion,
-                speaker_3_kitten_accordion,
-                speaker_4_kitten_accordion,
-                speaker_5_kitten_accordion,
-                speaker_1_indextts2_accordion,
-                speaker_2_indextts2_accordion,
-                speaker_3_indextts2_accordion,
-                speaker_4_indextts2_accordion,
-                speaker_5_indextts2_accordion,
-            ],
+            inputs=conversation_analyze_inputs,
+            outputs=conversation_analysis_outputs,
         )
 
         example_script_btn.click(
             fn=handle_example_script,
-            inputs=[tts_engine],
-            outputs=[
-                conversation_script,
-                detected_speakers,
-                generate_conversation_btn,
-                speaker_1_group,
-                speaker_2_group,
-                speaker_3_group,
-                speaker_4_group,
-                speaker_5_group,
-                speaker_1_kokoro_accordion,
-                speaker_2_kokoro_accordion,
-                speaker_3_kokoro_accordion,
-                speaker_4_kokoro_accordion,
-                speaker_5_kokoro_accordion,
-                speaker_1_kitten_accordion,
-                speaker_2_kitten_accordion,
-                speaker_3_kitten_accordion,
-                speaker_4_kitten_accordion,
-                speaker_5_kitten_accordion,
-                speaker_1_indextts2_accordion,
-                speaker_2_indextts2_accordion,
-                speaker_3_indextts2_accordion,
-                speaker_4_indextts2_accordion,
-                speaker_5_indextts2_accordion,
-            ],
+            inputs=[tts_engine, *conversation_component_state_inputs],
+            outputs=[conversation_script, *conversation_analysis_outputs],
         )
 
         clear_script_btn.click(
             fn=handle_clear_script,
+            outputs=[conversation_script, *conversation_analysis_outputs],
+        )
+
+        ai_format_script_btn.click(
+            fn=handle_ai_format_script,
+            inputs=[
+                conversation_script,
+                llm_provider,
+                llm_base_url,
+                llm_api_key,
+                llm_model_id,
+                llm_timeout_seconds,
+            ],
+            outputs=[conversation_script, conversation_info],
+        ).then(
+            fn=handle_analyze_script,
+            inputs=conversation_analyze_inputs,
+            outputs=conversation_analysis_outputs,
+        )
+
+        character_roster.change(
+            fn=handle_select_speaker,
+            inputs=[
+                character_roster,
+                conversation_speakers_state,
+                tts_engine,
+                *conversation_component_state_inputs,
+                conversation_speaker_settings_state,
+            ],
+            outputs=[
+                character_roster,
+                selected_character_header,
+                selected_character_hint,
+                selected_character_capabilities,
+                conversation_selected_speaker_state,
+                *conversation_panel_updates,
+            ],
+        )
+
+        conversation_lines_df.select(
+            fn=handle_select_line,
+            inputs=[conversation_rows_state, conversation_speakers_state],
+            outputs=[
+                line_editor_group,
+                line_editor_status,
+                line_number_display,
+                line_speaker_editor,
+                line_text_editor,
+                line_context_preview,
+                conversation_selected_line_state,
+            ],
+        )
+
+        save_line_edit_btn.click(
+            fn=handle_save_line_edit,
+            inputs=[
+                conversation_selected_line_state,
+                line_speaker_editor,
+                line_text_editor,
+                conversation_rows_state,
+                conversation_script,
+                conversation_speakers_state,
+            ],
             outputs=[
                 conversation_script,
-                detected_speakers,
-                generate_conversation_btn,
-                speaker_1_group,
-                speaker_2_group,
-                speaker_3_group,
-                speaker_4_group,
-                speaker_5_group,
-                speaker_1_kokoro_accordion,
-                speaker_2_kokoro_accordion,
-                speaker_3_kokoro_accordion,
-                speaker_4_kokoro_accordion,
-                speaker_5_kokoro_accordion,
-                speaker_1_kitten_accordion,
-                speaker_2_kitten_accordion,
-                speaker_3_kitten_accordion,
-                speaker_4_kitten_accordion,
-                speaker_5_kitten_accordion,
-                speaker_1_indextts2_accordion,
-                speaker_2_indextts2_accordion,
-                speaker_3_indextts2_accordion,
-                speaker_4_indextts2_accordion,
-                speaker_5_indextts2_accordion,
+                conversation_lines_df,
+                line_editor_status,
+                line_number_display,
+                line_speaker_editor,
+                line_text_editor,
+                line_context_preview,
+                conversation_rows_state,
+                conversation_selected_line_state,
+            ],
+        )
+
+        revert_line_edit_btn.click(
+            fn=handle_revert_line_edit,
+            inputs=[
+                conversation_selected_line_state,
+                conversation_rows_state,
+                conversation_speakers_state,
+            ],
+            outputs=[
+                line_editor_status,
+                line_number_display,
+                line_speaker_editor,
+                line_text_editor,
+                line_context_preview,
             ],
         )
 
@@ -13769,11 +14290,16 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 conversation_info,  # Update conversation info text
                 conversation_script,  # Enable/disable script input
                 analyze_script_btn,  # Enable/disable analyze button
+                ai_format_script_btn,  # Enable/disable AI format button
                 example_script_btn,  # Enable/disable example button
                 clear_script_btn,  # Enable/disable clear button
                 conversation_pause,  # Enable/disable pause slider
                 speaker_transition_pause,  # Enable/disable transition pause slider
             ],
+        ).then(
+            fn=handle_analyze_script,
+            inputs=conversation_analyze_inputs,
+            outputs=conversation_analysis_outputs,
         ).then(fn=switch_engine_tab, inputs=[tts_engine], outputs=[engine_tabs])
 
         # eBook conversion event handlers
