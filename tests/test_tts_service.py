@@ -240,6 +240,21 @@ def test_generate_tts_returns_not_yet_extracted_status() -> None:
     assert result.status == "Engine 'Kokoro TTS' not yet available via service layer"
 
 
+def test_generate_tts_returns_not_yet_extracted_status_for_registry_engine() -> None:
+    unavailable_engines = [
+        engine_name
+        for engine_name in ENGINE_EXPRESSIVENESS
+        if engine_name not in tts_service.SERVICE_AVAILABLE_ENGINES
+    ]
+
+    assert unavailable_engines, "Expected at least one registry engine outside the service layer"
+
+    result = tts_service.generate_tts(TtsRequest(text="Hello", engine=unavailable_engines[0]))
+
+    assert result.audio is None
+    assert "not yet available via service layer" in result.status
+
+
 def test_generate_tts_rejects_blank_text() -> None:
     result = tts_service.generate_tts(TtsRequest(text="   ", engine="F5-TTS"))
 
@@ -270,6 +285,62 @@ def test_generate_tts_dispatches_to_function_handler(monkeypatch: pytest.MonkeyP
     assert result.audio[0] == 24000
     assert np.allclose(result.audio[1], np.array([0.1, 0.2], dtype=np.float32))
     assert captured == {"text": "Hello", "skip_file_saving": True, "audio_format": "wav"}
+
+
+def test_generate_tts_passes_synthesis_parameters_to_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate(
+        text: str,
+        audio_format: str,
+        voice: str,
+        speed: float,
+        temperature: float,
+        ref_audio: str,
+        skip_file_saving: bool,
+    ) -> tuple[tuple[int, np.ndarray], str]:
+        captured["text"] = text
+        captured["audio_format"] = audio_format
+        captured["voice"] = voice
+        captured["speed"] = speed
+        captured["temperature"] = temperature
+        captured["ref_audio"] = ref_audio
+        captured["skip_file_saving"] = skip_file_saving
+        return (32000, np.array([0.25], dtype=np.float32)), "ok"
+
+    fake_module = ModuleType("chatterbox_turbo_handler")
+    fake_module.generate_chatterbox_turbo_tts = fake_generate
+    monkeypatch.setattr(tts_service, "_import_module", lambda module_name: fake_module)
+
+    result = tts_service.generate_tts(
+        TtsRequest(
+            text="Hello",
+            engine="Chatterbox Turbo",
+            audio_format="mp3",
+            engine_params={
+                "voice": "af_heart",
+                "speed": 1.1,
+                "temperature": 0.8,
+                "ref_audio": "voice.wav",
+            },
+        )
+    )
+
+    assert result.status == "ok"
+    assert result.output_path is None
+    assert result.audio is not None
+    assert result.audio[0] == 32000
+    assert captured == {
+        "text": "Hello",
+        "audio_format": "mp3",
+        "voice": "af_heart",
+        "speed": 1.1,
+        "temperature": 0.8,
+        "ref_audio": "voice.wav",
+        "skip_file_saving": True,
+    }
 
 
 def test_generate_tts_dispatches_to_method_handler(monkeypatch: pytest.MonkeyPatch) -> None:

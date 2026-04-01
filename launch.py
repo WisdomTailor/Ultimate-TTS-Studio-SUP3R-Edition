@@ -15390,8 +15390,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             return {
                 "app_name": "Ultimate TTS Studio",
                 "mcp_status": "active",
-                "mcp_version": "0.5.0",
-                "tool_count": "9",
+                    "mcp_version": "0.6.0",
+                    "tool_count": "10",
             }
 
         gr.api(mcp_list_engines, api_name="list_engines")
@@ -15551,6 +15551,82 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         gr.api(mcp_transform_text, api_name="transform_text")
         gr.api(mcp_structure_conversation, api_name="structure_conversation")
         gr.api(mcp_list_llm_providers, api_name="list_llm_providers")
+
+        # ── MCP synthesis tools (Phase 4a WI-6) ──────────────────────────
+        def mcp_synthesize(
+            text: str,
+            engine: str = "Kokoro TTS",
+            audio_format: str = "wav",
+            voice: str = "",
+            speed: str = "1.0",
+            temperature: str = "0.7",
+            ref_audio: str = "",
+            request: gr.Request | None = None,
+        ) -> dict[str, str]:
+            """Synthesize speech from text using a TTS engine.
+
+            Generates audio from the provided text using the specified engine.
+            Use list_engines to discover available engines and their capabilities.
+            Use list_voices to find valid voice identifiers for an engine.
+
+            Args:
+                text: The text to synthesize into speech.
+                engine: TTS engine to use (e.g., "Kokoro TTS", "F5-TTS", "ChatterboxTTS").
+                audio_format: Output audio format - "wav" or "mp3".
+                voice: Voice identifier. For Kokoro: voice ID like "af_heart". For reference audio
+                    engines: file path to reference audio. Leave empty to use engine default.
+                speed: Speech speed multiplier (0.5 to 2.0). Not all engines support this.
+                temperature: Generation temperature (0.0 to 1.5). Not all engines support this.
+                ref_audio: Path to reference audio file for voice cloning engines. Alternative to the
+                    voice parameter.
+                request: Gradio request object (auto-injected, not visible to MCP clients).
+
+            Returns:
+                A dictionary with "status", and optionally "output_path" or "audio_format" and
+                "sample_rate" fields.
+            """
+            from mcp_security import get_security
+
+            get_security().guard("synthesize", _extract_bearer_token(request))
+
+            from tts_service import TtsRequest, generate_tts
+
+            engine_params: dict[str, object] = {}
+            if voice:
+                engine_params["voice"] = voice
+            if ref_audio:
+                engine_params["ref_audio"] = ref_audio
+            try:
+                engine_params["speed"] = float(speed)
+            except (ValueError, TypeError):
+                pass
+            try:
+                engine_params["temperature"] = float(temperature)
+            except (ValueError, TypeError):
+                pass
+
+            tts_request = TtsRequest(
+                text=text,
+                engine=engine,
+                audio_format=audio_format,
+                engine_params=engine_params,
+            )
+
+            result = generate_tts(tts_request)
+
+            response: dict[str, str] = {"status": result.status}
+            if result.output_path:
+                response["output_path"] = result.output_path
+            if result.audio is not None:
+                sample_rate, _audio_data = result.audio
+                response["audio_format"] = audio_format
+                response["sample_rate"] = str(sample_rate)
+                response["note"] = (
+                    "Audio generated in memory. Use the Gradio API client to retrieve binary data."
+                )
+            return response
+
+        gr.api(mcp_synthesize, api_name="synthesize")
 
     return demo
 

@@ -72,7 +72,9 @@ class TestTokenManager:
         assert token_path.exists()
         assert token_path.read_text(encoding="utf-8") == token
 
-    def test_validate_uses_compare_digest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_validate_uses_compare_digest(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         manager = mcp_security.TokenManager(tmp_path / ".mcp_token")
         token = manager.initialize()
         called: list[tuple[str, str]] = []
@@ -245,7 +247,9 @@ class TestMcpSecurity:
         with pytest.raises(mcp_security.McpAuthError):
             security.guard("list_engines", "invalid-token")
 
-    def test_guard_raises_rate_limit_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_guard_raises_rate_limit_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         security = mcp_security.McpSecurity(
             token_path=tmp_path / ".mcp_token",
             log_dir=tmp_path / "logs" / "mcp",
