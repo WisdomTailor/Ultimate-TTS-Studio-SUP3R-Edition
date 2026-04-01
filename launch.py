@@ -18,6 +18,7 @@ import hashlib
 import inspect
 import importlib
 import importlib.util as importlib_util
+import importlib.metadata as importlib_metadata
 import unicodedata
 import urllib.request
 import urllib.error
@@ -15940,6 +15941,49 @@ def _is_mcp_runtime_available() -> bool:
     return importlib_util.find_spec("mcp") is not None
 
 
+def _parse_semver_triplet(version: str) -> tuple[int, int, int] | None:
+    """Extract major/minor/patch integers from a version-like string."""
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
+def _warn_on_shared_env_mcp_f5_pydantic_conflict(mcp_server_enabled: bool) -> None:
+    """Warn if shared env likely has MCP + F5 with an unsupported pydantic version."""
+    if not (mcp_server_enabled and F5_TTS_AVAILABLE):
+        return
+
+    try:
+        pydantic_version = importlib_metadata.version("pydantic")
+    except importlib_metadata.PackageNotFoundError:
+        return
+    except Exception as error:
+        print(f"ℹ️ Could not inspect pydantic version for MCP/F5 compatibility check: {error}")
+        return
+
+    parsed_version = _parse_semver_triplet(pydantic_version)
+    if parsed_version is None:
+        print(
+            "ℹ️ Could not parse installed pydantic version "
+            f"'{pydantic_version}' for MCP/F5 compatibility check."
+        )
+        return
+
+    max_supported_for_f5 = (2, 10, 6)
+    if parsed_version <= max_supported_for_f5:
+        return
+
+    print(
+        "⚠️ Detected shared-env risk: MCP runtime is installed and F5-TTS is available, "
+        f"but pydantic {pydantic_version} is newer than the F5-TTS tested limit (<=2.10.6)."
+    )
+    print(
+        "ℹ️ Recommended: keep this main app environment focused on TTS and run MCP through "
+        "the isolated launcher/MCP path instead of installing gradio[mcp] into the main app env."
+    )
+
+
 if __name__ == "__main__":
     print("🚀 Starting Unified TTS Pro...")
 
@@ -15962,6 +16006,9 @@ if __name__ == "__main__":
             print("🔌 MCP server enabled. Endpoint: http://127.0.0.1:<port>/gradio_api/mcp/sse")
             print("📋 Use .vscode/mcp.json for VS Code Copilot integration.")
             print(f"🔑 Bearer token: {_mcp_token[:8]}... (full token in .mcp_token)")
+
+        _warn_on_shared_env_mcp_f5_pydantic_conflict(mcp_server_enabled)
+
         demo.launch(
             server_name="127.0.0.1",
             share=False,
