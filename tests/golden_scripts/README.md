@@ -5,6 +5,7 @@ Test fixtures for evaluating speaker attribution accuracy in the AI conversation
 ## Purpose
 
 These scripts provide ground-truth annotations for:
+
 - Speaker detection accuracy (precision/recall)
 - Line type classification (dialogue/narration/stage_direction)
 - Ambiguity detection (flagging uncertain attributions)
@@ -13,8 +14,10 @@ These scripts provide ground-truth annotations for:
 ## Schema
 
 Each JSON file follows the NarrationScript model (v1.0):
+
 - `source_text`: Raw input as a user would provide it
-- `expected_output`: Annotated NarrationScript with speaker labels, line types, and confidence scores
+- `expected_output`: Annotated NarrationScript with speaker labels, line types, and confidence
+  scores
 
 ## Usage
 
