@@ -423,6 +423,85 @@ def _has_indextts_package() -> bool:
     return default_settings
 
 
+def parse_conversation_script(script_text):
+    """Parse conversation script in Speaker: Text format."""
+    try:
+        lines = script_text.strip().split("\n")
+        conversation = []
+        current_speaker = None
+        current_text = ""
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Check if line contains speaker designation (Speaker: Text format)
+            if ":" in line and not line.startswith(" "):
+                # Save previous speaker's text if exists
+                if current_speaker and current_text:
+                    conversation.append({"speaker": current_speaker, "text": current_text.strip()})
+
+                # Parse new speaker line
+                parts = line.split(":", 1)
+                if len(parts) == 2:
+                    current_speaker = parts[0].strip()
+                    current_text = parts[1].strip()
+                else:
+                    # Invalid format, treat as continuation
+                    current_text += " " + line
+            else:
+                # Continuation of previous speaker's text
+                current_text += " " + line
+
+        # Add the last speaker's text
+        if current_speaker and current_text:
+            conversation.append({"speaker": current_speaker, "text": current_text.strip()})
+
+        return conversation, None
+
+    except Exception as e:
+        return [], f"Error parsing conversation: {str(e)}"
+
+
+def get_speaker_names_from_script(script_text):
+    """Extract unique speaker names from conversation script."""
+    conversation, error = parse_conversation_script(script_text)
+    if error:
+        return []
+
+    speakers = list(set([item["speaker"] for item in conversation]))
+    return sorted(speakers)
+
+
+def create_default_speaker_settings(speakers):
+    """Create default settings for a list of speakers."""
+    default_settings = {}
+
+    for speaker in speakers:
+        default_settings[speaker] = {
+            # Common settings
+            "ref_audio": "",  # Path to reference audio file
+            "tts_engine": "chatterbox",  # Default engine
+            # ChatterboxTTS settings
+            "exaggeration": 0.5,
+            "temperature": 0.8,
+            "cfg_weight": 0.5,
+            # Kokoro TTS settings
+            "kokoro_voice": "af_heart",
+            "kokoro_speed": 1.0,
+            # Fish Speech settings
+            "fish_ref_text": "",
+            "fish_temperature": 0.8,
+            "fish_top_p": 0.8,
+            "fish_repetition_penalty": 1.1,
+            "fish_max_tokens": 1024,
+            "fish_seed": None,
+        }
+
+    return default_settings
+
+
 def generate_conversation_audio_simple(
     conversation_script,
     voice_samples,  # List of voice sample file paths
