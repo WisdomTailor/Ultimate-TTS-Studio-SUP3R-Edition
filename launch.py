@@ -15556,6 +15556,11 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
 
 # ===== MAIN EXECUTION =====
+def _is_mcp_runtime_available() -> bool:
+    """Return True only when Gradio MCP runtime dependencies are installed."""
+    return importlib_util.find_spec("mcp") is not None
+
+
 if __name__ == "__main__":
     print("🚀 Starting Unified TTS Pro...")
 
@@ -15570,4 +15575,8 @@ if __name__ == "__main__":
             auth_enabled=True,
         )
         print("MCP security initialized. Token file: .mcp_token")
-        demo.launch(share=False, show_error=True, mcp_server=True)
+        mcp_server_enabled = _is_mcp_runtime_available()
+        if not mcp_server_enabled:
+            print("⚠️ MCP runtime not found. Launching without Gradio MCP server support.")
+            print("ℹ️ Install with: uv pip install \"gradio[mcp]\" (or pip install \"gradio[mcp]\")")
+        demo.launch(share=False, show_error=True, mcp_server=mcp_server_enabled)
