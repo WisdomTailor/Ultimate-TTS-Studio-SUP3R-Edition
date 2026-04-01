@@ -381,6 +381,13 @@ from narration_transform import (
     apply_llm_transform_to_textbox,
     format_provenance,
 )
+from conversation_logic import (
+    create_default_speaker_settings,
+    format_conversation_info,
+    get_speaker_names_from_script,
+    parse_conversation_script,
+)
+from engine_registry import ENGINE_METADATA_CONTROL_MAP
 
 
 # ===== VOXCPM MODEL MANAGEMENT =====
@@ -398,108 +405,6 @@ IndexTTS = None
 def _has_indextts_package() -> bool:
     try:
         if importlib_util.find_spec("indextts.infer") is not None:
-
-    for speaker in speakers:
-        default_settings[speaker] = {
-            # Common settings
-            "ref_audio": "",  # Path to reference audio file
-            "tts_engine": "chatterbox",  # Default engine: 'chatterbox', 'kokoro', or 'Fish Speech'
-            # ChatterboxTTS settings
-            "exaggeration": 0.5,
-            "temperature": 0.8,
-            "cfg_weight": 0.5,
-            # Kokoro TTS settings
-            "kokoro_voice": "af_heart",
-            "kokoro_speed": 1.0,
-            # Fish Speech settings
-            "fish_ref_text": "",
-            "fish_temperature": 0.8,
-            "fish_top_p": 0.8,
-            "fish_repetition_penalty": 1.1,
-            "fish_max_tokens": 1024,
-            "fish_seed": None,
-        }
-
-    return default_settings
-
-
-def parse_conversation_script(script_text):
-    """Parse conversation script in Speaker: Text format."""
-    try:
-        lines = script_text.strip().split("\n")
-        conversation = []
-        current_speaker = None
-        current_text = ""
-
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-
-            # Check if line contains speaker designation (Speaker: Text format)
-            if ":" in line and not line.startswith(" "):
-                # Save previous speaker's text if exists
-                if current_speaker and current_text:
-                    conversation.append({"speaker": current_speaker, "text": current_text.strip()})
-
-                # Parse new speaker line
-                parts = line.split(":", 1)
-                if len(parts) == 2:
-                    current_speaker = parts[0].strip()
-                    current_text = parts[1].strip()
-                else:
-                    # Invalid format, treat as continuation
-                    current_text += " " + line
-            else:
-                # Continuation of previous speaker's text
-                current_text += " " + line
-
-        # Add the last speaker's text
-        if current_speaker and current_text:
-            conversation.append({"speaker": current_speaker, "text": current_text.strip()})
-
-        return conversation, None
-
-    except Exception as e:
-        return [], f"Error parsing conversation: {str(e)}"
-
-
-def get_speaker_names_from_script(script_text):
-    """Extract unique speaker names from conversation script."""
-    conversation, error = parse_conversation_script(script_text)
-    if error:
-        return []
-
-    speakers = list(set([item["speaker"] for item in conversation]))
-    return sorted(speakers)
-
-
-def create_default_speaker_settings(speakers):
-    """Create default settings for a list of speakers."""
-    default_settings = {}
-
-    for speaker in speakers:
-        default_settings[speaker] = {
-            # Common settings
-            "ref_audio": "",  # Path to reference audio file
-            "tts_engine": "chatterbox",  # Default engine
-            # ChatterboxTTS settings
-            "exaggeration": 0.5,
-            "temperature": 0.8,
-            "cfg_weight": 0.5,
-            # Kokoro TTS settings
-            "kokoro_voice": "af_heart",
-            "kokoro_speed": 1.0,
-            # Fish Speech settings
-            "fish_ref_text": "",
-            "fish_temperature": 0.8,
-            "fish_top_p": 0.8,
-            "fish_repetition_penalty": 1.1,
-            "fish_max_tokens": 1024,
-            "fish_seed": None,
-        }
-
-    return default_settings
 
 
 def generate_conversation_audio_simple(
@@ -1856,35 +1761,9 @@ def _sanitize_fish_speech_text(text_input: str) -> str:
     return text
 
 
-def format_conversation_info(summary):
-    """Format conversation summary for display."""
-    if isinstance(summary, str):
-        return summary
-
-    try:
-        saved_file = summary.get("saved_file", "conversation_audio")
-        engine_used = summary.get("engine_used", "Unknown")
-
-        info_text = f"""🎭 **Conversation Generated Successfully!**
-
-💾 **File Saved:** {saved_file}
-🎵 **Engine Used:** {engine_used}
-
-📊 **Summary:**
-• Total Lines: {summary['total_lines']} | Speakers: {summary['unique_speakers']} | Duration: {summary['total_duration']:.1f}s
-• Speakers: {', '.join(summary['speakers'])}
-
-📝 **Line Breakdown:**"""
-
-        for i, line_info in enumerate(summary["conversation_info"], 1):
-            speaker = line_info["speaker"]
-            text_preview = line_info["text"]
-            duration = line_info["duration"]
-            info_text += f'\n{i:2d}. {speaker}: "{text_preview}" ({duration:.1f}s)'
-
-        info_text += f"\n\n✅ **Status:** Conversation audio saved to outputs folder!"
-
-        return info_text.strip()
+        return True
+    except Exception:
+        return False
 
     except Exception as e:
         return f"Error formatting conversation info: {str(e)}"
@@ -6788,111 +6667,6 @@ def _is_seed_empty(seed_value, tts_engine: str) -> bool:
 
 def _generate_seed() -> int:
     return random.randint(1, 2147483647)
-
-
-ENGINE_METADATA_CONTROL_MAP = {
-    "ChatterboxTTS": [
-        ("chatterbox_exaggeration", "exaggeration"),
-        ("chatterbox_temperature", "temperature"),
-        ("chatterbox_cfg_weight", "cfg_weight"),
-        ("chatterbox_chunk_size", "chunk_size"),
-    ],
-    "Chatterbox Multilingual": [
-        ("chatterbox_mtl_language", "language"),
-        ("chatterbox_mtl_exaggeration", "exaggeration"),
-        ("chatterbox_mtl_temperature", "temperature"),
-        ("chatterbox_mtl_cfg_weight", "cfg_weight"),
-        ("chatterbox_mtl_repetition_penalty", "repetition_penalty"),
-        ("chatterbox_mtl_min_p", "min_p"),
-        ("chatterbox_mtl_top_p", "top_p"),
-        ("chatterbox_mtl_chunk_size", "chunk_size"),
-    ],
-    "Chatterbox Turbo": [
-        ("chatterbox_turbo_exaggeration", "exaggeration"),
-        ("chatterbox_turbo_temperature", "temperature"),
-        ("chatterbox_turbo_cfg_weight", "cfg_weight"),
-        ("chatterbox_turbo_repetition_penalty", "repetition_penalty"),
-        ("chatterbox_turbo_min_p", "min_p"),
-        ("chatterbox_turbo_top_p", "top_p"),
-        ("chatterbox_turbo_chunk_size", "chunk_size"),
-    ],
-    "Kokoro TTS": [
-        ("kokoro_voice", "voice"),
-        ("kokoro_speed", "speed"),
-    ],
-    "Fish Speech": [
-        ("fish_temperature", "temperature"),
-        ("fish_top_p", "top_p"),
-        ("fish_repetition_penalty", "repetition_penalty"),
-        ("fish_max_tokens", "max_tokens"),
-    ],
-    "IndexTTS": [
-        ("indextts_temperature", "temperature"),
-    ],
-    "IndexTTS2": [
-        ("indextts2_emotion_mode", "emotion_mode"),
-        ("indextts2_emo_alpha", "emo_alpha"),
-        ("indextts2_happy", "happy"),
-        ("indextts2_angry", "angry"),
-        ("indextts2_sad", "sad"),
-        ("indextts2_afraid", "afraid"),
-        ("indextts2_disgusted", "disgusted"),
-        ("indextts2_melancholic", "melancholic"),
-        ("indextts2_surprised", "surprised"),
-        ("indextts2_calm", "calm"),
-        ("indextts2_temperature", "temperature"),
-        ("indextts2_top_p", "top_p"),
-        ("indextts2_top_k", "top_k"),
-        ("indextts2_repetition_penalty", "repetition_penalty"),
-        ("indextts2_max_mel_tokens", "max_mel_tokens"),
-        ("indextts2_use_random", "use_random"),
-    ],
-    "F5-TTS": [
-        ("f5_speed", "speed"),
-        ("f5_cross_fade", "cross_fade"),
-        ("f5_remove_silence", "remove_silence"),
-    ],
-    "Higgs Audio": [
-        ("higgs_voice_preset", "voice_preset"),
-        ("higgs_system_prompt", "system_prompt"),
-        ("higgs_temperature", "temperature"),
-        ("higgs_top_p", "top_p"),
-        ("higgs_top_k", "top_k"),
-        ("higgs_max_tokens", "max_tokens"),
-        ("higgs_ras_win_len", "ras_win_len"),
-        ("higgs_ras_win_max_num_repeat", "ras_win_max_num_repeat"),
-    ],
-    "KittenTTS": [
-        ("kitten_voice", "voice"),
-    ],
-    "VoxCPM": [
-        ("voxcpm_cfg_value", "cfg_value"),
-        ("voxcpm_inference_timesteps", "inference_timesteps"),
-        ("voxcpm_normalize", "normalize"),
-        ("voxcpm_denoise", "denoise"),
-        ("voxcpm_retry_badcase", "retry_badcase"),
-        ("voxcpm_retry_badcase_max_times", "retry_badcase_max_times"),
-        ("voxcpm_retry_badcase_ratio_threshold", "retry_badcase_ratio_threshold"),
-    ],
-    "Qwen Voice Design": [
-        ("qwen_language", "language"),
-        ("qwen_voice_description", "voice_description"),
-    ],
-    "Qwen Voice Clone": [
-        ("qwen_language", "language"),
-        ("qwen_ref_text", "ref_text"),
-        ("qwen_xvector_only", "xvector_only"),
-        ("qwen_clone_model_size", "model_size"),
-        ("qwen_chunk_size", "chunk_size"),
-        ("qwen_chunk_gap", "chunk_gap"),
-    ],
-    "Qwen Custom Voice": [
-        ("qwen_speaker", "speaker_profile"),
-        ("qwen_language", "language"),
-        ("qwen_style_instruct", "style_instruct"),
-        ("qwen_custom_model_size", "model_size"),
-    ],
-}
 
 
 def _collect_engine_metadata_controls(tts_engine: str, base_args: list, param_idx: dict) -> dict:

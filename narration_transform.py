@@ -17,6 +17,21 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from engine_registry import (
+    ENGINE_EXPRESSIVENESS,
+    _ALLCAPS_WORD_PATTERN,
+    _BRACKET_CUE_PATTERN,
+    _DEFAULT_ENGINE_EXPRESSIVENESS,
+    _EXCESS_BLANK_LINES_PATTERN,
+    _MULTISPACE_PATTERN,
+    _PAREN_STAGE_DIRECTION_PATTERN,
+    _PRESERVED_ALLCAPS_ACRONYMS,
+    _SPACE_BEFORE_PUNCT_PATTERN,
+    _SSML_TAG_PATTERN,
+    _normalize_allcaps_word,
+    strip_unsupported_cues,
+)
+
 
 DEFAULT_LLM_NARRATION_SYSTEM_PROMPT = """You are a TTS script preparation specialist. Your sole task is to transform raw text into clean, speakable narration for ElevenLabs v3 TTS.
 
@@ -368,174 +383,6 @@ LLM_OUTCOME_PRESETS: dict[str, dict[str, float | int]] = {
 
 DEFAULT_LLM_OUTCOME_PRESET = "Balanced"
 
-_DEFAULT_ENGINE_EXPRESSIVENESS = {
-    "bracket_cues": False,
-    "ssml": False,
-    "allcaps_emphasis": False,
-    "ellipsis_pause": True,
-    "emotion_vectors": False,
-}
-
-_BRACKET_CUE_PATTERN = re.compile(r"\[(?=[^\]\n]*[A-Za-z])[^\]\n]{1,80}\]")
-_PAREN_STAGE_DIRECTION_PATTERN = re.compile(r"\((?=[^\)\n]*[A-Za-z])[^\)\n]{1,80}\)")
-_SSML_TAG_PATTERN = re.compile(r"</?\s*[A-Za-z][\w:-]*(?:\s+[^<>]*)?\s*/?>")
-_MULTISPACE_PATTERN = re.compile(r"[ \t]{2,}")
-_SPACE_BEFORE_PUNCT_PATTERN = re.compile(r"\s+([,.;:!?])")
-_EXCESS_BLANK_LINES_PATTERN = re.compile(r"\n{3,}")
-_ALLCAPS_WORD_PATTERN = re.compile(r"\b[A-Z][A-Z'-]{2,}\b")
-_PRESERVED_ALLCAPS_ACRONYMS = {
-    "AI",
-    "API",
-    "ASCII",
-    "CIA",
-    "CLI",
-    "CPU",
-    "CSS",
-    "CSV",
-    "DVD",
-    "EU",
-    "FAQ",
-    "FBI",
-    "GPU",
-    "HTML",
-    "HTTP",
-    "HTTPS",
-    "IDE",
-    "JSON",
-    "LLM",
-    "ML",
-    "NASA",
-    "NATO",
-    "NLP",
-    "OCR",
-    "PDF",
-    "RAM",
-    "SDK",
-    "SQL",
-    "SSH",
-    "TCP",
-    "TTS",
-    "UI",
-    "UN",
-    "URI",
-    "URL",
-    "USA",
-    "USB",
-    "UX",
-    "UDP",
-    "WAV",
-    "XML",
-    "YAML",
-}
-
-ENGINE_EXPRESSIVENESS: dict[str, dict[str, bool]] = {
-    "ChatterboxTTS": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "Chatterbox Multilingual": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "Chatterbox Turbo": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "Kokoro TTS": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "Fish Speech": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "IndexTTS": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "IndexTTS2": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": True,
-    },
-    "F5-TTS": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "Higgs Audio": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "VoxCPM": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "KittenTTS": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "Qwen Voice Design": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "Qwen Voice Clone": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "Qwen Custom Voice": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-    "VibeVoice": {
-        "bracket_cues": False,
-        "ssml": False,
-        "allcaps_emphasis": False,
-        "ellipsis_pause": True,
-        "emotion_vectors": False,
-    },
-}
-
 
 def _get_provider_config(provider_name: str) -> dict:
     return LLM_PROVIDER_CONFIGS.get(provider_name, _DEFAULT_PROVIDER_CONFIG)
@@ -721,39 +568,6 @@ def _clean_llm_transform_output(text: str, engine: str | None = None) -> str:
     )
     if engine:
         cleaned = strip_unsupported_cues(cleaned, engine)
-    return cleaned.strip()
-
-
-def _normalize_allcaps_word(match: re.Match[str]) -> str:
-    word = match.group(0)
-    if word in _PRESERVED_ALLCAPS_ACRONYMS:
-        return word
-    return word.title()
-
-
-def strip_unsupported_cues(text: str, engine: str) -> str:
-    """Strip expressive markup that the selected engine will read literally."""
-    if not isinstance(text, str):
-        return ""
-
-    capabilities = ENGINE_EXPRESSIVENESS.get(engine, _DEFAULT_ENGINE_EXPRESSIVENESS)
-    cleaned = text
-
-    if not capabilities.get("bracket_cues", False):
-        cleaned = _BRACKET_CUE_PATTERN.sub("", cleaned)
-        cleaned = _PAREN_STAGE_DIRECTION_PATTERN.sub("", cleaned)
-        cleaned = _MULTISPACE_PATTERN.sub(" ", cleaned)
-        cleaned = _SPACE_BEFORE_PUNCT_PATTERN.sub(r"\1", cleaned)
-
-    if not capabilities.get("ssml", False):
-        cleaned = _SSML_TAG_PATTERN.sub("", cleaned)
-
-    if not capabilities.get("allcaps_emphasis", False):
-        cleaned = _ALLCAPS_WORD_PATTERN.sub(_normalize_allcaps_word, cleaned)
-
-    cleaned = _MULTISPACE_PATTERN.sub(" ", cleaned)
-    cleaned = _SPACE_BEFORE_PUNCT_PATTERN.sub(r"\1", cleaned)
-    cleaned = _EXCESS_BLANK_LINES_PATTERN.sub("\n\n", cleaned)
     return cleaned.strip()
 
 
