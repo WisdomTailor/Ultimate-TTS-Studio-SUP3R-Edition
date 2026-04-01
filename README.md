@@ -1,66 +1,17 @@
-## 💖 Support & Donations
-
-If you enjoy using **Ultimate TTS Studio** and would like to support its ongoing development, your generosity is deeply appreciated.  
-Any amount — big or small — makes a difference!
-
-### 💰 Donate via PayPal
-
-<table>
-  <tr>
-    <td width="160">
-      <a href="https://paypal.me/30second?country.x=GB&locale.x=en_GB" target="_blank">
-        <img src="https://www.paypalobjects.com/webstatic/mktg/Logo/pp-logo-100px.png" alt="Donate with PayPal" width="120"/>
-      </a>
-    </td>
-    <td style="padding-left: 15px;">
-      <p>
-        Support this project securely via <strong>PayPal</strong>.<br>
-        Click below to make a one-time or recurring donation:
-      </p>
-      <p>
-        <a href="https://paypal.me/30second?country.x=GB&locale.x=en_GB" target="_blank">
-          👉 <strong>paypal.me/30second</strong>
-        </a>
-      </p>
-    </td>
-  </tr>
-</table>
-
-### 🪙 Bitcoin Donations Welcome
-
-**Bitcoin Address:** `1N942jHr6vVuR2KAe2JEf3nN59eR21tpKv`
-
-<table>
-  <tr>
-    <td width="160">
-      <img src="https://github.com/user-attachments/assets/a93b7a18-1a42-461c-bbe2-466f425ce350" alt="Donate via Bitcoin" width="150"/>
-    </td>
-    <td style="padding-left: 20px;">
-      <p>Your donations help cover:</p>
-      <ul>
-        <li>🧠 Development time and continuous feature updates</li>
-        <li>💾 Storage upgrades and data handling</li>
-        <li>🧾 Subscription costs for dev tools and AI services</li>
-        <li>🚀 Hardware improvements (e.g., GPU upgrades)</li>
-      </ul>
-      <p>
-        Every contribution directly supports the creation of more innovative apps like this.<br>
-        <strong>Thank you for helping keep the project alive and growing!</strong>
-      </p>
-    </td>
-  </tr>
-</table>
+# Ultimate TTS Studio SUP3R Edition
 
 ---
 
 ## ⚠️ Notice: Major App Update
 
 ### 📅 Sept 18, 2025
-This update brings **VibeVoice** and **IndexTTS2** as newly supported TTS engines, expanding the variety and flexibility of voice options available.
+
+This update brings **VibeVoice** and **IndexTTS2** as newly supported TTS engines, expanding the
+variety and flexibility of voice options available.
 <img width="360" height="165" alt="Screenshot 2025-09-18 164743" src="https://github.com/user-attachments/assets/49a6ea70-3028-496b-aec2-01c303f6a777" /><img width="794" height="73" alt="Screenshot 2025-09-18 164736" src="https://github.com/user-attachments/assets/22cacc1b-7dc9-4fa4-913c-4196096fe3d7" />
 
-
 ### 📅 Sept 13, 2025
+
 This update brings KittenTTS
 <img width="1758" height="377" alt="Screenshot 2025-09-13 231901" src="https://github.com/user-attachments/assets/5a701acf-5639-46dd-9323-b04402e31e2e" />
 
@@ -74,12 +25,13 @@ This recent update brings a few UI improvements focused on clarity and usability
 
 ### 🎛️ TTS UI Refactor
 
-* The **TTS engine selector** is now organized into a **tabbed interface**, making it easier to navigate and less overwhelming.
-![Screenshot 2025-06-23 204234](https://github.com/user-attachments/assets/2b0382eb-c358-4a1c-85d6-cb99aa4217f8)
+- The **TTS engine selector** is now organized into a **tabbed interface**, making it easier to
+  navigate and less overwhelming.
+  ![Screenshot 2025-06-23 204234](https://github.com/user-attachments/assets/2b0382eb-c358-4a1c-85d6-cb99aa4217f8)
 
-* The **audiobook feature** has been moved into its own tab to **reduce visual clutter** and improve user experience.
-![Screenshot 2025-06-23 204240](https://github.com/user-attachments/assets/05a9df2d-2573-418a-9dbe-b82f6c5e8e1b)
-
+- The **audiobook feature** has been moved into its own tab to **reduce visual clutter** and improve
+  user experience.
+  ![Screenshot 2025-06-23 204240](https://github.com/user-attachments/assets/05a9df2d-2573-418a-9dbe-b82f6c5e8e1b)
 
 ---
 
@@ -91,20 +43,22 @@ We’ve pushed another exciting update packed with new functionality and improve
 
 ### 🗣️ TTS Integration Expanded
 
-* **F5-TTS** has now been added as a **fifth supported engine**, and it works seamlessly across all modes.
-* **Index-TTS** has been added as a supported speech engine.
-* All **TTS engines now work across all modes**, including narration, conversation, and ambient.
+- **F5-TTS** has now been added as a **fifth supported engine**, and it works seamlessly across all
+  modes.
+- **Index-TTS** has been added as a supported speech engine.
+- All **TTS engines now work across all modes**, including narration, conversation, and ambient.
 
 ### 💬 Kokoro Conversation Mode
 
-* **Kokoro** now fully supports **conversation mode**, offering a more dynamic and interactive experience.
+- **Kokoro** now fully supports **conversation mode**, offering a more dynamic and interactive
+  experience.
 
 ### ✅ Recommended Setup
 
 For the **smoothest installation and full feature compatibility**:
 
-* Use a **Conda environment**, or
-* Install via **[Pinokio](https://pinokio.co)** for the easiest experience.
+- Use a **Conda environment**, or
+- Install via **[Pinokio](https://pinokio.co)** for the easiest experience.
 
 ---
 
@@ -114,79 +68,87 @@ We’re excited to announce a major update to the app!
 
 ### 🎧 New Feature: eBook to Audiobook
 
-Bring your favorite eBooks to life with our brand-new **custom voice audiobook** feature. Instantly convert any eBook into a personalized listening experience—perfect for learning, multitasking, or relaxing on the go.
+Bring your favorite eBooks to life with our brand-new **custom voice audiobook** feature. Instantly
+convert any eBook into a personalized listening experience—perfect for learning, multitasking, or
+relaxing on the go.
 ![Screenshot 2025-06-10 204108](https://github.com/user-attachments/assets/7aa08f03-4c23-4772-a1cd-6e9967fa8882)
 
 ---
 
 ### 📅 June 7, 2025
 
-This update brings key improvements to **performance**, **model management**, and the **user interface**. Here's what's new:
+This update brings key improvements to **performance**, **model management**, and the **user
+interface**. Here's what's new:
 
 ### 🔧 Model Management
 
-* Models are **no longer auto-loaded into GPU memory** at app launch.
-* You can now **manually load and unload models**, giving you more precise control over memory usage.
+- Models are **no longer auto-loaded into GPU memory** at app launch.
+- You can now **manually load and unload models**, giving you more precise control over memory
+  usage.
 
 ### 🎨 UI Enhancements
 
-* A **refreshed interface** is now live.
-* The app is now **optimized for dark mode**. It still works in light mode, but some visuals may not display as intended.
+- A **refreshed interface** is now live.
+- The app is now **optimized for dark mode**. It still works in light mode, but some visuals may not
+  display as intended.
 
 ### 🐟 Fish Speech Fix
 
-* Fixed a bug where **Fish Speech** did not chunk text correctly, which could cause processing issues.
+- Fixed a bug where **Fish Speech** did not chunk text correctly, which could cause processing
+  issues.
 
 ### 📥 Model Download Behavior
 
-* **Chatterbox** and **Kokoro** models will **automatically download** the first time you click "Load."
-* **Fish Speech** models must still be **downloaded manually** and are **not included** in the auto-download process.
+- **Chatterbox** and **Kokoro** models will **automatically download** the first time you click
+  "Load."
+- **Fish Speech** models must still be **downloaded manually** and are **not included** in the
+  auto-download process.
 
 ### 🗣️ New Feature: Custom Kokoro Voices
 
-* **Kokoro** now supports **custom `.pt` voice models**!
-* Use the **Custom Voice Upload** section in the Kokoro interface to upload your own compatible voice files.
+- **Kokoro** now supports **custom `.pt` voice models**!
+- Use the **Custom Voice Upload** section in the Kokoro interface to upload your own compatible
+  voice files.
 
 ---
+
 <img width="1801" height="1239" alt="Screenshot 2025-10-29 224206" src="https://github.com/user-attachments/assets/c5b61290-3dc0-4cde-bbf3-7c151714717c" />
 
 # ✨ Ultimate TTS Studio SUP3R Edition ✨
 
-**Ultimate TTS Studio** is a powerful all-in-one text-to-speech studio that brings together **ChatterboxTTS**, **Kokoro TTS**, and **Fish Speech** under one interactive Gradio interface.
+**Ultimate TTS Studio** is a powerful all-in-one text-to-speech studio that brings together
+**ChatterboxTTS**, **Kokoro TTS**, and **Fish Speech** under one interactive Gradio interface.
 
-🎭 Reference Audio Cloning
-🗣️ Pre-trained Multi-Language Voices
-🐟 Natural TTS with Audio Effects
-🎵 Real-time Voice Synthesis & Export
+🎭 Reference Audio Cloning 🗣️ Pre-trained Multi-Language Voices 🐟 Natural TTS with Audio Effects 🎵
+Real-time Voice Synthesis & Export
 
----. 
+---.
 
 ## 🚀 Features
 
-* 🎤 **ChatterboxTTS**: Custom voice cloning using short reference clips.
-* 🗣️ **Kokoro TTS**: High-quality, multilingual pre-trained voices.
-* 🐟 **Fish Speech**: Advanced TTS engine.
-* 🎛️ **Professional Audio Effects**: Reverb, Echo, EQ, Pitch shift, Gain.
+- 🎤 **ChatterboxTTS**: Custom voice cloning using short reference clips.
+- 🗣️ **Kokoro TTS**: High-quality, multilingual pre-trained voices.
+- 🐟 **Fish Speech**: Advanced TTS engine.
+- 🎛️ **Professional Audio Effects**: Reverb, Echo, EQ, Pitch shift, Gain.
 
 ---
 
 > ## 🚨🚨 **WARNING / IMPORTANT NOTES** 🚨🚨
 >
-> ⚠️ **Tested Hardware:** This project has **only** been tested on a **Windows 11** machine with an **RTX 4090** GPU.
-> 💻 Performance or compatibility on other systems is **not guaranteed**.
+> ⚠️ **Tested Hardware:** This project has **only** been tested on a **Windows 11** machine with an
+> **RTX 4090** GPU. 💻 Performance or compatibility on other systems is **not guaranteed**.
 >
-> 🔊 **Audio Caution:** The **Fish Speech** feature may occasionally produce **extremely loud** or **muffled** audio.
-> 🎧 **Please lower your volume and avoid using headphones** during initial tests.
+> 🔊 **Audio Caution:** The **Fish Speech** feature may occasionally produce **extremely loud** or
+> **muffled** audio. 🎧 **Please lower your volume and avoid using headphones** during initial
+> tests.
 
 ---
 
 ## 🛠️ Installation
 
-> ⚠️ **Windows Users — Important Note on `pynini`**
-> If you encounter the following error when installing `pynini`:
-> `ERROR: Failed building wheel for pynini`
-> You can fix this by installing it via conda:
-> Pynini and wetextprocessing is needed for index-tts to work at its best
+> ⚠️ **Windows Users — Important Note on `pynini`** If you encounter the following error when
+> installing `pynini`: `ERROR: Failed building wheel for pynini` You can fix this by installing it
+> via conda: Pynini and wetextprocessing is needed for index-tts to work at its best
 > [Espeak-ng](https://github.com/espeak-ng/espeak-ng) is needed for Kokoro to work at its best.
 
 ```bash
@@ -194,12 +156,12 @@ This update brings key improvements to **performance**, **model management**, an
 conda install -c conda-forge pynini==2.1.6
 pip install WeTextProcessing --no-deps
 ```
+
 ---
 
-## Option 1.
+## Option 1
 
-Install via [Pinokio](https://pinokio.co)
-You can use the Pinokio script here for one-click setup:
+Install via [Pinokio](https://pinokio.co) You can use the Pinokio script here for one-click setup:
 [Pinokio App Installer](https://pinokio-home.netlify.app/item?uri=https://github.com/SUP3RMASS1VE/Ultimate-TTS-Studio-SUP3R-Edition-Pinokio)
 
 ### Option 1a: Install via [Dione](https://getdione.app)
@@ -212,11 +174,12 @@ You can also use [Dione](https://getdione.app) for an easy one-click installatio
 
 ### 🔁 **Auto-Installer Method (Recommended)**
 
-This is the fastest way to get started. It uses a built-in installer script for automatic setup and app launching.
+This is the fastest way to get started. It uses a built-in installer script for automatic setup and
+app launching.
 
-> 🛠️ **Before You Begin:**
-> Make sure you have **Miniconda** or **Anaconda** installed on your system.
-> You can download Miniconda here: [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html)
+> 🛠️ **Before You Begin:** Make sure you have **Miniconda** or **Anaconda** installed on your
+> system. You can download Miniconda here:
+> [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html)
 
 #### 1. Clone the Repository
 
@@ -227,8 +190,8 @@ cd Ultimate-TTS-Studio-SUP3R-Edition
 
 #### 2. Run the Installer
 
-👉 Double-click `RUN_INSTALLER` in the project folder.
-This will automatically set up everything for you — dependencies, environment, etc.
+👉 Double-click `RUN_INSTALLER` in the project folder. This will automatically set up everything for
+you — dependencies, environment, etc.
 
 #### 3. Launch the App
 
@@ -246,7 +209,8 @@ This will automatically set up everything for you — dependencies, environment,
 
 ## 🧠 Ultimate-TTS-Studio-SUP3R-Edition — Setup Guide (Conda)
 
-Follow these steps to set up your environment for **Ultimate TTS Studio SUP3R Edition** using **Conda** and **UV** for fast dependency management.
+Follow these steps to set up your environment for **Ultimate TTS Studio SUP3R Edition** using
+**Conda** and **UV** for fast dependency management.
 
 ---
 
@@ -255,7 +219,7 @@ Follow these steps to set up your environment for **Ultimate TTS Studio SUP3R Ed
 ```bash
 git clone https://github.com/SUP3RMASS1VE/Ultimate-TTS-Studio-SUP3R-Edition.git
 cd Ultimate-TTS-Studio-SUP3R-Edition
-````
+```
 
 ---
 
@@ -281,7 +245,8 @@ conda activate ultimate-tts
 pip install uv
 ```
 
-> 💡 **Tip:** `uv` dramatically speeds up installation. If you prefer, you can use regular `pip install` instead.
+> 💡 **Tip:** `uv` dramatically speeds up installation. If you prefer, you can use regular
+> `pip install` instead.
 
 ---
 
@@ -304,32 +269,30 @@ uv pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url ht
 
 ```
 
-
-### ✅ Done!
+### ✅ Done
 
 Your environment is now ready to run **Ultimate TTS Studio SUP3R Edition** with CUDA 12.8 support.
 Launch the app and start generating high-quality speech!
 
-💡 If you encounter CUDA or package conflicts, ensure your GPU drivers are updated and that Conda’s `python=3.10` matches the wheel compatibility.
-
-
+💡 If you encounter CUDA or package conflicts, ensure your GPU drivers are updated and that Conda’s
+`python=3.10` matches the wheel compatibility.
 
 💡 If you're not using `uv`, you can just use `pip install` in its place.
-
 
 ## 🧠 First-Time Setup Tips
 
 ### 📥 Download Fish Speech Model (one-time)
 
-To use **Fish Speech**, you must download the model checkpoint from Hugging Face. This requires a Hugging Face account and access token.
+To use **Fish Speech**, you must download the model checkpoint from Hugging Face. This requires a
+Hugging Face account and access token.
 
-### 🔐 Step-by-Step:
+### 🔐 Step-by-Step
 
-1. **Create an account (if needed):**
-   [https://huggingface.co/join](https://huggingface.co/join)
+1. **Create an account (if needed):** [https://huggingface.co/join](https://huggingface.co/join)
 
-2. **Get your access token:**
-   Visit [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and create a **read token**.
+2. **Get your access token:** Visit
+   [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and create a
+   **read token**.
 
 3. **Log in via CLI:**
 
@@ -339,15 +302,15 @@ To use **Fish Speech**, you must download the model checkpoint from Hugging Face
 
    Paste your token when prompted.
 
-4. **(Optional)** Accept the model license:
-   Visit [https://huggingface.co/fishaudio/openaudio-s1-mini](https://huggingface.co/fishaudio/openaudio-s1-mini) and click **"Access repository"** if prompted.
+4. **(Optional)** Accept the model license: Visit
+   [https://huggingface.co/fishaudio/openaudio-s1-mini](https://huggingface.co/fishaudio/openaudio-s1-mini)
+   and click **"Access repository"** if prompted.
 
 5. **Download the model:**
 
    ```bash
    huggingface-cli download fishaudio/openaudio-s1-mini --local-dir checkpoints/openaudio-s1-mini
    ```
-
 
 ---
 
@@ -357,17 +320,16 @@ To use **Fish Speech**, you must download the model checkpoint from Hugging Face
 python launch.py
 ```
 
-This will launch a local Gradio interface at:
-📍 `http://127.0.0.1:7860`
+This will launch a local Gradio interface at: 📍 `http://127.0.0.1:7860`
 
 ---
 
 ## 💡 Notes
 
-* All engines are optional — the app will gracefully disable missing engines.
-* ChatterboxTTS and Fish Speech support reference audio input.
-* Audio effects are applied post-synthesis for professional-quality output.
-* Custom Kokoro voices can be added to `custom_voices/` as `.pt` files.
+- All engines are optional — the app will gracefully disable missing engines.
+- ChatterboxTTS and Fish Speech support reference audio input.
+- Audio effects are applied post-synthesis for professional-quality output.
+- Custom Kokoro voices can be added to `custom_voices/` as `.pt` files.
 
 ---
 
@@ -381,20 +343,23 @@ MIT License © SUP3RMASS1VE
 
 This project proudly integrates and builds upon the amazing work of:
 
-* [Fish Speech by fishaudio](https://github.com/fishaudio/fish-speech) – Natural and expressive TTS engine.
-  📜 License: [MIT License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE)
+- [Fish Speech by fishaudio](https://github.com/fishaudio/fish-speech) – Natural and expressive TTS
+  engine. 📜 License: [MIT License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE)
 
-* [Kokoro TTS by hexgrad](https://github.com/hexgrad/kokoro) – High-quality multilingual voice synthesis.
-  📜 License: [Apache 2.0 License](https://github.com/hexgrad/kokoro/blob/main/LICENSE)
+- [Kokoro TTS by hexgrad](https://github.com/hexgrad/kokoro) – High-quality multilingual voice
+  synthesis. 📜 License: [Apache 2.0 License](https://github.com/hexgrad/kokoro/blob/main/LICENSE)
 
-* [ChatterboxTTS by Resemble AI](https://github.com/resemble-ai/chatterbox) – Custom voice cloning from short reference clips.
-  📜 License: [Apache 2.0 License](https://github.com/resemble-ai/chatterbox/blob/main/LICENSE)
+- [ChatterboxTTS by Resemble AI](https://github.com/resemble-ai/chatterbox) – Custom voice cloning
+  from short reference clips. 📜 License:
+  [Apache 2.0 License](https://github.com/resemble-ai/chatterbox/blob/main/LICENSE)
 
-* [F5-TTS by SWivid](https://github.com/SWivid/F5-TTS) – Efficient and lightweight TTS model focused on real-time synthesis.
-  📜 License: [MIT License](https://github.com/SWivid/F5-TTS/blob/main/LICENSE)
+- [F5-TTS by SWivid](https://github.com/SWivid/F5-TTS) – Efficient and lightweight TTS model focused
+  on real-time synthesis. 📜 License:
+  [MIT License](https://github.com/SWivid/F5-TTS/blob/main/LICENSE)
 
-* [Index TTS](https://github.com/index-tts/index-tts) – Modular and scalable text-to-speech system with advanced voice capabilities.
-  📜 License: [Apache 2.0 License](https://github.com/index-tts/index-tts/blob/main/LICENSE)
+- [Index TTS](https://github.com/index-tts/index-tts) – Modular and scalable text-to-speech system
+  with advanced voice capabilities. 📜 License:
+  [Apache 2.0 License](https://github.com/index-tts/index-tts/blob/main/LICENSE)
 
 We deeply thank the authors and contributors to these projects for making this work possible.
 
