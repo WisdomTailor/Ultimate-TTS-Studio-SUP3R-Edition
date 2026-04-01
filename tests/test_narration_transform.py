@@ -79,11 +79,7 @@ _CACHED_LAUNCH_SYMBOLS: ModuleType | None = None
 
 def _assignment_targets(node: ast.AST) -> set[str]:
     if isinstance(node, ast.Assign):
-        return {
-            target.id
-            for target in node.targets
-            if isinstance(target, ast.Name)
-        }
+        return {target.id for target in node.targets if isinstance(target, ast.Name)}
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
         return {node.target.id}
     return set()
@@ -165,9 +161,9 @@ class TestDeterministicNormalize:
 
         assert isinstance(result, str), f"Expected str, got {type(result)}"
         if expected_substring:
-            assert expected_substring.lower() in result.lower(), (
-                f"[{description}] Expected '{expected_substring}' in output '{result}'"
-            )
+            assert (
+                expected_substring.lower() in result.lower()
+            ), f"[{description}] Expected '{expected_substring}' in output '{result}'"
 
 
 class TestStripUnsupportedCues:
@@ -190,15 +186,15 @@ class TestStripUnsupportedCues:
 
         assert isinstance(result, str), f"Expected str, got {type(result)}"
         if expected_substring:
-            assert expected_substring in result, (
-                f"[{description}] Expected '{expected_substring}' in output '{result}'"
-            )
+            assert (
+                expected_substring in result
+            ), f"[{description}] Expected '{expected_substring}' in output '{result}'"
 
     def test_allcaps_normalized_to_title_case(self, launch_symbols: ModuleType) -> None:
         result = launch_symbols.strip_unsupported_cues("THIS IS VERY LOUD", "F5-TTS")
-        assert result == "This Is Very Loud", (
-            "Expected ALL-CAPS emphasis to be normalized to title case for F5-TTS"
-        )
+        assert (
+            result == "This Is Very Loud"
+        ), "Expected ALL-CAPS emphasis to be normalized to title case for F5-TTS"
 
 
 class TestEngineCapabilityMatrix:
@@ -231,6 +227,6 @@ class TestEngineCapabilityMatrix:
     def test_default_capabilities_conservative(self, launch_symbols: ModuleType) -> None:
         for engine, capabilities in launch_symbols.ENGINE_EXPRESSIVENESS.items():
             if engine != "IndexTTS2":
-                assert capabilities.get("emotion_vectors") is False, (
-                    f"{engine} should not have emotion_vectors"
-                )
+                assert (
+                    capabilities.get("emotion_vectors") is False
+                ), f"{engine} should not have emotion_vectors"
