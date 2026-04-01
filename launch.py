@@ -126,6 +126,22 @@ with suppress_specific_warnings():
     from tqdm import tqdm
     from scipy.io.wavfile import write
 
+try:
+    with suppress_specific_warnings():
+        from scipy.signal import filtfilt
+    AUDIO_PROCESSING_AVAILABLE = True
+except Exception as error:
+    filtfilt = None
+    AUDIO_PROCESSING_AVAILABLE = False
+    print(f"⚠️ Advanced audio processing unavailable. Error: {error}")
+
+try:
+    with suppress_specific_warnings():
+        import soundfile as sf
+except Exception as error:
+    sf = None
+    print(f"⚠️ soundfile not available. Falling back where possible. Error: {error}")
+
 # Chatterbox imports
 try:
     with suppress_specific_warnings():
@@ -353,6 +369,27 @@ except Exception as error:
     QWEN_LANGUAGES = []
     print(f"⚠️ Qwen TTS not available. Some features will be disabled. Error: {error}")
 
+try:
+    from ebook_converter import (
+        analyze_ebook,
+        convert_ebook_to_text_chunks,
+        get_supported_formats,
+    )
+    EBOOK_CONVERTER_AVAILABLE = True
+except Exception as error:
+    EBOOK_CONVERTER_AVAILABLE = False
+
+    def analyze_ebook(*args, **kwargs):
+        raise RuntimeError("eBook converter not available")
+
+    def convert_ebook_to_text_chunks(*args, **kwargs):
+        raise RuntimeError("eBook converter not available")
+
+    def get_supported_formats(*args, **kwargs):
+        return {}
+
+    print(f"⚠️ eBook converter not available. Error: {error}")
+
 from narration_transform import (
     DEFAULT_LLM_NARRATION_SYSTEM_PROMPT,
     LLM_PROVIDER_CONFIGS,
@@ -412,7 +449,7 @@ def init_voxcpm():
 INDEXTTS_MODELS_AVAILABLE = False
 INDEXTTS_AVAILABLE = False
 INDEXTTS2_AVAILABLE = False
-EBOOK_CONVERTER_AVAILABLE = False
+EBOOK_CONVERTER_AVAILABLE = bool(globals().get("EBOOK_CONVERTER_AVAILABLE", False))
 IndexTTS = None
 
 
@@ -424,6 +461,126 @@ def _has_indextts_package() -> bool:
         return False
 
     return False
+
+
+def load_indextts_class() -> tuple[Any | None, str | None]:
+    """Load IndexTTS class lazily and return import errors without crashing startup."""
+    try:
+        from indextts.infer import IndexTTS as _IndexTTS
+
+        return _IndexTTS, None
+    except Exception as error:
+        return None, str(error)
+
+
+def download_indextts_models_auto() -> bool:
+    """Attempt to download IndexTTS models using the local downloader utility."""
+    try:
+        downloader_path = Path(__file__).resolve().parent / "tools" / "download_indextts_models.py"
+        if not downloader_path.exists():
+            print(f"❌ IndexTTS downloader not found: {downloader_path}")
+            return False
+
+        spec = importlib_util.spec_from_file_location("download_indextts_models", str(downloader_path))
+        if spec is None or spec.loader is None:
+            print("❌ Failed to load IndexTTS downloader module spec")
+            return False
+
+        module = importlib_util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        downloader = getattr(module, "download_indextts_models", None)
+        if downloader is None:
+            print("❌ download_indextts_models function not found")
+            return False
+
+        return bool(downloader())
+    except Exception as error:
+        print(f"❌ IndexTTS auto-download failed: {error}")
+        return False
+
+
+def detect_language(text: str) -> str:
+    """Lightweight fallback language detection for multilingual Chatterbox routing."""
+    if not isinstance(text, str) or not text.strip():
+        return "en"
+
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return "zh"
+
+    return "en"
+
+
+def init_higgs_audio() -> tuple[bool, str]:
+    """Compatibility wrapper for model manager handlers."""
+    if not HIGGS_AUDIO_AVAILABLE:
+        return False, "❌ Higgs Audio not available"
+
+    try:
+        handler = get_higgs_audio_handler()
+        success = bool(handler.initialize_engine())
+        return (True, "✅ Higgs Audio loaded successfully") if success else (False, "❌ Failed to initialize Higgs Audio")
+    except Exception as error:
+        return False, f"❌ Error loading Higgs Audio: {error}"
+
+
+def unload_higgs_audio() -> str:
+    """Compatibility wrapper for model manager handlers."""
+    try:
+        handler = get_higgs_audio_handler()
+        if getattr(handler, "engine", None) is not None:
+            handler.engine = None
+
+        import gc
+
+        gc.collect()
+        if DEVICE == "cuda":
+            torch.cuda.empty_cache()
+
+        return "✅ Higgs Audio unloaded"
+    except Exception as error:
+        return f"⚠️ Error unloading Higgs Audio: {error}"
+
+
+def init_voxcpm_model() -> tuple[bool, str]:
+    return init_voxcpm()
+
+
+def unload_voxcpm_model() -> str:
+    return unload_voxcpm()
+
+
+def init_kitten_tts_model() -> tuple[bool, str]:
+    return init_kitten_tts()
+
+
+def unload_kitten_tts_model() -> str:
+    return unload_kitten_tts()
+
+
+def init_indextts2_model() -> tuple[bool, str]:
+    return init_indextts2()
+
+
+def unload_indextts2_model() -> str:
+    return unload_indextts2()
+
+
+def init_qwen_tts_model(model_type: str = "Base", model_size: str = "1.7B") -> tuple[bool, str]:
+    return init_qwen_tts(model_type, model_size)
+
+
+def unload_qwen_tts_model(model_type: str = None, model_size: str = None) -> str:
+    return unload_qwen_tts(model_type, model_size)
+
+
+def init_vibevoice_model(
+    model_path: str = "models/VibeVoice-1.5B", use_flash_attention: bool = False
+) -> tuple[bool, str]:
+    return init_vibevoice(model_path, use_flash_attention=use_flash_attention)
+
+
+def unload_vibevoice_model() -> str:
+    return unload_vibevoice()
 
 
 INDEXTTS_AVAILABLE = _has_indextts_package()
