@@ -15355,12 +15355,13 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             """Get the current application version and MCP server status.
 
             Returns:
-                A dictionary with app_name, mcp_status, and mcp_version fields.
+                A dictionary with app_name, mcp_status, mcp_version, and tool_count fields.
             """
             return {
                 "app_name": "Ultimate TTS Studio",
                 "mcp_status": "active",
-                "mcp_version": "0.3.0",
+                "mcp_version": "0.4.0",
+                "tool_count": "9",
             }
 
         gr.api(mcp_list_engines, api_name="list_engines")
@@ -15368,6 +15369,146 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         gr.api(mcp_list_voices, api_name="list_voices")
         gr.api(mcp_list_outputs, api_name="list_outputs")
         gr.api(mcp_get_app_version, api_name="get_app_version")
+
+        # ── MCP stateless transform tools (Phase 4a WI-4) ────────────────
+        def mcp_normalize_text(text: str) -> str:
+            """Apply deterministic text normalization without LLM processing.
+
+            Expands abbreviations, converts phone numbers, currencies, dates, times,
+            and URLs into TTS-friendly spoken forms.
+
+            Args:
+                text: The raw text to normalize for TTS consumption.
+
+            Returns:
+                The normalized text with expansions applied.
+            """
+            from narration_transform import deterministic_normalize
+
+            return deterministic_normalize(text)
+
+        def mcp_transform_text(
+            text: str,
+            provider_name: str = "Ollama",
+            base_url: str = "",
+            api_key: str = "",
+            model_id: str = "",
+            mode: str = "minimal",
+            locale: str = "en-US",
+            style: str = "conversational",
+            engine: str = "",
+            temperature: str = "0.2",
+            top_p: str = "0.9",
+            max_tokens: str = "1024",
+            timeout_seconds: str = "60",
+        ) -> dict[str, str]:
+            """Transform text using LLM narration processing for TTS optimization.
+
+            Applies an LLM-powered narration transform to text, adding prosody cues,
+            adjusting pacing, and polishing for natural speech. Falls back to
+            deterministic normalization if the LLM is unavailable.
+
+            Args:
+                text: The source text to transform.
+                provider_name: LLM provider name (e.g., "Ollama", "LM Studio", "Google Gemini").
+                base_url: Provider API base URL. Leave empty to use the provider default.
+                api_key: API key for the provider. Leave empty to resolve from environment.
+                model_id: Model identifier. Leave empty to use the provider default.
+                mode: Transform intensity — "minimal", "polish", or "vivid".
+                locale: Target locale (e.g., "en-US", "en-GB").
+                style: Speech style (e.g., "conversational", "formal", "narrative").
+                engine: Target TTS engine name for engine-aware transform tuning.
+                temperature: LLM sampling temperature (0.0 to 2.0).
+                top_p: LLM nucleus sampling threshold (0.0 to 1.0).
+                max_tokens: Maximum tokens in the LLM response.
+                timeout_seconds: LLM request timeout in seconds.
+
+            Returns:
+                A dictionary with "transformed_text" and "status" fields.
+            """
+            from narration_transform import LLM_PROVIDER_CONFIGS, apply_llm_narration_transform
+
+            if not base_url and provider_name in LLM_PROVIDER_CONFIGS:
+                base_url = LLM_PROVIDER_CONFIGS[provider_name].get("base_url", "")
+            if not model_id and provider_name in LLM_PROVIDER_CONFIGS:
+                model_id = LLM_PROVIDER_CONFIGS[provider_name].get("default_model", "")
+
+            transformed, status = apply_llm_narration_transform(
+                source_text=text,
+                enabled=True,
+                provider_name=provider_name,
+                base_url=base_url,
+                api_key=api_key,
+                model_id=model_id,
+                mode=mode,
+                locale=locale,
+                style=style,
+                max_tag_density=0.15,
+                system_prompt="",
+                timeout_seconds=int(timeout_seconds),
+                temperature=float(temperature),
+                top_p=float(top_p),
+                max_tokens=int(max_tokens),
+                allow_local_fallback=True,
+                engine=engine,
+            )
+            return {"transformed_text": transformed, "status": status}
+
+        def mcp_structure_conversation(script_text: str) -> dict[str, object]:
+            """Parse a conversation script into structured speaker and line data.
+
+            Accepts text in "Speaker: dialogue" format (one speaker per line) and
+            returns structured data with speaker names and their lines.
+
+            Args:
+                script_text: The conversation script with lines in "Speaker: text" format.
+
+            Returns:
+                A dictionary with "speakers" (sorted unique names), "lines" (list of
+                speaker/text dicts), and "line_count". Returns an "error" field if
+                parsing fails.
+            """
+            from conversation_logic import get_speaker_names_from_script, parse_conversation_script
+
+            lines, error = parse_conversation_script(script_text)
+            if error:
+                return {"error": error, "speakers": [], "lines": [], "line_count": 0}
+
+            speakers = get_speaker_names_from_script(script_text)
+            return {
+                "speakers": speakers,
+                "lines": lines,
+                "line_count": len(lines),
+            }
+
+        def mcp_list_llm_providers() -> list[dict[str, str]]:
+            """List available LLM providers and their default configuration.
+
+            Returns provider names, base URLs, default models, and whether an API key
+            is required. Useful for discovering valid provider_name values for the
+            transform_text tool.
+
+            Returns:
+                A list of provider objects with name, base_url, default_model,
+                requires_api_key, and kind fields.
+            """
+            from narration_transform import LLM_PROVIDER_CONFIGS
+
+            return [
+                {
+                    "name": name,
+                    "base_url": cfg.get("base_url", ""),
+                    "default_model": cfg.get("default_model", ""),
+                    "requires_api_key": str(cfg.get("requires_api_key", False)),
+                    "kind": cfg.get("kind", "custom"),
+                }
+                for name, cfg in LLM_PROVIDER_CONFIGS.items()
+            ]
+
+        gr.api(mcp_normalize_text, api_name="normalize_text")
+        gr.api(mcp_transform_text, api_name="transform_text")
+        gr.api(mcp_structure_conversation, api_name="structure_conversation")
+        gr.api(mcp_list_llm_providers, api_name="list_llm_providers")
 
     return demo
 
