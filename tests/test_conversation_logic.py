@@ -4,6 +4,8 @@ import inspect
 import sys
 from pathlib import Path
 
+import conversation_logic as conversation_logic_module
+
 
 APP_DIR = Path(__file__).resolve().parents[1]
 
@@ -12,7 +14,9 @@ if str(APP_DIR) not in sys.path:
 
 from conversation_logic import (  # noqa: E402
     CONVERSATION_FORMATTER_SYSTEM_PROMPT,
+    PerLineTransformSettings,
     _extract_json_from_llm_response,
+    apply_per_line_transform,
     create_default_speaker_settings,
     format_conversation_with_llm,
     format_conversation_info,
@@ -20,7 +24,8 @@ from conversation_logic import (  # noqa: E402
     parse_conversation_script,
     parse_to_narration_script,
 )
-from narration_script import NarrationScript  # noqa: E402
+from narration_script import NarrationLine, NarrationScript, SemanticCue  # noqa: E402
+from pronunciation import PronunciationOverride, ProtectedTerm  # noqa: E402
 
 
 def test_parse_conversation_script_parses_two_speakers() -> None:
@@ -205,3 +210,230 @@ class TestAIConversationFormatter:
         assert params["timeout_seconds"].default == 120
         assert params["extra_headers"].default is None
         assert params["auth_style"].default == "bearer"
+
+
+class TestApplyPerLineTransform:
+    def test_apply_per_line_transform_with_mock_llm(self, monkeypatch) -> None:
+        script = NarrationScript(
+            lines=[
+                NarrationLine(speaker="Alice", text="hello there", line_type="dialogue"),
+                NarrationLine(speaker="Bob", text="general kenobi", line_type="dialogue"),
+            ],
+            metadata={"scene": "intro"},
+        )
+
+        def mock_transform(**kwargs) -> tuple[str, str]:
+            return kwargs["source_text"].upper(), "mock transform applied"
+
+        monkeypatch.setattr(
+            conversation_logic_module,
+            "apply_llm_narration_transform",
+            mock_transform,
+        )
+
+        transformed_script, status_messages = apply_per_line_transform(
+            script,
+            enabled=True,
+            provider_name="test-provider",
+            base_url="http://localhost:1234/v1",
+            api_key="",
+            model_id="test-model",
+        )
+
+        assert [line.text for line in transformed_script.lines] == ["HELLO THERE", "GENERAL KENOBI"]
+        assert transformed_script.metadata == {"scene": "intro"}
+        assert len(status_messages) == 2
+        assert "mock transform applied" in status_messages[0]
+
+    def test_apply_per_line_transform_uses_per_speaker_overrides(self, monkeypatch) -> None:
+        script = NarrationScript(
+            lines=[
+                NarrationLine(speaker="Alice", text="hello", line_type="dialogue"),
+                NarrationLine(speaker="Bob", text="hi", line_type="dialogue"),
+            ]
+        )
+        received_settings: list[tuple[str, str, str]] = []
+
+        def mock_transform(**kwargs) -> tuple[str, str]:
+            received_settings.append((kwargs["mode"], kwargs["style"], kwargs["locale"]))
+            return kwargs["source_text"], "settings captured"
+
+        monkeypatch.setattr(
+            conversation_logic_module,
+            "apply_llm_narration_transform",
+            mock_transform,
+        )
+
+        transformed_script, _ = apply_per_line_transform(
+            script,
+            provider_name="test-provider",
+            base_url="http://localhost:1234/v1",
+            model_id="test-model",
+            mode="minimal",
+            style="conversational",
+            locale="en-US",
+            speaker_settings={
+                "Alice": PerLineTransformSettings(
+                    mode="vivid",
+                    style="formal",
+                    locale="en-GB",
+                ),
+                "Bob": PerLineTransformSettings(style="casual"),
+            },
+        )
+
+        assert [line.text for line in transformed_script.lines] == ["hello", "hi"]
+        assert received_settings == [
+            ("vivid", "formal", "en-GB"),
+            ("minimal", "casual", "en-US"),
+        ]
+
+    def test_apply_per_line_transform_integrates_pronunciation_pipeline(self, monkeypatch) -> None:
+        script = NarrationScript(
+            lines=[
+                NarrationLine(
+                    speaker="Narrator",
+                    text="Hermione met Nguyen.",
+                    line_type="narration",
+                )
+            ]
+        )
+
+        def mock_transform(**kwargs) -> tuple[str, str]:
+            return kwargs["source_text"].replace("met", "greeted"), "pronunciation test"
+
+        monkeypatch.setattr(
+            conversation_logic_module,
+            "apply_llm_narration_transform",
+            mock_transform,
+        )
+
+        transformed_script, _ = apply_per_line_transform(
+            script,
+            provider_name="test-provider",
+            base_url="http://localhost:1234/v1",
+            model_id="test-model",
+            protected_terms=[ProtectedTerm(term="Hermione"), ProtectedTerm(term="Nguyen")],
+            pronunciation_overrides=[
+                PronunciationOverride(word="Hermione", phonetic="Her-MY-oh-nee"),
+                PronunciationOverride(word="Nguyen", phonetic="Win"),
+            ],
+        )
+
+        assert transformed_script.lines[0].text == "Her-MY-oh-nee greeted Win."
+
+    def test_apply_per_line_transform_reports_progress_per_line(self, monkeypatch) -> None:
+        script = NarrationScript(
+            lines=[
+                NarrationLine(speaker="Alice", text="one", line_type="dialogue"),
+                NarrationLine(speaker="Bob", text="two", line_type="dialogue"),
+            ]
+        )
+        progress_events: list[tuple[int, int, str]] = []
+
+        def mock_transform(**kwargs) -> tuple[str, str]:
+            return kwargs["source_text"], "progress test"
+
+        monkeypatch.setattr(
+            conversation_logic_module,
+            "apply_llm_narration_transform",
+            mock_transform,
+        )
+
+        apply_per_line_transform(
+            script,
+            provider_name="test-provider",
+            base_url="http://localhost:1234/v1",
+            model_id="test-model",
+            progress_callback=lambda current, total, speaker: progress_events.append(
+                (current, total, speaker)
+            ),
+        )
+
+        assert progress_events == [(1, 2, "Alice"), (2, 2, "Bob")]
+
+    def test_apply_per_line_transform_returns_empty_script_for_empty_input(
+        self, monkeypatch
+    ) -> None:
+        empty_script = NarrationScript.model_construct(
+            version="1.0",
+            lines=[],
+            metadata={"scene": "empty"},
+        )
+
+        def unexpected_transform(**kwargs) -> tuple[str, str]:
+            raise AssertionError("Transform should not be called for an empty script")
+
+        monkeypatch.setattr(
+            conversation_logic_module,
+            "apply_llm_narration_transform",
+            unexpected_transform,
+        )
+
+        transformed_script, status_messages = apply_per_line_transform(empty_script)
+
+        assert transformed_script.lines == []
+        assert transformed_script.metadata == {"scene": "empty"}
+        assert status_messages == []
+
+    def test_apply_per_line_transform_disabled_uses_deterministic_and_pronunciation(self) -> None:
+        script = NarrationScript(
+            lines=[
+                NarrationLine(
+                    speaker="Narrator",
+                    text="Call 555-123-4567, Nguyen.",
+                    line_type="narration",
+                )
+            ]
+        )
+
+        transformed_script, status_messages = apply_per_line_transform(
+            script,
+            enabled=False,
+            pronunciation_overrides=[PronunciationOverride(word="Nguyen", phonetic="Win")],
+        )
+
+        assert (
+            transformed_script.lines[0].text
+            == "Call five five five, one two three, four five six seven, Win."
+        )
+        assert "LLM disabled" in status_messages[0]
+
+    def test_apply_per_line_transform_preserves_non_text_line_fields(self, monkeypatch) -> None:
+        script = NarrationScript(
+            lines=[
+                NarrationLine(
+                    speaker="Narrator",
+                    text="Pause here.",
+                    line_type="narration",
+                    cues=[SemanticCue.PAUSE, SemanticCue.EMPHASIS],
+                    confidence=0.75,
+                    ambiguous=True,
+                )
+            ],
+            metadata={"scene": "dramatic"},
+        )
+
+        def mock_transform(**kwargs) -> tuple[str, str]:
+            return kwargs["source_text"] + " Again.", "field preservation test"
+
+        monkeypatch.setattr(
+            conversation_logic_module,
+            "apply_llm_narration_transform",
+            mock_transform,
+        )
+
+        transformed_script, _ = apply_per_line_transform(
+            script,
+            provider_name="test-provider",
+            base_url="http://localhost:1234/v1",
+            model_id="test-model",
+        )
+        transformed_line = transformed_script.lines[0]
+
+        assert transformed_line.text == "Pause here. Again."
+        assert transformed_line.speaker == "Narrator"
+        assert transformed_line.line_type == "narration"
+        assert transformed_line.cues == [SemanticCue.PAUSE, SemanticCue.EMPHASIS]
+        assert transformed_line.confidence == 0.75
+        assert transformed_line.ambiguous is True

@@ -8,13 +8,31 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from narration_script import NarrationScript
-from narration_transform import call_openai_compatible_chat
+from narration_transform import apply_llm_narration_transform, call_openai_compatible_chat
+from pronunciation import (
+    PronunciationOverride,
+    ProtectedTerm,
+    apply_pronunciation_overrides,
+    mask_protected_terms,
+    unmask_protected_terms,
+)
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class PerLineTransformSettings:
+    """Per-line or per-speaker transform override settings."""
+
+    mode: str | None = None
+    style: str | None = None
+    locale: str | None = None
 
 
 def parse_conversation_script(script_text: str) -> tuple[list[dict[str, str]], str | None]:
@@ -142,12 +160,131 @@ def parse_to_narration_script(
         return None, f"Error creating NarrationScript: {str(error)}"
 
 
+def apply_per_line_transform(
+    script: NarrationScript,
+    enabled: bool = True,
+    provider_name: str = "",
+    base_url: str = "",
+    api_key: str = "",
+    model_id: str = "",
+    mode: str = "minimal",
+    locale: str = "en-US",
+    style: str = "conversational",
+    max_tag_density: float = 0.15,
+    system_prompt: str = "",
+    timeout_seconds: int = 60,
+    temperature: float = 0.3,
+    top_p: float = 0.9,
+    max_tokens: int = 1024,
+    engine: str = "",
+    speaker_settings: dict[str, PerLineTransformSettings] | None = None,
+    protected_terms: list[ProtectedTerm] | None = None,
+    pronunciation_overrides: list[PronunciationOverride] | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> tuple[NarrationScript, list[str]]:
+    """Apply narration transform to each line of a script individually.
+
+    Args:
+        script: The NarrationScript to transform.
+        enabled: Whether LLM transform is enabled.
+        provider_name: LLM provider name.
+        base_url: LLM API base URL.
+        api_key: API key.
+        model_id: Model ID.
+        mode: Default transform mode.
+        locale: Default locale.
+        style: Default style.
+        max_tag_density: Maximum tag density.
+        system_prompt: Custom system prompt.
+        timeout_seconds: Request timeout.
+        temperature: LLM temperature.
+        top_p: LLM top_p.
+        max_tokens: LLM max tokens.
+        engine: TTS engine name.
+        speaker_settings: Per-speaker overrides keyed by speaker name.
+        protected_terms: Terms to protect through LLM transform.
+        pronunciation_overrides: Word-to-phonetic mappings.
+        progress_callback: Optional callback receiving current line, total lines, and speaker.
+
+    Returns:
+        Tuple of the transformed script and one status message per line.
+    """
+    if not script.lines:
+        empty_script = NarrationScript.model_construct(
+            version=script.version,
+            lines=[],
+            metadata=dict(script.metadata),
+        )
+        return empty_script, []
+
+    effective_speaker_settings = speaker_settings or {}
+    effective_protected_terms = protected_terms or []
+    effective_pronunciation_overrides = pronunciation_overrides or []
+    total_lines = len(script.lines)
+    transformed_lines = []
+    status_messages: list[str] = []
+
+    for index, line in enumerate(script.lines, start=1):
+        if progress_callback is not None:
+            progress_callback(index, total_lines, line.speaker)
+
+        line_settings = effective_speaker_settings.get(line.speaker)
+        line_mode = line_settings.mode if line_settings and line_settings.mode is not None else mode
+        line_style = (
+            line_settings.style if line_settings and line_settings.style is not None else style
+        )
+        line_locale = (
+            line_settings.locale if line_settings and line_settings.locale is not None else locale
+        )
+
+        masked_text, placeholder_map = mask_protected_terms(line.text, effective_protected_terms)
+        transformed_text, transform_status = apply_llm_narration_transform(
+            source_text=masked_text,
+            enabled=enabled,
+            provider_name=provider_name,
+            base_url=base_url,
+            api_key=api_key,
+            model_id=model_id,
+            mode=line_mode,
+            locale=line_locale,
+            style=line_style,
+            max_tag_density=max_tag_density,
+            system_prompt=system_prompt,
+            timeout_seconds=timeout_seconds,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            allow_local_fallback=True,
+            engine=engine,
+        )
+        unmasked_text = unmask_protected_terms(transformed_text, placeholder_map)
+        final_text = apply_pronunciation_overrides(
+            unmasked_text,
+            effective_pronunciation_overrides,
+        )
+
+        transformed_lines.append(line.model_copy(update={"text": final_text}))
+        status_messages.append(
+            f"Line {index} ({line.speaker}): {transform_status} "
+            f"[mode={line_mode}, style={line_style}, locale={line_locale}]"
+        )
+
+    transformed_script = NarrationScript(
+        version=script.version,
+        lines=transformed_lines,
+        metadata=dict(script.metadata),
+    )
+    return transformed_script, status_messages
+
+
 __all__ = [
     "parse_conversation_script",
     "get_speaker_names_from_script",
     "create_default_speaker_settings",
     "format_conversation_info",
     "parse_to_narration_script",
+    "PerLineTransformSettings",
+    "apply_per_line_transform",
 ]
 
 
