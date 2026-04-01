@@ -1,4 +1,5 @@
 """Background job manager with subprocess crash isolation for TTS synthesis."""
+
 from __future__ import annotations
 
 import json
