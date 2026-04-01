@@ -121,6 +121,12 @@ def _load_launch_symbols() -> ModuleType:
         return _CACHED_LAUNCH_SYMBOLS
 
     try:
+        _CACHED_LAUNCH_SYMBOLS = importlib.import_module("narration_transform")
+        return _CACHED_LAUNCH_SYMBOLS
+    except Exception:
+        pass
+
+    try:
         _CACHED_LAUNCH_SYMBOLS = importlib.import_module("launch")
         return _CACHED_LAUNCH_SYMBOLS
     except Exception as direct_import_error:
@@ -131,8 +137,9 @@ def _load_launch_symbols() -> ModuleType:
         return _CACHED_LAUNCH_SYMBOLS
     except Exception as extraction_error:
         pytest.skip(
-            "Unable to load narration transform symbols from launch.py. "
-            f"Direct import failed: {direct_import_error!r}. "
+            "Unable to load narration transform symbols. "
+            f"narration_transform import failed, "
+            f"launch.py direct import failed: {direct_import_error!r}. "
             f"AST extraction failed: {extraction_error!r}."
         )
 
