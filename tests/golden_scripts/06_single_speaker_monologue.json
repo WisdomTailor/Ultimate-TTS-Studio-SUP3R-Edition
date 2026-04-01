@@ -1,0 +1,79 @@
+{
+  "id": "06_single_speaker_monologue",
+  "description": "Single speaker delivering a continuous internal monologue",
+  "difficulty": "easy",
+  "source_text": "I used to think that success meant having the right answer at the right time. That if you studied hard enough and prepared long enough, the moment would come and you would simply know what to do.\nBut that's not how it works. Not really.\nYou stand there, and the room is quiet, and everyone is looking at you, and your mind goes blank in the most absolute way possible.\nAnd then you open your mouth anyway.\nBecause that's what you do. You show up. You speak. You do the next thing.\nI've failed more times than I can count. Publicly. Embarrassingly. In ways that still make me cringe when I think about them at two in the morning.\nBut I've also learned that failure isn't the opposite of success. It's the path.\nThe only way out is through.",
+  "expected_output": {
+    "version": "1.0",
+    "lines": [
+      {
+        "speaker": "Speaker",
+        "text": "I used to think that success meant having the right answer at the right time. That if you studied hard enough and prepared long enough, the moment would come and you would simply know what to do.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker",
+        "text": "But that's not how it works. Not really.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker",
+        "text": "You stand there, and the room is quiet, and everyone is looking at you, and your mind goes blank in the most absolute way possible.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker",
+        "text": "And then you open your mouth anyway.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker",
+        "text": "Because that's what you do. You show up. You speak. You do the next thing.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker",
+        "text": "I've failed more times than I can count. Publicly. Embarrassingly. In ways that still make me cringe when I think about them at two in the morning.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker",
+        "text": "But I've also learned that failure isn't the opposite of success. It's the path.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker",
+        "text": "The only way out is through.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      }
+    ],
+    "metadata": {
+      "total_speakers": 1,
+      "speaker_list": ["Speaker"]
+    }
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "id": "02_three_speaker_debate",
+  "description": "Three named speakers debating the role of AI in creative writing",
+  "difficulty": "medium",
+  "source_text": "Marcus: I think AI writing tools are fundamentally changing what it means to be an author. We can't ignore that.\nSophia: I disagree. The tools change, but authorship is still a deeply human act. A hammer doesn't make you an architect.\nJordan: You're both missing the point. The question isn't whether AI changes authorship — it's whether readers will care.\nMarcus: Readers already don't care. They care about the story, not the process behind it.\nSophia: That's a slippery slope. If process doesn't matter, then plagiarism doesn't matter either.\nJordan: That's a false equivalence and you know it, Sophia.\nSophia: Is it? Both involve the work reaching the page without the creative labour being fully the author's own.\nMarcus: Creative labour is already distributed. Editors, researchers, ghostwriters — all of it is collaborative.\nJordan: Exactly. AI is just another collaborator in that chain.\nSophia: A collaborator with no stakes, no perspective, no lived experience to draw on.\nMarcus: Neither does a thesaurus.\nJordan: Now who's making false equivalences?\nSophia: The thesaurus doesn't generate the sentence. It just expands what you already wrote.\nMarcus: I'm not sure that distinction holds under serious scrutiny.",
+  "expected_output": {
+    "version": "1.0",
+    "lines": [
+      {
+        "speaker": "Marcus",
+        "text": "I think AI writing tools are fundamentally changing what it means to be an author. We can't ignore that.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Sophia",
+        "text": "I disagree. The tools change, but authorship is still a deeply human act. A hammer doesn't make you an architect.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Jordan",
+        "text": "You're both missing the point. The question isn't whether AI changes authorship — it's whether readers will care.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Marcus",
+        "text": "Readers already don't care. They care about the story, not the process behind it.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Sophia",
+        "text": "That's a slippery slope. If process doesn't matter, then plagiarism doesn't matter either.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Jordan",
+        "text": "That's a false equivalence and you know it, Sophia.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Sophia",
+        "text": "Is it? Both involve the work reaching the page without the creative labour being fully the author's own.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.85,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Marcus",
+        "text": "Creative labour is already distributed. Editors, researchers, ghostwriters — all of it is collaborative.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Jordan",
+        "text": "Exactly. AI is just another collaborator in that chain.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.75,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Sophia",
+        "text": "A collaborator with no stakes, no perspective, no lived experience to draw on.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.8,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Marcus",
+        "text": "Neither does a thesaurus.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.7,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Jordan",
+        "text": "Now who's making false equivalences?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.75,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Sophia",
+        "text": "The thesaurus doesn't generate the sentence. It just expands what you already wrote.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Marcus",
+        "text": "I'm not sure that distinction holds under serious scrutiny.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.8,
+        "ambiguous": false
+      }
+    ],
+    "metadata": {
+      "total_speakers": 3,
+      "speaker_list": ["Marcus", "Sophia", "Jordan"]
+    }
+  }
+}

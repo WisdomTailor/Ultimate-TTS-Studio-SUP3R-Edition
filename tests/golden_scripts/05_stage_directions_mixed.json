@@ -1,0 +1,87 @@
+{
+  "id": "05_stage_directions_mixed",
+  "description": "Script excerpt with stage directions mixed into dialogue, including keepable and removable cues",
+  "difficulty": "medium",
+  "source_text": "Detective Reeves: I've been waiting for you. (checks watch) Over an hour.\nClara: (enters, sets her coat down) I had to be careful. Someone followed me from the station.\nDetective Reeves: (whispers) Did they see you come in here?\nClara: I don't think so. (pauses) But I can't be certain.\nDetective Reeves: Then we don't have much time. Tell me what you found.\nClara: (shrugs) Nothing conclusive. Just fragments.\nDetective Reeves: Fragments can be enough.\nClara: (leans forward, voice low) Not if the judge throws them out on procedural grounds.\nDetective Reeves: (sighs heavily) Then we play it differently.",
+  "expected_output": {
+    "version": "1.0",
+    "lines": [
+      {
+        "speaker": "Detective Reeves",
+        "text": "I've been waiting for you. Over an hour.",
+        "line_type": "dialogue",
+        "cues": ["checks watch"],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Clara",
+        "text": "I had to be careful. Someone followed me from the station.",
+        "line_type": "dialogue",
+        "cues": ["enters", "sets her coat down"],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Detective Reeves",
+        "text": "Did they see you come in here?",
+        "line_type": "dialogue",
+        "cues": ["whispers"],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Clara",
+        "text": "I don't think so. But I can't be certain.",
+        "line_type": "dialogue",
+        "cues": ["pauses"],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Detective Reeves",
+        "text": "Then we don't have much time. Tell me what you found.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Clara",
+        "text": "Nothing conclusive. Just fragments.",
+        "line_type": "dialogue",
+        "cues": ["shrugs"],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Detective Reeves",
+        "text": "Fragments can be enough.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Clara",
+        "text": "Not if the judge throws them out on procedural grounds.",
+        "line_type": "dialogue",
+        "cues": ["leans forward", "voice low"],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Detective Reeves",
+        "text": "Then we play it differently.",
+        "line_type": "dialogue",
+        "cues": ["sighs heavily"],
+        "confidence": 1.0,
+        "ambiguous": false
+      }
+    ],
+    "metadata": {
+      "total_speakers": 2,
+      "speaker_list": ["Detective Reeves", "Clara"]
+    }
+  }
+}

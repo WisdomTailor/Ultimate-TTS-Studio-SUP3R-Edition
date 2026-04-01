@@ -1,0 +1,111 @@
+{
+  "id": "03_narrator_plus_dialogue",
+  "description": "Novel excerpt with narrator description interspersed with character dialogue",
+  "difficulty": "medium",
+  "source_text": "The library was empty except for the two of them, the afternoon light cutting long gold bars across the floor.\n\"You never told me you were leaving,\" Alice said. She kept her eyes on the shelf in front of her, fingers tracing the spines of books she wasn't really reading.\nThomas set down his bag. \"I didn't think it would matter to you.\"\nFor a moment she said nothing. The clock on the wall ticked steadily.\n\"Everything matters to me,\" she said at last. \"That's always been the problem.\"\nHe crossed the room and stood beside her, close enough that she could hear him breathing.\n\"I can stay,\" Thomas offered. \"If that's what you want.\"\nShe finally turned to look at him, and he saw that she'd been crying, though she hadn't made a sound.\n\"It's not about what I want,\" Alice said quietly. \"It never was.\"",
+  "expected_output": {
+    "version": "1.0",
+    "lines": [
+      {
+        "speaker": "Narrator",
+        "text": "The library was empty except for the two of them, the afternoon light cutting long gold bars across the floor.",
+        "line_type": "narration",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Alice",
+        "text": "You never told me you were leaving.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Narrator",
+        "text": "She kept her eyes on the shelf in front of her, fingers tracing the spines of books she wasn't really reading.",
+        "line_type": "narration",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Narrator",
+        "text": "Thomas set down his bag.",
+        "line_type": "narration",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Thomas",
+        "text": "I didn't think it would matter to you.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Narrator",
+        "text": "For a moment she said nothing. The clock on the wall ticked steadily.",
+        "line_type": "narration",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Alice",
+        "text": "Everything matters to me. That's always been the problem.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Narrator",
+        "text": "He crossed the room and stood beside her, close enough that she could hear him breathing.",
+        "line_type": "narration",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Thomas",
+        "text": "I can stay.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Thomas",
+        "text": "If that's what you want.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.85,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Narrator",
+        "text": "She finally turned to look at him, and he saw that she'd been crying, though she hadn't made a sound.",
+        "line_type": "narration",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Alice",
+        "text": "It's not about what I want. It never was.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      }
+    ],
+    "metadata": {
+      "total_speakers": 3,
+      "speaker_list": ["Narrator", "Alice", "Thomas"]
+    }
+  }
+}

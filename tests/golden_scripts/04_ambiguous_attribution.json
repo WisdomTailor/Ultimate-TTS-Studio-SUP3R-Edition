@@ -1,0 +1,95 @@
+{
+  "id": "04_ambiguous_attribution",
+  "description": "Conversation where several lines lack clear speaker markers, requiring contextual inference",
+  "difficulty": "hard",
+  "source_text": "We need to make a decision before the funding runs out.\nI know. But rushing this will cost us more in the long run.\nYou always say that. Meanwhile the board is breathing down my neck.\nFair enough. What's your timeline?\nEnd of the month. Realistically.\nThat's not enough time.\nIt has to be enough time.\nWhat if we brought in outside help?\nWe've been over this. They don't understand the product.\nMaybe we don't either, not fully.",
+  "expected_output": {
+    "version": "1.0",
+    "lines": [
+      {
+        "speaker": "Speaker A",
+        "text": "We need to make a decision before the funding runs out.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.65,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Speaker B",
+        "text": "I know. But rushing this will cost us more in the long run.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.65,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Speaker A",
+        "text": "You always say that. Meanwhile the board is breathing down my neck.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.7,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker B",
+        "text": "Fair enough. What's your timeline?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.75,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker A",
+        "text": "End of the month. Realistically.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.7,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker B",
+        "text": "That's not enough time.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.55,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Speaker A",
+        "text": "It has to be enough time.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.55,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Speaker B",
+        "text": "What if we brought in outside help?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.5,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Speaker A",
+        "text": "We've been over this. They don't understand the product.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.6,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Speaker B",
+        "text": "Maybe we don't either, not fully.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.55,
+        "ambiguous": true
+      }
+    ],
+    "metadata": {
+      "total_speakers": 2,
+      "speaker_list": ["Speaker A", "Speaker B"]
+    }
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "id": "07_four_speaker_roundtable",
+  "description": "Four-person panel discussion on the future of remote work with rapid exchanges and some unattributed lines",
+  "difficulty": "hard",
+  "source_text": "Dr. Park: I want to start with a simple question. Is remote work a privilege or a right?\nNadia: That framing already loads the answer. Rights imply infrastructure and access that most of the world doesn't have.\nTom: I'd say it's becoming an expectation in knowledge work. Whether that's a right depends on your employment contract.\nRashida: And your broadband provider.\n[Laughter from the panel]\nDr. Park: Fair. Let's add another dimension. Does remote work increase or decrease collaboration?\nTom: Decrease, clearly. The spontaneous hallway conversations are gone. That's a real loss.\nNadia: I'd argue it removes the illusion of collaboration. You thought those hallway chats were work. Were they?\nRashida: Both can be true. You lose serendipity, but you gain intentionality.\nTom: But serendipity is where innovation lives.\nNadia: So does noise, distraction, and groupthink.\nDr. Park: Rashida, you've been studying hybrid models specifically. What's your read?\nRashida: The data shows productivity is individually variable. High-autonomy workers do better remotely. Others flounder.\nTom: Which is an argument for choice, not a universal policy.\nNadia: Or an argument for investing in the conditions that make autonomy possible in the first place.\nDr. Park: That's where I want to end. Is this productivity question the right question?\nRashida: Probably not. We've been optimising for output when we should be optimising for sustainability.\nTom: And for inclusion. Someone in a small apartment with two kids can't compete on focus hours.\nNadia: Welcome to the conversation the rest of the world has been having for decades.",
+  "expected_output": {
+    "version": "1.0",
+    "lines": [
+      {
+        "speaker": "Dr. Park",
+        "text": "I want to start with a simple question. Is remote work a privilege or a right?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Nadia",
+        "text": "That framing already loads the answer. Rights imply infrastructure and access that most of the world doesn't have.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Tom",
+        "text": "I'd say it's becoming an expectation in knowledge work. Whether that's a right depends on your employment contract.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Rashida",
+        "text": "And your broadband provider.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.8,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Narrator",
+        "text": "Laughter from the panel",
+        "line_type": "stage_direction",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Dr. Park",
+        "text": "Fair. Let's add another dimension. Does remote work increase or decrease collaboration?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Tom",
+        "text": "Decrease, clearly. The spontaneous hallway conversations are gone. That's a real loss.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Nadia",
+        "text": "I'd argue it removes the illusion of collaboration. You thought those hallway chats were work. Were they?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Rashida",
+        "text": "Both can be true. You lose serendipity, but you gain intentionality.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Tom",
+        "text": "But serendipity is where innovation lives.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.7,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Nadia",
+        "text": "So does noise, distraction, and groupthink.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.65,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Dr. Park",
+        "text": "Rashida, you've been studying hybrid models specifically. What's your read?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Rashida",
+        "text": "The data shows productivity is individually variable. High-autonomy workers do better remotely. Others flounder.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Tom",
+        "text": "Which is an argument for choice, not a universal policy.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.75,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Nadia",
+        "text": "Or an argument for investing in the conditions that make autonomy possible in the first place.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.75,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Dr. Park",
+        "text": "That's where I want to end. Is this productivity question the right question?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Rashida",
+        "text": "Probably not. We've been optimising for output when we should be optimising for sustainability.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Tom",
+        "text": "And for inclusion. Someone in a small apartment with two kids can't compete on focus hours.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.7,
+        "ambiguous": true
+      },
+      {
+        "speaker": "Nadia",
+        "text": "Welcome to the conversation the rest of the world has been having for decades.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 0.7,
+        "ambiguous": true
+      }
+    ],
+    "metadata": {
+      "total_speakers": 4,
+      "speaker_list": ["Dr. Park", "Nadia", "Tom", "Rashida"]
+    }
+  }
+}

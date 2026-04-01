@@ -1,0 +1,111 @@
+{
+  "id": "01_two_speaker_interview",
+  "description": "Simple two-person interview with clear speaker attribution",
+  "difficulty": "easy",
+  "source_text": "Interviewer: Welcome to the show. Tell us about your latest project.\nGuest: Thanks for having me. We've been building an open-source tool that helps writers format their manuscripts automatically.\nInterviewer: That sounds fascinating. How long have you been working on it?\nGuest: About two years now. It started as a weekend experiment and kind of grew from there.\nInterviewer: What's been the biggest challenge so far?\nGuest: Honestly, handling all the edge cases in different manuscript styles. Every writer has their own conventions.\nInterviewer: Do you have any advice for other developers tackling similar problems?\nGuest: Start small. Ship early. Don't wait until it's perfect before letting people try it.\nInterviewer: Wise words. What's next on the roadmap?\nGuest: We're adding multi-language support and better integration with popular word processors.\nInterviewer: Excellent. Thanks so much for joining us today.\nGuest: My pleasure. It's been a great conversation.",
+  "expected_output": {
+    "version": "1.0",
+    "lines": [
+      {
+        "speaker": "Interviewer",
+        "text": "Welcome to the show. Tell us about your latest project.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Guest",
+        "text": "Thanks for having me. We've been building an open-source tool that helps writers format their manuscripts automatically.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Interviewer",
+        "text": "That sounds fascinating. How long have you been working on it?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Guest",
+        "text": "About two years now. It started as a weekend experiment and kind of grew from there.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Interviewer",
+        "text": "What's been the biggest challenge so far?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Guest",
+        "text": "Honestly, handling all the edge cases in different manuscript styles. Every writer has their own conventions.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Interviewer",
+        "text": "Do you have any advice for other developers tackling similar problems?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Guest",
+        "text": "Start small. Ship early. Don't wait until it's perfect before letting people try it.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Interviewer",
+        "text": "Wise words. What's next on the roadmap?",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Guest",
+        "text": "We're adding multi-language support and better integration with popular word processors.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Interviewer",
+        "text": "Excellent. Thanks so much for joining us today.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      },
+      {
+        "speaker": "Guest",
+        "text": "My pleasure. It's been a great conversation.",
+        "line_type": "dialogue",
+        "cues": [],
+        "confidence": 1.0,
+        "ambiguous": false
+      }
+    ],
+    "metadata": {
+      "total_speakers": 2,
+      "speaker_list": ["Interviewer", "Guest"]
+    }
+  }
+}
