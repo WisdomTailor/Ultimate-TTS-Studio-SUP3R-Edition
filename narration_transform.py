@@ -142,21 +142,26 @@ def deterministic_normalize(source_text: str) -> str:
     text = source_text
 
     abbreviation_map = {
-        r"\bDr\.\b": "Doctor",
-        r"\bMr\.\b": "Mister",
-        r"\bMrs\.\b": "Missus",
-        r"\bMs\.\b": "Miss",
-        r"\bAve\.\b": "Avenue",
-        r"\bSt\.\b": "Street",
+        r"\bDr\.(?=\s|$)": "Doctor",
+        r"\bMr\.(?=\s|$)": "Mister",
+        r"\bMrs\.(?=\s|$)": "Missus",
+        r"\bMs\.(?=\s|$)": "Miss",
+        r"\bAve\.(?=\s|$)": "Avenue",
+        r"\bSt\.(?=\s|$)": "Street",
     }
     for pattern, replacement in abbreviation_map.items():
         text = re.sub(pattern, replacement, text)
 
-    def phone_replacer(match: re.Match[str]) -> str:
+    def short_phone_replacer(match: re.Match[str]) -> str:
+        parts = [group for group in match.groups() if group]
+        return " ".join(_spell_digits(part) for part in parts)
+
+    def full_phone_replacer(match: re.Match[str]) -> str:
         g1, g2, g3 = match.groups()
         return f"{_spell_digits(g1)}, {_spell_digits(g2)}, {_spell_digits(g3)}"
 
-    text = re.sub(r"\b(\d{3})-(\d{3})-(\d{4})\b", phone_replacer, text)
+    text = re.sub(r"\b(\d{3})-(\d{3})-(\d{4})\b", full_phone_replacer, text)
+    text = re.sub(r"\b(\d{3})-(\d{4})\b", short_phone_replacer, text)
 
     def currency_replacer(match: re.Match[str]) -> str:
         symbol, number = match.groups()
@@ -177,7 +182,7 @@ def deterministic_normalize(source_text: str) -> str:
         digits = match.group(1)
         return f"{_int_to_words(int(digits)) if digits.isdigit() else digits} percent"
 
-    text = re.sub(r"\b(\d+)%\b", percent_replacer, text)
+    text = re.sub(r"\b(\d+)%", percent_replacer, text)
 
     def date_replacer(match: re.Match[str]) -> str:
         year, month, day = match.groups()

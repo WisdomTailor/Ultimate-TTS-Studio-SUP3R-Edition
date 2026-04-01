@@ -23,7 +23,7 @@ _SSML_TAG_PATTERN = re.compile(r"</?\s*[A-Za-z][\w:-]*(?:\s+[^<>]*)?\s*/?>")
 _MULTISPACE_PATTERN = re.compile(r"[ \t]{2,}")
 _SPACE_BEFORE_PUNCT_PATTERN = re.compile(r"\s+([,.;:!?])")
 _EXCESS_BLANK_LINES_PATTERN = re.compile(r"\n{3,}")
-_ALLCAPS_WORD_PATTERN = re.compile(r"\b[A-Z][A-Z'-]{2,}\b")
+_ALLCAPS_WORD_PATTERN = re.compile(r"\b[A-Z][A-Z'-]{1,}\b")
 _PRESERVED_ALLCAPS_ACRONYMS = {
     "AI",
     "API",
