@@ -88,7 +88,9 @@ def test_list_voices_returns_qwen_custom_speakers() -> None:
     assert all(voice["type"] == "speaker_profile" for voice in voices)
 
 
-def test_list_voices_scans_custom_kokoro_voices(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_list_voices_scans_custom_kokoro_voices(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.chdir(tmp_path)
     custom_dir = tmp_path / "custom_voices"
     custom_dir.mkdir()
@@ -247,7 +249,9 @@ def test_generate_tts_rejects_blank_text() -> None:
 def test_generate_tts_dispatches_to_function_handler(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_generate(text: str, skip_file_saving: bool, audio_format: str) -> tuple[tuple[int, np.ndarray], str]:
+    def fake_generate(
+        text: str, skip_file_saving: bool, audio_format: str
+    ) -> tuple[tuple[int, np.ndarray], str]:
         captured["text"] = text
         captured["skip_file_saving"] = skip_file_saving
         captured["audio_format"] = audio_format
@@ -272,7 +276,9 @@ def test_generate_tts_dispatches_to_method_handler(monkeypatch: pytest.MonkeyPat
     captured: dict[str, object] = {}
 
     class FakeHandler:
-        def generate_speech(self, text: str, ref_audio_path: str, cross_fade_duration: float) -> tuple[tuple[int, np.ndarray], str]:
+        def generate_speech(
+            self, text: str, ref_audio_path: str, cross_fade_duration: float
+        ) -> tuple[tuple[int, np.ndarray], str]:
             captured["text"] = text
             captured["ref_audio_path"] = ref_audio_path
             captured["cross_fade_duration"] = cross_fade_duration
@@ -347,7 +353,9 @@ def test_generate_tts_returns_failure_status_on_runtime_error(
     assert result.status == "Engine 'KittenTTS' failed: boom"
 
 
-def test_generate_tts_drops_unsupported_kwargs_from_request(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generate_tts_drops_unsupported_kwargs_from_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     def fake_generate(text: str, speaker: str) -> tuple[tuple[int, np.ndarray], str]:
