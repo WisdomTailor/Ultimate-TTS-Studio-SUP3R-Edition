@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 
@@ -10,7 +11,10 @@ if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
 from conversation_logic import (  # noqa: E402
+    CONVERSATION_FORMATTER_SYSTEM_PROMPT,
+    _extract_json_from_llm_response,
     create_default_speaker_settings,
+    format_conversation_with_llm,
     format_conversation_info,
     get_speaker_names_from_script,
     parse_conversation_script,
@@ -120,3 +124,84 @@ def test_parse_to_narration_script_attaches_metadata() -> None:
     assert error is None
     assert script is not None
     assert script.metadata == {"source_format": "speaker_colon", "scene": "intro"}
+
+
+class TestAIConversationFormatter:
+    """Tests for LLM-powered conversation formatting."""
+
+    def test_extract_json_from_direct_json(self) -> None:
+        """Direct JSON string parses correctly."""
+        payload = '{"version": "1.0", "lines": [{"speaker": "Narrator", "text": "Hello", "line_type": "narration", "cues": [], "confidence": 1.0, "ambiguous": false}], "metadata": {}}'
+
+        parsed = _extract_json_from_llm_response(payload)
+
+        assert parsed["version"] == "1.0"
+        assert parsed["lines"][0]["speaker"] == "Narrator"
+
+    def test_extract_json_strips_markdown_fences(self) -> None:
+        """JSON wrapped in ```json ... ``` fences is extracted."""
+        payload = """```json
+{"version": "1.0", "lines": [{"speaker": "Narrator", "text": "Hello", "line_type": "narration", "cues": [], "confidence": 1.0, "ambiguous": false}], "metadata": {}}
+```"""
+
+        parsed = _extract_json_from_llm_response(payload)
+
+        assert parsed["lines"][0]["text"] == "Hello"
+
+    def test_extract_json_finds_embedded_json(self) -> None:
+        """JSON embedded in explanation text is found."""
+        payload = (
+            "Here is the structured result:\n"
+            '{"version": "1.0", "lines": [{"speaker": "Alice", "text": "Hi", '
+            '"line_type": "dialogue", "cues": [], "confidence": 0.8, "ambiguous": false}], '
+            '"metadata": {}}\nThanks.'
+        )
+
+        parsed = _extract_json_from_llm_response(payload)
+
+        assert parsed["lines"][0]["speaker"] == "Alice"
+
+    def test_extract_json_raises_on_invalid(self) -> None:
+        """Non-JSON input raises ValueError."""
+        try:
+            _extract_json_from_llm_response("not json")
+        except ValueError as error:
+            assert "JSON" in str(error)
+        else:
+            raise AssertionError("Expected ValueError for invalid JSON input")
+
+    def test_format_conversation_with_llm_returns_error_on_empty_text(self) -> None:
+        """Empty text input returns error tuple."""
+        script, error = format_conversation_with_llm(
+            text="   ",
+            base_url="http://localhost:1234/v1",
+            api_key="",
+            model_id="test-model",
+        )
+
+        assert script is None
+        assert error == "Conversation text is required"
+
+    def test_conversation_formatter_system_prompt_exists(self) -> None:
+        """System prompt constant is defined and non-empty."""
+        assert isinstance(CONVERSATION_FORMATTER_SYSTEM_PROMPT, str)
+        assert CONVERSATION_FORMATTER_SYSTEM_PROMPT.strip()
+        assert "Return ONLY a valid JSON object" in CONVERSATION_FORMATTER_SYSTEM_PROMPT
+
+    def test_format_conversation_with_llm_signature(self) -> None:
+        """Function has expected signature with all required params."""
+        signature = inspect.signature(format_conversation_with_llm)
+        params = signature.parameters
+
+        assert list(params) == [
+            "text",
+            "base_url",
+            "api_key",
+            "model_id",
+            "timeout_seconds",
+            "extra_headers",
+            "auth_style",
+        ]
+        assert params["timeout_seconds"].default == 120
+        assert params["extra_headers"].default is None
+        assert params["auth_style"].default == "bearer"
