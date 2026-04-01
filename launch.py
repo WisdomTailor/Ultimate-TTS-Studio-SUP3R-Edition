@@ -410,6 +410,9 @@ def init_voxcpm():
         return False
 
 INDEXTTS_MODELS_AVAILABLE = False
+INDEXTTS_AVAILABLE = False
+INDEXTTS2_AVAILABLE = False
+EBOOK_CONVERTER_AVAILABLE = False
 IndexTTS = None
 
 
@@ -421,6 +424,9 @@ def _has_indextts_package() -> bool:
         return False
 
     return False
+
+
+INDEXTTS_AVAILABLE = _has_indextts_package()
 
 
 def generate_conversation_audio_simple(
@@ -9857,52 +9863,6 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 """
                                 )
 
-                        conversation_panel_updates = [
-                            speaker_1_group,
-                            speaker_2_group,
-                            speaker_3_group,
-                            speaker_4_group,
-                            speaker_5_group,
-                            speaker_1_kokoro_accordion,
-                            speaker_2_kokoro_accordion,
-                            speaker_3_kokoro_accordion,
-                            speaker_4_kokoro_accordion,
-                            speaker_5_kokoro_accordion,
-                            speaker_1_kitten_accordion,
-                            speaker_2_kitten_accordion,
-                            speaker_3_kitten_accordion,
-                            speaker_4_kitten_accordion,
-                            speaker_5_kitten_accordion,
-                            speaker_1_indextts2_accordion,
-                            speaker_2_indextts2_accordion,
-                            speaker_3_indextts2_accordion,
-                            speaker_4_indextts2_accordion,
-                            speaker_5_indextts2_accordion,
-                        ]
-
-                        conversation_analysis_outputs = [
-                            detected_speakers,
-                            generate_conversation_btn,
-                            conversation_workspace,
-                            character_roster,
-                            selected_character_header,
-                            selected_character_hint,
-                            selected_character_capabilities,
-                            conversation_lines_df,
-                            line_editor_group,
-                            line_editor_status,
-                            line_number_display,
-                            line_speaker_editor,
-                            line_text_editor,
-                            line_context_preview,
-                            conversation_speakers_state,
-                            conversation_rows_state,
-                            conversation_selected_speaker_state,
-                            conversation_selected_line_state,
-                            conversation_speaker_settings_state,
-                            *conversation_panel_updates,
-                        ]
-
                         conversation_component_state_inputs = [
                             speaker_1_audio,
                             speaker_2_audio,
@@ -9929,12 +9889,6 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             speaker_3_emotion_mode,
                             speaker_4_emotion_mode,
                             speaker_5_emotion_mode,
-                        ]
-
-                        conversation_analyze_inputs = [
-                            conversation_script,
-                            tts_engine,
-                            *conversation_component_state_inputs,
                         ]
 
                     # eBook to Audiobook Tab
@@ -10538,6 +10492,52 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     visible=False,
                 )
 
+        conversation_panel_updates = [
+            speaker_1_group,
+            speaker_2_group,
+            speaker_3_group,
+            speaker_4_group,
+            speaker_5_group,
+            speaker_1_kokoro_accordion,
+            speaker_2_kokoro_accordion,
+            speaker_3_kokoro_accordion,
+            speaker_4_kokoro_accordion,
+            speaker_5_kokoro_accordion,
+            speaker_1_kitten_accordion,
+            speaker_2_kitten_accordion,
+            speaker_3_kitten_accordion,
+            speaker_4_kitten_accordion,
+            speaker_5_kitten_accordion,
+            speaker_1_indextts2_accordion,
+            speaker_2_indextts2_accordion,
+            speaker_3_indextts2_accordion,
+            speaker_4_indextts2_accordion,
+            speaker_5_indextts2_accordion,
+        ]
+
+        conversation_analysis_outputs = [
+            detected_speakers,
+            generate_conversation_btn,
+            conversation_workspace,
+            character_roster,
+            selected_character_header,
+            selected_character_hint,
+            selected_character_capabilities,
+            conversation_lines_df,
+            line_editor_group,
+            line_editor_status,
+            line_number_display,
+            line_speaker_editor,
+            line_text_editor,
+            line_context_preview,
+            conversation_speakers_state,
+            conversation_rows_state,
+            conversation_selected_speaker_state,
+            conversation_selected_line_state,
+            conversation_speaker_settings_state,
+            *conversation_panel_updates,
+        ]
+
         with gr.Accordion(
             "🧭 Workspace Controls",
             open=False,
@@ -10693,6 +10693,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     info="WAV for quality, MP3 for smaller files",
                     elem_classes=["fade-in"],
                 )
+
+        conversation_analyze_inputs = [
+            conversation_script,
+            tts_engine,
+            *conversation_component_state_inputs,
+        ]
 
         engine_settings_toggle = gr.Button(
             "🛠️ TTS Engine Settings",
