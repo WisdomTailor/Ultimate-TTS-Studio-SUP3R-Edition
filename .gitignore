@@ -1,5 +1,6 @@
 # Local conda environment
 tts_env/
+tts_mcp_env/
 
 # Python cache
 __pycache__/
