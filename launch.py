@@ -1931,7 +1931,6 @@ DEFAULT_AUTOSAVE_SETTINGS = {
     "llm_preset": "Balanced",
     "llm_base_url": "",
     "llm_model_id": "",
-    "llm_api_key": "",
     "llm_system_prompt": "",
 }
 
@@ -2068,7 +2067,8 @@ def get_initial_llm_panel_settings(settings: dict | None = None) -> dict:
 
     provider_config = _get_provider_config(provider_name)
     base_url = str(settings.get("llm_base_url", "") or "").strip() or provider_config["base_url"]
-    api_key = str(settings.get("llm_api_key", "") or "")
+    # Secret hygiene: API keys are session-only and resolved via env vars at runtime.
+    api_key = ""
     model_id = (
         str(settings.get("llm_model_id", "") or "").strip() or provider_config["default_model"]
     )
@@ -2111,13 +2111,13 @@ def save_llm_panel_settings(
 
         normalized_preset = normalize_llm_outcome_preset(preset_name)
 
+        # Secret hygiene: API keys are session-only and resolved via env vars at runtime.
         save_app_state_settings(
             {
                 "llm_provider": normalized_provider,
                 "llm_preset": normalized_preset,
                 "llm_base_url": str(base_url or "").strip(),
                 "llm_model_id": str(model_id or "").strip(),
-                "llm_api_key": str(api_key or ""),
                 "llm_system_prompt": (
                     ""
                     if str(system_prompt or "") == DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
