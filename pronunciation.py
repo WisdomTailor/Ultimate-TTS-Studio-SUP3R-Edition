@@ -185,7 +185,9 @@ def pronunciation_pipeline(
     effective_overrides = overrides or []
 
     masked_text, placeholder_map = mask_protected_terms(text, effective_protected_terms)
-    transformed_text = llm_transform_fn(masked_text) if llm_transform_fn is not None else masked_text
+    transformed_text = (
+        llm_transform_fn(masked_text) if llm_transform_fn is not None else masked_text
+    )
     unmasked_text = unmask_protected_terms(transformed_text, placeholder_map)
     return apply_pronunciation_overrides(unmasked_text, effective_overrides)
 
