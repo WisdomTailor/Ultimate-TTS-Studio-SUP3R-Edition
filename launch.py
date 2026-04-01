@@ -6956,6 +6956,13 @@ ENGINE_EXPRESSIVENESS: dict[str, dict[str, bool]] = {
         "ellipsis_pause": True,
         "emotion_vectors": False,
     },
+    "VibeVoice": {
+        "bracket_cues": False,
+        "ssml": False,
+        "allcaps_emphasis": False,
+        "ellipsis_pause": True,
+        "emotion_vectors": False,
+    },
 }
 
 

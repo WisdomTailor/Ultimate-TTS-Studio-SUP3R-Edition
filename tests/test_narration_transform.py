@@ -216,6 +216,7 @@ class TestEngineCapabilityMatrix:
             "Qwen Voice Design",
             "Qwen Voice Clone",
             "Qwen Custom Voice",
+            "VibeVoice",
         ]
 
         for engine in expected_engines:
