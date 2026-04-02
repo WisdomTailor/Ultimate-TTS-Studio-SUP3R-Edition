@@ -392,6 +392,7 @@ try:
         convert_ebook_to_text_chunks,
         get_supported_formats,
     )
+
     EBOOK_CONVERTER_AVAILABLE = True
 except Exception as error:
     EBOOK_CONVERTER_AVAILABLE = False
@@ -464,6 +465,7 @@ def init_voxcpm():
     except ImportError:
         return False
 
+
 INDEXTTS_MODELS_AVAILABLE = False
 INDEXTTS_AVAILABLE = False
 INDEXTTS2_AVAILABLE = False
@@ -502,7 +504,9 @@ def download_indextts_models_auto() -> bool:
             print(f"❌ IndexTTS downloader not found: {downloader_path}")
             return False
 
-        spec = importlib_util.spec_from_file_location("download_indextts_models", str(downloader_path))
+        spec = importlib_util.spec_from_file_location(
+            "download_indextts_models", str(downloader_path)
+        )
         if spec is None or spec.loader is None:
             print("❌ Failed to load IndexTTS downloader module spec")
             return False
@@ -541,7 +545,11 @@ def init_higgs_audio() -> tuple[bool, str]:
         if handler is None:
             return False, "❌ Higgs Audio handler unavailable"
         success = bool(handler.initialize_engine())
-        return (True, "✅ Higgs Audio loaded successfully") if success else (False, "❌ Failed to initialize Higgs Audio")
+        return (
+            (True, "✅ Higgs Audio loaded successfully")
+            if success
+            else (False, "❌ Failed to initialize Higgs Audio")
+        )
     except Exception as error:
         return False, f"❌ Error loading Higgs Audio: {error}"
 
@@ -571,7 +579,9 @@ def init_voxcpm_model() -> tuple[bool, str]:
     if isinstance(result, tuple) and len(result) == 2:
         return bool(result[0]), str(result[1])
     if isinstance(result, bool):
-        return result, "✅ VoxCPM models loaded successfully" if result else "❌ VoxCPM not available"
+        return result, (
+            "✅ VoxCPM models loaded successfully" if result else "❌ VoxCPM not available"
+        )
     return False, "❌ VoxCPM initialization failed"
 
 
@@ -599,7 +609,9 @@ def init_qwen_tts_model(model_type: str = "Base", model_size: str = "1.7B") -> t
     return init_qwen_tts(model_type, model_size)
 
 
-def unload_qwen_tts_model(model_type: Optional[str] = None, model_size: Optional[str] = None) -> str:
+def unload_qwen_tts_model(
+    model_type: Optional[str] = None, model_size: Optional[str] = None
+) -> str:
     return unload_qwen_tts(model_type or "", model_size or "")
 
 
@@ -2099,7 +2111,9 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 # Disable warnings
 warnings.filterwarnings("ignore")
-if hasattr(torch.nn.utils, "parametrizations") and hasattr(torch.nn.utils.parametrizations, "weight_norm"):
+if hasattr(torch.nn.utils, "parametrizations") and hasattr(
+    torch.nn.utils.parametrizations, "weight_norm"
+):
     torch.nn.utils.parametrize = torch.nn.utils.parametrizations.weight_norm
 
 # ===== DIRECTORY SETUP =====
@@ -9384,7 +9398,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     elem_classes=["fade-in"],
                                 )
 
-                            with gr.Group(visible=False, elem_classes=["fade-in"]) as conversation_workspace:
+                            with gr.Group(
+                                visible=False, elem_classes=["fade-in"]
+                            ) as conversation_workspace:
                                 with gr.Row():
                                     with gr.Column(scale=1):
                                         detected_speakers = gr.Textbox(
@@ -9974,7 +9990,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     label="📜 Script Overview",
                                 )
 
-                                with gr.Group(visible=False, elem_classes=["fade-in"]) as line_editor_group:
+                                with gr.Group(
+                                    visible=False, elem_classes=["fade-in"]
+                                ) as line_editor_group:
                                     gr.Markdown("### ✏️ Selected Line Editor")
                                     with gr.Row():
                                         line_number_display = gr.Textbox(
@@ -13837,7 +13855,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 return f"IndexTTS2: {emotion_label}, {voice_label}"
 
             has_sample = speaker_index < len(voice_samples) and bool(voice_samples[speaker_index])
-            has_ref_text = speaker_index < len(ref_texts) and bool(str(ref_texts[speaker_index] or "").strip())
+            has_ref_text = speaker_index < len(ref_texts) and bool(
+                str(ref_texts[speaker_index] or "").strip()
+            )
             if has_sample:
                 return "Voice sample: uploaded"
             if has_ref_text:
@@ -13887,7 +13907,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
             if capability_flags.get("allcaps_emphasis"):
                 enabled_capabilities.append("all-caps emphasis")
 
-            capability_text = ", ".join(enabled_capabilities) if enabled_capabilities else "basic line delivery"
+            capability_text = (
+                ", ".join(enabled_capabilities) if enabled_capabilities else "basic line delivery"
+            )
             return (
                 f"**Engine profile:** {selected_engine} supports {capability_text}. "
                 "The guided editor keeps the backend generation flow unchanged."
@@ -13906,9 +13928,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     "No uploaded sample is required."
                 )
             if engine_family == "indextts2":
-                return (
-                    f"Upload a voice sample for **{speaker_name}** and set the active emotion control mode."
-                )
+                return f"Upload a voice sample for **{speaker_name}** and set the active emotion control mode."
             return (
                 f"Upload or record a voice sample for **{speaker_name}**. "
                 "Reference text helps engines that support guided cloning."
@@ -13945,8 +13965,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
             indextts2_updates = []
 
             for slot_index in range(5):
-                speaker_visible = slot_index < len(speakers) and slot_index == selected_speaker_index
-                speaker_name = speakers[slot_index] if slot_index < len(speakers) else f"Speaker {slot_index + 1}"
+                speaker_visible = (
+                    slot_index < len(speakers) and slot_index == selected_speaker_index
+                )
+                speaker_name = (
+                    speakers[slot_index]
+                    if slot_index < len(speakers)
+                    else f"Speaker {slot_index + 1}"
+                )
 
                 audio_updates.append(
                     gr.update(
@@ -14031,7 +14057,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
             emotion_modes = list(emotion_modes or ["audio_reference"] * 5)
 
             normalized_selected_index = selected_speaker_index
-            if normalized_selected_index is None or not (0 <= normalized_selected_index < len(speakers)):
+            if normalized_selected_index is None or not (
+                0 <= normalized_selected_index < len(speakers)
+            ):
                 normalized_selected_index = 0
 
             speaker_settings = create_default_speaker_settings(speakers)
@@ -14054,7 +14082,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 gr.update(visible=True),
                 gr.update(choices=roster_choices, value=str(normalized_selected_index)),
                 gr.update(value=f"### {selected_speaker_name}"),
-                gr.update(value=_build_selected_character_hint(selected_engine, selected_speaker_name)),
+                gr.update(
+                    value=_build_selected_character_hint(selected_engine, selected_speaker_name)
+                ),
                 gr.update(value=_build_conversation_capabilities(selected_engine)),
                 gr.update(value=conversation_table, visible=True),
                 gr.update(visible=False),
@@ -14107,7 +14137,9 @@ Bob: Japan must have been fascinating! What was your favorite part?
 Alice: The food was unbelievable, and the people were so kind.
 Bob: I'd love to visit Japan someday. Any recommendations?
 Alice: Definitely visit Kyoto and try authentic ramen!"""
-            analysis_response = handle_analyze_script(example_script, selected_engine, *component_values)
+            analysis_response = handle_analyze_script(
+                example_script, selected_engine, *component_values
+            )
             return example_script, *analysis_response
 
         def handle_clear_script():
@@ -14160,7 +14192,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             return (
                 gr.update(choices=roster_choices, value=str(normalized_index)),
                 gr.update(value=f"### {selected_speaker_name}"),
-                gr.update(value=_build_selected_character_hint(selected_engine, selected_speaker_name)),
+                gr.update(
+                    value=_build_selected_character_hint(selected_engine, selected_speaker_name)
+                ),
                 gr.update(value=_build_conversation_capabilities(selected_engine)),
                 normalized_index,
                 *_build_conversation_panel_updates(speakers, selected_engine, normalized_index),
@@ -14213,12 +14247,16 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         ):
             """Apply the line editor changes back into the raw script text."""
             normalized_index = _coerce_conversation_index(selected_line_index)
-            if normalized_index is None or not conversation_rows or not (
-                0 <= normalized_index < len(conversation_rows)
+            if (
+                normalized_index is None
+                or not conversation_rows
+                or not (0 <= normalized_index < len(conversation_rows))
             ):
                 return (
                     current_script,
-                    gr.update(value=_build_conversation_table_rows(conversation_rows or []), visible=True),
+                    gr.update(
+                        value=_build_conversation_table_rows(conversation_rows or []), visible=True
+                    ),
                     gr.update(value="Select a line from the table before saving edits."),
                     gr.update(value=""),
                     gr.update(choices=speakers or [], value=None),
@@ -14233,24 +14271,32 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             if not clean_speaker:
                 return (
                     current_script,
-                    gr.update(value=_build_conversation_table_rows(conversation_rows), visible=True),
+                    gr.update(
+                        value=_build_conversation_table_rows(conversation_rows), visible=True
+                    ),
                     gr.update(value="Select a speaker before saving."),
                     gr.update(value=str(normalized_index + 1)),
                     gr.update(choices=speakers or [], value=None),
                     gr.update(value=clean_text),
-                    gr.update(value=_build_conversation_line_context(conversation_rows, normalized_index)),
+                    gr.update(
+                        value=_build_conversation_line_context(conversation_rows, normalized_index)
+                    ),
                     conversation_rows,
                     selected_line_index,
                 )
             if not clean_text:
                 return (
                     current_script,
-                    gr.update(value=_build_conversation_table_rows(conversation_rows), visible=True),
+                    gr.update(
+                        value=_build_conversation_table_rows(conversation_rows), visible=True
+                    ),
                     gr.update(value="Line text cannot be empty."),
                     gr.update(value=str(normalized_index + 1)),
                     gr.update(choices=speakers or [], value=clean_speaker),
                     gr.update(value=""),
-                    gr.update(value=_build_conversation_line_context(conversation_rows, normalized_index)),
+                    gr.update(
+                        value=_build_conversation_line_context(conversation_rows, normalized_index)
+                    ),
                     conversation_rows,
                     selected_line_index,
                 )
@@ -14266,7 +14312,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             return (
                 updated_script,
                 gr.update(value=_build_conversation_table_rows(updated_rows), visible=True),
-                gr.update(value=f"Saved line {normalized_index + 1} back into the conversation script."),
+                gr.update(
+                    value=f"Saved line {normalized_index + 1} back into the conversation script."
+                ),
                 gr.update(value=str(normalized_index + 1)),
                 gr.update(choices=speakers or [], value=clean_speaker),
                 gr.update(value=updated_rows[normalized_index]["text"]),
@@ -14278,8 +14326,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         def handle_revert_line_edit(selected_line_index, conversation_rows, speakers):
             """Restore the line editor fields from the current parsed row state."""
             normalized_index = _coerce_conversation_index(selected_line_index)
-            if normalized_index is None or not conversation_rows or not (
-                0 <= normalized_index < len(conversation_rows)
+            if (
+                normalized_index is None
+                or not conversation_rows
+                or not (0 <= normalized_index < len(conversation_rows))
             ):
                 return (
                     gr.update(value="Select a line from the table to begin editing."),
@@ -14295,7 +14345,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 gr.update(value=str(normalized_index + 1)),
                 gr.update(choices=speakers or [], value=current_row.get("speaker", "")),
                 gr.update(value=current_row.get("text", "")),
-                gr.update(value=_build_conversation_line_context(conversation_rows, normalized_index)),
+                gr.update(
+                    value=_build_conversation_line_context(conversation_rows, normalized_index)
+                ),
             )
 
         def handle_ai_format_script(
@@ -14325,8 +14377,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 return script_text, f"❌ {error_message}"
 
             formatted_rows = [
-                {"speaker": line.speaker, "text": line.text}
-                for line in narration_script.lines
+                {"speaker": line.speaker, "text": line.text} for line in narration_script.lines
             ]
             formatted_script = _serialize_conversation_rows(formatted_rows)
             return (
@@ -14808,7 +14859,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=handle_analyze_script,
             inputs=conversation_analyze_inputs,
             outputs=conversation_analysis_outputs,
-        ).then(fn=switch_engine_tab, inputs=[tts_engine], outputs=[engine_tabs])
+        ).then(
+            fn=switch_engine_tab, inputs=[tts_engine], outputs=[engine_tabs]
+        )
 
         # eBook conversion event handlers
         if EBOOK_CONVERTER_AVAILABLE:
@@ -15539,7 +15592,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             get_security().guard("get_engine_info", _extract_bearer_token(request))
             return get_engine_info(engine_name)
 
-        def mcp_list_voices(engine_name: str = "", request: gr.Request | None = None) -> list[dict[str, object]]:
+        def mcp_list_voices(
+            engine_name: str = "", request: gr.Request | None = None
+        ) -> list[dict[str, object]]:
             """List available voices, optionally filtered by engine.
 
             Args:
@@ -16032,7 +16087,7 @@ if __name__ == "__main__":
         mcp_server_enabled = _is_mcp_runtime_available()
         if not mcp_server_enabled:
             print("⚠️ MCP runtime not found. Launching without Gradio MCP server support.")
-            print("ℹ️ Install with: uv pip install \"gradio[mcp]\" (or pip install \"gradio[mcp]\")")
+            print('ℹ️ Install with: uv pip install "gradio[mcp]" (or pip install "gradio[mcp]")')
         else:
             print("🔌 MCP server enabled. Endpoint: http://127.0.0.1:<port>/gradio_api/mcp/sse")
             print("📋 Use .vscode/mcp.json for VS Code Copilot integration.")
