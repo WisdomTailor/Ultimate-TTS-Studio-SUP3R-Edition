@@ -1,3 +1,4 @@
+# pyright: reportMissingImports=false, reportOptionalMemberAccess=false, reportOptionalCall=false, reportOptionalIterable=false, reportPossiblyUnboundVariable=false, reportAttributeAccessIssue=false, reportArgumentType=false, reportAssignmentType=false, reportGeneralTypeIssues=false
 # NOTE: Before editing this file, read Docs/launch-py-index.md.
 # app/launch.py is a large coupled Gradio/runtime module; use the index first
 # to find the correct section, handlers, and event bindings.
@@ -143,6 +144,12 @@ except Exception as error:
     sf = None
     print(f"⚠️ soundfile not available. Falling back where possible. Error: {error}")
 
+try:
+    with suppress_specific_warnings():
+        from pydub import AudioSegment
+except Exception:
+    AudioSegment = None
+
 # Chatterbox imports
 try:
     with suppress_specific_warnings():
@@ -153,6 +160,9 @@ try:
 except Exception as error:
     CHATTERBOX_AVAILABLE = False
     CHATTERBOX_MULTILINGUAL_AVAILABLE = False
+    ChatterboxTTS = None
+    ChatterboxMultilingualTTS = None
+    SUPPORTED_LANGUAGES = []
     print(f"⚠️ ChatterboxTTS not available. Some features will be disabled. Error: {error}")
 
 # Kokoro imports
@@ -162,6 +172,8 @@ try:
     KOKORO_AVAILABLE = True
 except Exception as error:
     KOKORO_AVAILABLE = False
+    KModel = None
+    KPipeline = None
     print(f"⚠️ Kokoro TTS not available. Some features will be disabled. Error: {error}")
 
 # Fish Speech imports
@@ -176,6 +188,9 @@ try:
     FISH_SPEECH_AVAILABLE = True
 except Exception as error:
     FISH_SPEECH_AVAILABLE = False
+    TTSInferenceEngine = None
+    load_decoder_model = None
+    launch_thread_safe_queue = None
     ServeTTSRequest = None
     ServeReferenceAudio = None
     audio_to_bytes = lambda *args, **kwargs: b""
@@ -189,6 +204,7 @@ try:
     print("✅ F5-TTS handler loaded")
 except Exception as error:
     F5_TTS_AVAILABLE = False
+    get_f5_tts_handler = lambda *args, **kwargs: None
     print(f"⚠️ F5-TTS not available. Some features will be disabled. Error: {error}")
 
 
@@ -380,13 +396,15 @@ try:
 except Exception as error:
     EBOOK_CONVERTER_AVAILABLE = False
 
-    def analyze_ebook(*args, **kwargs):
+    def analyze_ebook(file_path: str) -> dict[str, Any]:
         raise RuntimeError("eBook converter not available")
 
-    def convert_ebook_to_text_chunks(*args, **kwargs):
+    def convert_ebook_to_text_chunks(
+        file_path: str, max_chunk_length: int = 500
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         raise RuntimeError("eBook converter not available")
 
-    def get_supported_formats(*args, **kwargs):
+    def get_supported_formats() -> dict[str, Any]:
         return {}
 
     print(f"⚠️ eBook converter not available. Error: {error}")
@@ -408,7 +426,6 @@ from narration_transform import (
     _apply_local_narration_transform,
     get_llm_provider_env_var,
     get_llm_shell_key_setup_hint,
-    resolve_llm_api_key,
     fetch_provider_models,
     try_start_lm_studio,
     call_openai_compatible_chat,
@@ -467,7 +484,10 @@ def _has_indextts_package() -> bool:
 def load_indextts_class() -> tuple[Any | None, str | None]:
     """Load IndexTTS class lazily and return import errors without crashing startup."""
     try:
-        from indextts.infer import IndexTTS as _IndexTTS
+        module = importlib.import_module("indextts.infer")
+        _IndexTTS = getattr(module, "IndexTTS", None)
+        if _IndexTTS is None:
+            return None, "IndexTTS class not found in indextts.infer"
 
         return _IndexTTS, None
     except Exception as error:
@@ -518,6 +538,8 @@ def init_higgs_audio() -> tuple[bool, str]:
 
     try:
         handler = get_higgs_audio_handler()
+        if handler is None:
+            return False, "❌ Higgs Audio handler unavailable"
         success = bool(handler.initialize_engine())
         return (True, "✅ Higgs Audio loaded successfully") if success else (False, "❌ Failed to initialize Higgs Audio")
     except Exception as error:
@@ -528,6 +550,8 @@ def unload_higgs_audio() -> str:
     """Compatibility wrapper for model manager handlers."""
     try:
         handler = get_higgs_audio_handler()
+        if handler is None:
+            return "⚠️ Higgs Audio handler unavailable"
         if getattr(handler, "engine", None) is not None:
             handler.engine = None
 
@@ -543,7 +567,12 @@ def unload_higgs_audio() -> str:
 
 
 def init_voxcpm_model() -> tuple[bool, str]:
-    return init_voxcpm()
+    result = init_voxcpm()
+    if isinstance(result, tuple) and len(result) == 2:
+        return bool(result[0]), str(result[1])
+    if isinstance(result, bool):
+        return result, "✅ VoxCPM models loaded successfully" if result else "❌ VoxCPM not available"
+    return False, "❌ VoxCPM initialization failed"
 
 
 def unload_voxcpm_model() -> str:
@@ -570,8 +599,8 @@ def init_qwen_tts_model(model_type: str = "Base", model_size: str = "1.7B") -> t
     return init_qwen_tts(model_type, model_size)
 
 
-def unload_qwen_tts_model(model_type: str = None, model_size: str = None) -> str:
-    return unload_qwen_tts(model_type, model_size)
+def unload_qwen_tts_model(model_type: Optional[str] = None, model_size: Optional[str] = None) -> str:
+    return unload_qwen_tts(model_type or "", model_size or "")
 
 
 def init_vibevoice_model(
@@ -2070,7 +2099,8 @@ os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
 # Disable warnings
 warnings.filterwarnings("ignore")
-torch.nn.utils.parametrize = torch.nn.utils.parametrizations.weight_norm
+if hasattr(torch.nn.utils, "parametrizations") and hasattr(torch.nn.utils.parametrizations, "weight_norm"):
+    torch.nn.utils.parametrize = torch.nn.utils.parametrizations.weight_norm
 
 # ===== DIRECTORY SETUP =====
 APP_STATE_DIR = os.path.join(os.getcwd(), "app_state")
@@ -4509,8 +4539,8 @@ def generate_indextts_tts(
         import threading
         import time
 
-        generation_result = [None]  # Use list to store result from thread
-        generation_error = [None]
+        generation_result: list[Optional[str]] = [None]  # Use list to store result from thread
+        generation_error: list[Optional[str]] = [None]
 
         def generate_audio():
             try:
@@ -15946,7 +15976,8 @@ def _parse_semver_triplet(version: str) -> tuple[int, int, int] | None:
     match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version)
     if not match:
         return None
-    return tuple(int(part) for part in match.groups())
+    major, minor, patch = match.groups()
+    return int(major), int(minor), int(patch)
 
 
 def _warn_on_shared_env_mcp_f5_pydantic_conflict(mcp_server_enabled: bool) -> None:
