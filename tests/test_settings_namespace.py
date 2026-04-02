@@ -157,9 +157,7 @@ class TestSettingsNamespace:
         assert loaded["narration_llm_system_prompt"] == ""
         assert loaded["assistant_llm_system_prompt"] == ""
 
-    def test_narration_and_assistant_save_load_roundtrip(
-        self, settings_module: ModuleType
-    ) -> None:
+    def test_narration_and_assistant_save_load_roundtrip(self, settings_module: ModuleType) -> None:
         settings_module.save_llm_panel_settings(
             provider_name="OpenAI",
             base_url="https://narration.example/v1",

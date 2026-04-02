@@ -2399,7 +2399,7 @@ def save_llm_panel_settings(
     api_key: str,
     system_prompt: str,
     preset_name: str | None = None,
-)-> None:
+) -> None:
     try:
         _save_namespaced_llm_settings(
             namespace="narration",
@@ -10841,9 +10841,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     elem_classes=["fade-in"],
                                 )
 
-                            assistant_llm_status = gr.Markdown(
-                                value="", elem_classes=["fade-in"]
-                            )
+                            assistant_llm_status = gr.Markdown(value="", elem_classes=["fade-in"])
 
                     with gr.TabItem("📋 JOBS", id="jobs_mode"):
                         gr.Markdown(
@@ -10860,7 +10858,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         )
 
                         job_queue_display = gr.Dataframe(
-                            headers=["ID", "Status", "Engine", "Created", "Elapsed", "Text Preview"],
+                            headers=[
+                                "ID",
+                                "Status",
+                                "Engine",
+                                "Created",
+                                "Elapsed",
+                                "Text Preview",
+                            ],
                             datatype=["str", "str", "str", "str", "str", "str"],
                             value=[["—", "No jobs", "—", "—", "—", "—"]],
                             label="🔄 Active & Recent Jobs",
@@ -13071,7 +13076,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             manager = get_job_manager()
             rows = _format_job_queue_rows(manager.list_jobs(limit=25))
-            detail = handle_job_detail(job_id) if str(job_id or "").strip() else "Select a job to view details."
+            detail = (
+                handle_job_detail(job_id)
+                if str(job_id or "").strip()
+                else "Select a job to view details."
+            )
             return rows, detail
 
         def handle_job_cancel(job_id):
@@ -13099,7 +13108,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             rows, detail = handle_job_panel_refresh(matched_job_id)
             if cancelled:
-                return rows, f"✅ Job {matched_job_id[:12]}... cancelled.\n\n{detail}", matched_job_id
+                return (
+                    rows,
+                    f"✅ Job {matched_job_id[:12]}... cancelled.\n\n{detail}",
+                    matched_job_id,
+                )
 
             return (
                 rows,

@@ -65,7 +65,9 @@ def test_chat_success() -> None:
         timeout_seconds=12,
     )
 
-    with patch("assistant_service.call_openai_compatible_chat", return_value="Use F5-TTS.") as chat_mock:
+    with patch(
+        "assistant_service.call_openai_compatible_chat", return_value="Use F5-TTS."
+    ) as chat_mock:
         response = assistant_service.chat(request)
 
     assert response.error == ""
@@ -96,13 +98,14 @@ def test_chat_with_history() -> None:
         conversation_history=history,
     )
 
-    with patch("assistant_service.call_openai_compatible_chat", return_value="Try temperature 0.5.") as chat_mock:
+    with patch(
+        "assistant_service.call_openai_compatible_chat", return_value="Try temperature 0.5."
+    ) as chat_mock:
         response = assistant_service.chat(request)
 
     assert response.error == ""
     assert (
-        chat_mock.call_args.kwargs["user_prompt"]
-        == "[User]: I need expressive dialogue.\n\n"
+        chat_mock.call_args.kwargs["user_prompt"] == "[User]: I need expressive dialogue.\n\n"
         "[Assistant]: Use a more expressive engine.\n\n"
         "[User]: What settings should I try?"
     )

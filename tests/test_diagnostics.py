@@ -54,7 +54,9 @@ def test_check_port_reachable_success() -> None:
     connection.__enter__.return_value = connection
     connection.__exit__.return_value = None
 
-    with patch("diagnostics.socket.create_connection", return_value=connection) as create_connection:
+    with patch(
+        "diagnostics.socket.create_connection", return_value=connection
+    ) as create_connection:
         result = diagnostics.check_port_reachable("127.0.0.1", 1234)
 
     assert result.status == "ok"
