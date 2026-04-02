@@ -435,6 +435,7 @@ from narration_transform import (
     apply_llm_transform_to_textbox,
     format_provenance,
 )
+from assistant_service import DEFAULT_ASSISTANT_SYSTEM_PROMPT
 from pronunciation import (
     PronunciationOverride,
     ProtectedTerm,
@@ -9094,7 +9095,14 @@ def create_gradio_interface():
                             scale=2,
                         )
 
-                        # Main input section with tabs for single voice, conversation mode, and eBook conversion
+        # Assistant status bar - compact row above workspace
+        with gr.Row(elem_classes=["assistant-status-bar", "fade-in"]):
+            assistant_status_indicator = gr.Markdown(
+                value="🤖 Assistant: Not configured",
+                elem_classes=["fade-in"],
+            )
+
+        # Main input section with tabs for single voice, conversation mode, and eBook conversion
         with gr.Row(elem_classes=["workspace-row"]):
             with gr.Column(scale=3, elem_classes=["main-workspace"]):
                 # Tabs for different input modes
@@ -10728,6 +10736,114 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             vibevoice_generate_btn = gr.Button(visible=False)
                             vibevoice_output = gr.Audio(visible=False)
                             vibevoice_status = gr.Textbox(visible=False)
+
+                    with gr.TabItem("🤖 ASSISTANT", id="assistant_mode"):
+                        gr.Markdown(
+                            """
+                        <div style='background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
+                                    padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
+                            <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>🤖 TTS Studio Assistant</h3>
+                            <p style='margin: 0; opacity: 0.8; font-size: 0.9em;'>
+                                Ask questions about TTS engines, voice configuration, troubleshooting,
+                                and workflow guidance. Powered by your configured LLM provider.
+                            </p>
+                        </div>
+                        """
+                        )
+
+                        assistant_chatbot = gr.Chatbot(
+                            label="💬 Assistant Chat",
+                            height=400,
+                            type="messages",
+                            elem_classes=["fade-in"],
+                        )
+
+                        with gr.Row():
+                            assistant_msg_input = gr.Textbox(
+                                placeholder="Ask the assistant about TTS engines, voices, settings...",
+                                label="Message",
+                                lines=2,
+                                scale=4,
+                                elem_classes=["fade-in"],
+                            )
+                            assistant_send_btn = gr.Button(
+                                "📤 Send",
+                                variant="primary",
+                                scale=1,
+                                elem_classes=["fade-in"],
+                            )
+
+                        with gr.Row():
+                            assistant_clear_btn = gr.Button(
+                                "🗑️ Clear Chat",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+
+                        with gr.Accordion(
+                            "⚙️ Assistant LLM Settings", open=False, elem_classes=["fade-in"]
+                        ):
+                            assistant_llm_settings = get_initial_assistant_llm_settings()
+
+                            assistant_llm_provider = gr.Dropdown(
+                                choices=list(LLM_PROVIDER_CONFIGS.keys()),
+                                value=assistant_llm_settings["provider"],
+                                label="🔌 LLM Provider",
+                                elem_classes=["fade-in"],
+                            )
+
+                            with gr.Row():
+                                assistant_llm_base_url = gr.Textbox(
+                                    value=assistant_llm_settings["base_url"],
+                                    label="🌐 Base URL",
+                                    scale=3,
+                                    elem_classes=["fade-in"],
+                                )
+                                assistant_llm_api_key = gr.Textbox(
+                                    value="",
+                                    label="🔑 API Key",
+                                    type="password",
+                                    scale=2,
+                                    info="Session-only. Not saved. Use env vars for persistence.",
+                                    elem_classes=["fade-in"],
+                                )
+
+                            assistant_llm_model_id = gr.Dropdown(
+                                choices=assistant_llm_settings["model_choices"],
+                                value=assistant_llm_settings["model_id"],
+                                label="🧠 Model",
+                                allow_custom_value=True,
+                                elem_classes=["fade-in"],
+                            )
+
+                            assistant_llm_system_prompt = gr.Textbox(
+                                value=(
+                                    assistant_llm_settings["system_prompt"]
+                                    or DEFAULT_ASSISTANT_SYSTEM_PROMPT
+                                ),
+                                label="📝 System Prompt",
+                                lines=4,
+                                elem_classes=["fade-in"],
+                            )
+
+                            with gr.Row():
+                                assistant_llm_test_btn = gr.Button(
+                                    "🔗 Test Connection",
+                                    variant="secondary",
+                                    size="sm",
+                                    elem_classes=["fade-in"],
+                                )
+                                assistant_llm_save_btn = gr.Button(
+                                    "💾 Save Settings",
+                                    variant="secondary",
+                                    size="sm",
+                                    elem_classes=["fade-in"],
+                                )
+
+                            assistant_llm_status = gr.Markdown(
+                                value="", elem_classes=["fade-in"]
+                            )
 
             with gr.Column(scale=1, elem_classes=["right-rail"]):
                 # Audio output section with glow effect
@@ -12656,6 +12772,108 @@ Alice: I went to Japan. It was absolutely incredible!""",
             # Don't change engine selection when unloading
             return kitten_status_text
 
+        # ── Assistant handlers ────────────────────────────────────────────
+
+        def handle_assistant_send(
+            user_message,
+            chat_history,
+            provider,
+            base_url,
+            api_key,
+            model_id,
+            system_prompt,
+        ):
+            """Send a message to the assistant and update the chatbot."""
+            if not user_message or not str(user_message).strip():
+                return chat_history, "", "⚠️ Please enter a message"
+
+            from assistant_service import AssistantRequest, ChatMessage, chat as assistant_chat
+
+            history_messages = []
+            for msg in chat_history or []:
+                if isinstance(msg, dict):
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                else:
+                    role = "user"
+                    content = str(msg)
+                history_messages.append(ChatMessage(role=str(role), content=str(content)))
+
+            request = AssistantRequest(
+                user_message=str(user_message).strip(),
+                conversation_history=tuple(history_messages),
+                provider_name=provider or "LM Studio OpenAI Server",
+                base_url=base_url or "",
+                api_key=api_key or "",
+                model_id=model_id or "",
+                system_prompt=system_prompt or "",
+                temperature=0.4,
+                top_p=0.9,
+                max_tokens=1024,
+                timeout_seconds=30,
+            )
+
+            response = assistant_chat(request)
+
+            new_history = list(chat_history or [])
+            new_history.append({"role": "user", "content": str(user_message).strip()})
+
+            if response.error:
+                error_msg = f"❌ {response.error}"
+                new_history.append({"role": "assistant", "content": error_msg})
+                status = f"❌ Error: {response.error}"
+            else:
+                new_history.append({"role": "assistant", "content": response.content})
+                status = (
+                    "✅ Response received "
+                    f"({response.elapsed_seconds}s) — "
+                    f"{response.provider_name}/{response.model_id}"
+                )
+
+            return new_history, "", status
+
+        def handle_assistant_clear():
+            """Clear the chat history."""
+            return [], "", "Chat cleared"
+
+        def handle_assistant_test_connection(provider, base_url, api_key, model_id):
+            """Test assistant LLM connection."""
+            from assistant_service import test_assistant_connection
+
+            result = test_assistant_connection(
+                provider_name=provider or "LM Studio OpenAI Server",
+                base_url=base_url or "",
+                api_key=api_key or "",
+                model_id=model_id or "",
+            )
+            if result.startswith("✅"):
+                indicator = f"🤖 Assistant: Connected ({provider})"
+            else:
+                indicator = "🤖 Assistant: Connection failed"
+            return result, indicator
+
+        def handle_assistant_save_settings(provider, base_url, model_id, api_key, system_prompt):
+            """Save assistant LLM settings."""
+            save_assistant_llm_settings(
+                provider_name=provider,
+                base_url=base_url,
+                model_id=model_id,
+                api_key=api_key,
+                system_prompt=system_prompt,
+            )
+            return "✅ Assistant LLM settings saved"
+
+        def handle_assistant_provider_change(provider_name):
+            """Handle assistant LLM provider change using the shared provider defaults."""
+            cfg = _get_provider_config(provider_name)
+            suggestions = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
+            if cfg["default_model"] and cfg["default_model"] not in suggestions:
+                suggestions.insert(0, cfg["default_model"])
+            return (
+                gr.update(value=cfg["base_url"]),
+                gr.update(choices=suggestions, value=cfg["default_model"]),
+            )
+
         def handle_clear_temp_files():
             """Handle clearing Gradio temporary files and reset audio components."""
             result_message = clear_gradio_temp_files()
@@ -13612,6 +13830,69 @@ Alice: I went to Japan. It was absolutely incredible!""",
             fn=test_llm_connection,
             inputs=[llm_provider, llm_base_url, llm_api_key, llm_model_id, llm_timeout_seconds],
             outputs=[llm_connection_status],
+        )
+
+        assistant_send_btn.click(
+            fn=handle_assistant_send,
+            inputs=[
+                assistant_msg_input,
+                assistant_chatbot,
+                assistant_llm_provider,
+                assistant_llm_base_url,
+                assistant_llm_api_key,
+                assistant_llm_model_id,
+                assistant_llm_system_prompt,
+            ],
+            outputs=[assistant_chatbot, assistant_msg_input, assistant_llm_status],
+        )
+
+        assistant_msg_input.submit(
+            fn=handle_assistant_send,
+            inputs=[
+                assistant_msg_input,
+                assistant_chatbot,
+                assistant_llm_provider,
+                assistant_llm_base_url,
+                assistant_llm_api_key,
+                assistant_llm_model_id,
+                assistant_llm_system_prompt,
+            ],
+            outputs=[assistant_chatbot, assistant_msg_input, assistant_llm_status],
+        )
+
+        assistant_clear_btn.click(
+            fn=handle_assistant_clear,
+            inputs=[],
+            outputs=[assistant_chatbot, assistant_msg_input, assistant_llm_status],
+        )
+
+        assistant_llm_test_btn.click(
+            fn=handle_assistant_test_connection,
+            inputs=[
+                assistant_llm_provider,
+                assistant_llm_base_url,
+                assistant_llm_api_key,
+                assistant_llm_model_id,
+            ],
+            outputs=[assistant_llm_status, assistant_status_indicator],
+        )
+
+        assistant_llm_save_btn.click(
+            fn=handle_assistant_save_settings,
+            inputs=[
+                assistant_llm_provider,
+                assistant_llm_base_url,
+                assistant_llm_model_id,
+                assistant_llm_api_key,
+                assistant_llm_system_prompt,
+            ],
+            outputs=[assistant_llm_status],
+        )
+
+        assistant_llm_provider.change(
+            fn=handle_assistant_provider_change,
+            inputs=[assistant_llm_provider],
+            outputs=[assistant_llm_base_url, assistant_llm_model_id],
         )
 
         add_protected_term_btn.click(
