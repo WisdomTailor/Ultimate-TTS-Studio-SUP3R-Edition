@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
+from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import Any
 
@@ -108,7 +109,7 @@ class JobManager:
     def __init__(self, jobs_dir: Path | None = None) -> None:
         self._jobs_dir = jobs_dir or Path("app_state") / "jobs"
         self._jobs_dir.mkdir(parents=True, exist_ok=True)
-        self._processes: dict[str, multiprocessing.Process] = {}
+        self._processes: dict[str, BaseProcess] = {}
         self._lock = threading.Lock()
 
     @property
