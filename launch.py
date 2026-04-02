@@ -10845,6 +10845,72 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 value="", elem_classes=["fade-in"]
                             )
 
+                    with gr.TabItem("📋 JOBS", id="jobs_mode"):
+                        gr.Markdown(
+                            """
+                        <div style='background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1));
+                                    padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
+                            <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>📋 Job Queue</h3>
+                            <p style='margin: 0; opacity: 0.8; font-size: 0.9em;'>
+                                Monitor background TTS jobs, view queue status, and manage long-running
+                                synthesis tasks without blocking the main UI.
+                            </p>
+                        </div>
+                        """
+                        )
+
+                        job_queue_display = gr.Dataframe(
+                            headers=["ID", "Status", "Engine", "Created", "Elapsed", "Text Preview"],
+                            datatype=["str", "str", "str", "str", "str", "str"],
+                            value=[["—", "No jobs", "—", "—", "—", "—"]],
+                            label="🔄 Active & Recent Jobs",
+                            interactive=False,
+                            wrap=True,
+                            elem_classes=["fade-in"],
+                        )
+
+                        with gr.Row():
+                            job_refresh_btn = gr.Button(
+                                "🔄 Refresh",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+                            job_auto_refresh = gr.Checkbox(
+                                value=False,
+                                label="Auto-refresh (every 3s)",
+                                elem_classes=["fade-in"],
+                            )
+
+                        with gr.Row():
+                            job_id_input = gr.Textbox(
+                                label="Job ID",
+                                placeholder="Enter a full or truncated job ID",
+                                scale=3,
+                                elem_classes=["fade-in"],
+                            )
+                            job_cancel_btn = gr.Button(
+                                "❌ Cancel Job",
+                                variant="stop",
+                                size="sm",
+                                scale=1,
+                                elem_classes=["fade-in"],
+                            )
+                            job_retry_btn = gr.Button(
+                                "🔁 Retry Job",
+                                variant="secondary",
+                                size="sm",
+                                scale=1,
+                                elem_classes=["fade-in"],
+                            )
+
+                        job_detail_output = gr.Markdown(
+                            value="Select a job to view details.",
+                            elem_classes=["fade-in"],
+                        )
+
+                        job_timer = gr.Timer(value=3, active=False)
+
             with gr.Column(scale=1, elem_classes=["right-rail"]):
                 # Audio output section with glow effect
                 audio_output = gr.Audio(
@@ -12874,6 +12940,222 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 gr.update(choices=suggestions, value=cfg["default_model"]),
             )
 
+        def _resolve_job_id(manager, raw_job_id):
+            clean_id = str(raw_job_id or "").strip().rstrip(".")
+            if not clean_id:
+                return ""
+
+            for job in manager.list_jobs(limit=100):
+                if job.id == clean_id or job.id.startswith(clean_id):
+                    return job.id
+            return ""
+
+        def _format_job_queue_rows(jobs):
+            import time as _time
+
+            if not jobs:
+                return [["—", "No jobs", "—", "—", "—", "—"]]
+
+            status_icons = {
+                "pending": "⏳ Pending",
+                "running": "🔄 Running",
+                "completed": "✅ Done",
+                "failed": "❌ Failed",
+                "cancelled": "🚫 Cancelled",
+            }
+
+            rows = []
+            for job in jobs:
+                request = job.request or {}
+                created = (
+                    _time.strftime("%H:%M:%S", _time.localtime(job.created_at))
+                    if job.created_at
+                    else "—"
+                )
+
+                if job.completed_at and job.started_at:
+                    elapsed = f"{job.completed_at - job.started_at:.1f}s"
+                elif job.started_at:
+                    elapsed = f"{_time.time() - job.started_at:.1f}s (running)"
+                elif job.created_at:
+                    elapsed = f"{_time.time() - job.created_at:.1f}s (queued)"
+                else:
+                    elapsed = "—"
+
+                text = str(request.get("text", "")).replace("\n", " ").strip()
+                if len(text) > 60:
+                    text = f"{text[:57]}..."
+
+                rows.append(
+                    [
+                        f"{job.id[:12]}..." if len(job.id) > 12 else job.id,
+                        status_icons.get(job.status, job.status),
+                        str(request.get("engine", "Unknown")),
+                        created,
+                        elapsed,
+                        text or "—",
+                    ]
+                )
+
+            return rows
+
+        def handle_job_detail(job_id):
+            """Show detailed information for a job."""
+            if not job_id or not str(job_id).strip():
+                return "Select a job to view details."
+
+            import time as _time
+
+            from job_manager import get_job_manager
+
+            manager = get_job_manager()
+            matched_job_id = _resolve_job_id(manager, job_id)
+            if not matched_job_id:
+                return f"❌ Job not found: {str(job_id).strip()}"
+
+            try:
+                info = manager.get_status(matched_job_id)
+            except KeyError:
+                return f"❌ Job not found: {matched_job_id}"
+
+            status_icons = {
+                "pending": "⏳ Pending",
+                "running": "🔄 Running",
+                "completed": "✅ Completed",
+                "failed": "❌ Failed",
+                "cancelled": "🚫 Cancelled",
+            }
+
+            request = info.request or {}
+            lines = [f"### Job {info.id[:12]}...", f"**Full ID:** {info.id}"]
+            lines.append(f"**Status:** {status_icons.get(info.status, info.status)}")
+            lines.append(f"**Engine:** {request.get('engine', 'Unknown')}")
+            lines.append(f"**Format:** {request.get('audio_format', 'wav')}")
+
+            if info.created_at:
+                lines.append(
+                    "**Created:** "
+                    f"{_time.strftime('%Y-%m-%d %H:%M:%S', _time.localtime(info.created_at))}"
+                )
+            if info.started_at:
+                lines.append(
+                    "**Started:** "
+                    f"{_time.strftime('%Y-%m-%d %H:%M:%S', _time.localtime(info.started_at))}"
+                )
+            if info.completed_at:
+                lines.append(
+                    "**Completed:** "
+                    f"{_time.strftime('%Y-%m-%d %H:%M:%S', _time.localtime(info.completed_at))}"
+                )
+
+            if info.error:
+                lines.append(f"**Error:** {info.error}")
+
+            if info.result:
+                lines.append("**Result:**")
+                lines.append(f"```json\n{json.dumps(info.result, indent=2, default=str)}\n```")
+
+            text = str(request.get("text", "")).strip()
+            if text:
+                preview = text[:300]
+                if len(text) > 300:
+                    preview = f"{preview}..."
+                lines.append("**Text:**")
+                lines.append(f"```\n{preview}\n```")
+
+            return "\n\n".join(lines)
+
+        def handle_job_panel_refresh(job_id):
+            """Refresh the job queue and optionally update the selected job detail panel."""
+            from job_manager import get_job_manager
+
+            manager = get_job_manager()
+            rows = _format_job_queue_rows(manager.list_jobs(limit=25))
+            detail = handle_job_detail(job_id) if str(job_id or "").strip() else "Select a job to view details."
+            return rows, detail
+
+        def handle_job_cancel(job_id):
+            """Cancel a pending or running job by ID."""
+            from job_manager import get_job_manager
+
+            if not job_id or not str(job_id).strip():
+                rows, _ = handle_job_panel_refresh("")
+                return rows, "⚠️ Enter a job ID to cancel.", str(job_id or "")
+
+            manager = get_job_manager()
+            matched_job_id = _resolve_job_id(manager, job_id)
+            if not matched_job_id:
+                rows, _ = handle_job_panel_refresh("")
+                return rows, f"❌ Job not found: {str(job_id).strip()}", str(job_id).strip()
+
+            try:
+                cancelled = manager.cancel(matched_job_id)
+            except KeyError:
+                rows, _ = handle_job_panel_refresh("")
+                return rows, f"❌ Job not found: {matched_job_id}", str(job_id).strip()
+            except Exception as exc:
+                rows, detail = handle_job_panel_refresh(matched_job_id)
+                return rows, f"❌ Cancel failed: {exc}\n\n{detail}", matched_job_id
+
+            rows, detail = handle_job_panel_refresh(matched_job_id)
+            if cancelled:
+                return rows, f"✅ Job {matched_job_id[:12]}... cancelled.\n\n{detail}", matched_job_id
+
+            return (
+                rows,
+                f"⚠️ Cannot cancel job in terminal state.\n\n{detail}",
+                matched_job_id,
+            )
+
+        def handle_job_retry(job_id):
+            """Retry a completed, failed, or cancelled job using the original request."""
+            from job_manager import JobRequest, get_job_manager
+
+            if not job_id or not str(job_id).strip():
+                rows, _ = handle_job_panel_refresh("")
+                return rows, "⚠️ Enter a job ID to retry.", str(job_id or "")
+
+            manager = get_job_manager()
+            matched_job_id = _resolve_job_id(manager, job_id)
+            if not matched_job_id:
+                rows, _ = handle_job_panel_refresh("")
+                return rows, f"❌ Job not found: {str(job_id).strip()}", str(job_id).strip()
+
+            try:
+                info = manager.get_status(matched_job_id)
+            except KeyError:
+                rows, _ = handle_job_panel_refresh("")
+                return rows, f"❌ Job not found: {matched_job_id}", str(job_id).strip()
+
+            if info.status in {"pending", "running"}:
+                rows, detail = handle_job_panel_refresh(matched_job_id)
+                return (
+                    rows,
+                    f"⚠️ Job {matched_job_id[:12]}... is still active and cannot be retried yet.\n\n{detail}",
+                    matched_job_id,
+                )
+
+            request = info.request or {}
+            new_job_id = manager.submit(
+                JobRequest(
+                    text=str(request.get("text", "")),
+                    engine=str(request.get("engine", "Kokoro TTS")),
+                    audio_format=str(request.get("audio_format", "wav")),
+                    engine_params=dict(request.get("engine_params") or {}),
+                )
+            )
+
+            rows, detail = handle_job_panel_refresh(new_job_id)
+            return (
+                rows,
+                f"✅ Retried job {matched_job_id[:12]}... as {new_job_id[:12]}...\n\n{detail}",
+                new_job_id,
+            )
+
+        def handle_job_auto_refresh_toggle(auto_enabled):
+            """Toggle periodic timer polling for the Jobs tab."""
+            return gr.Timer(active=bool(auto_enabled))
+
         def handle_clear_temp_files():
             """Handle clearing Gradio temporary files and reset audio components."""
             result_message = clear_gradio_temp_files()
@@ -13893,6 +14175,48 @@ Alice: I went to Japan. It was absolutely incredible!""",
             fn=handle_assistant_provider_change,
             inputs=[assistant_llm_provider],
             outputs=[assistant_llm_base_url, assistant_llm_model_id],
+        )
+
+        demo.load(
+            fn=handle_job_panel_refresh,
+            inputs=[job_id_input],
+            outputs=[job_queue_display, job_detail_output],
+        )
+
+        job_refresh_btn.click(
+            fn=handle_job_panel_refresh,
+            inputs=[job_id_input],
+            outputs=[job_queue_display, job_detail_output],
+        )
+
+        job_timer.tick(
+            fn=handle_job_panel_refresh,
+            inputs=[job_id_input],
+            outputs=[job_queue_display, job_detail_output],
+        )
+
+        job_auto_refresh.change(
+            fn=handle_job_auto_refresh_toggle,
+            inputs=[job_auto_refresh],
+            outputs=[job_timer],
+        )
+
+        job_cancel_btn.click(
+            fn=handle_job_cancel,
+            inputs=[job_id_input],
+            outputs=[job_queue_display, job_detail_output, job_id_input],
+        )
+
+        job_retry_btn.click(
+            fn=handle_job_retry,
+            inputs=[job_id_input],
+            outputs=[job_queue_display, job_detail_output, job_id_input],
+        )
+
+        job_id_input.change(
+            fn=handle_job_detail,
+            inputs=[job_id_input],
+            outputs=[job_detail_output],
         )
 
         add_protected_term_btn.click(
