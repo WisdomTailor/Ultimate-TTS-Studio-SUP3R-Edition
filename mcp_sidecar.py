@@ -14,8 +14,19 @@ import uvicorn
 from conversation_logic import get_speaker_names_from_script, parse_conversation_script
 from job_manager import JobRequest, get_job_manager
 from mcp_security import get_security, initialize_security
-from narration_transform import LLM_PROVIDER_CONFIGS, apply_llm_narration_transform, deterministic_normalize
-from tts_service import TtsRequest, generate_tts, get_engine_info, list_engines, list_outputs, list_voices
+from narration_transform import (
+    LLM_PROVIDER_CONFIGS,
+    apply_llm_narration_transform,
+    deterministic_normalize,
+)
+from tts_service import (
+    TtsRequest,
+    generate_tts,
+    get_engine_info,
+    list_engines,
+    list_outputs,
+    list_voices,
+)
 
 
 DEFAULT_HOST = "127.0.0.1"

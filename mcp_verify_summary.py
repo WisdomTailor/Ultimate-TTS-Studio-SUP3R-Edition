@@ -119,7 +119,9 @@ def run_verification(base_url: str, token_file: Path, summary_path: Path) -> dic
     status_result = _probe_http_json_or_text(status_url)
     sse_result = _probe_sse(sse_url, token)
 
-    overall_pass = bool(status_result.get("ok") and sse_result.get("ok") and token_info.get("read_ok"))
+    overall_pass = bool(
+        status_result.get("ok") and sse_result.get("ok") and token_info.get("read_ok")
+    )
 
     summary: dict[str, Any] = {
         "timestamp_utc": _utc_now_iso(),
@@ -137,7 +139,9 @@ def run_verification(base_url: str, token_file: Path, summary_path: Path) -> dic
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Verify MCP endpoints and write durable summary JSON")
+    parser = argparse.ArgumentParser(
+        description="Verify MCP endpoints and write durable summary JSON"
+    )
     parser.add_argument("--url", default=DEFAULT_BASE_URL, help="MCP sidecar base URL")
     parser.add_argument("--token-file", default=".mcp_token", help="Path to bearer token file")
     parser.add_argument(
@@ -155,7 +159,9 @@ def main() -> int:
 
     summary: dict[str, Any]
     try:
-        summary = run_verification(base_url=str(args.url), token_file=token_file, summary_path=summary_path)
+        summary = run_verification(
+            base_url=str(args.url), token_file=token_file, summary_path=summary_path
+        )
     except Exception as exc:
         # Ensure we still emit a durable summary even for unexpected verifier failures.
         fallback_summary = {
@@ -172,7 +178,9 @@ def main() -> int:
             "verifier_error": f"{type(exc).__name__}: {exc}",
         }
         summary_path.parent.mkdir(parents=True, exist_ok=True)
-        summary_path.write_text(json.dumps(fallback_summary, indent=2, ensure_ascii=True), encoding="utf-8")
+        summary_path.write_text(
+            json.dumps(fallback_summary, indent=2, ensure_ascii=True), encoding="utf-8"
+        )
         summary = fallback_summary
 
     print(f"MCP_VERIFY_SUMMARY_PATH={summary_path}")
