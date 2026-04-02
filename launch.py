@@ -2135,11 +2135,24 @@ DEFAULT_AUTOSAVE_SETTINGS = {
     "filename_template": "{project}_{preset}_{timestamp}",
     "output_storage_mode": "project",
     "output_storage_path": "",
-    "llm_provider": "LM Studio OpenAI Server",
-    "llm_preset": "Balanced",
-    "llm_base_url": "",
-    "llm_model_id": "",
-    "llm_system_prompt": "",
+    "narration_llm_provider": "LM Studio OpenAI Server",
+    "narration_llm_preset": "Balanced",
+    "narration_llm_base_url": "",
+    "narration_llm_model_id": "",
+    "narration_llm_system_prompt": "",
+    "assistant_llm_provider": "LM Studio OpenAI Server",
+    "assistant_llm_preset": "Balanced",
+    "assistant_llm_base_url": "",
+    "assistant_llm_model_id": "",
+    "assistant_llm_system_prompt": "",
+}
+
+LEGACY_LLM_SETTINGS_KEY_MAP = {
+    "llm_provider": "narration_llm_provider",
+    "llm_preset": "narration_llm_preset",
+    "llm_base_url": "narration_llm_base_url",
+    "llm_model_id": "narration_llm_model_id",
+    "llm_system_prompt": "narration_llm_system_prompt",
 }
 
 LEGACY_DEFAULT_FILENAME_TEMPLATE = "{project}_{speaker}_{timestamp}"
@@ -2163,17 +2176,29 @@ def load_app_state_settings() -> dict:
             settings = json.load(file)
             if isinstance(settings, dict):
                 merged = {**DEFAULT_AUTOSAVE_SETTINGS, **settings}
+                needs_persist = False
+
+                if "llm_provider" in settings and "narration_llm_provider" not in settings:
+                    for legacy_key, namespaced_key in LEGACY_LLM_SETTINGS_KEY_MAP.items():
+                        if legacy_key in settings:
+                            merged[namespaced_key] = settings[legacy_key]
+                        merged.pop(legacy_key, None)
+                    needs_persist = True
+
                 if merged.get("filename_template") in {
                     LEGACY_DEFAULT_FILENAME_TEMPLATE,
                     PREVIOUS_DEFAULT_FILENAME_TEMPLATE,
                     PRESET_ONLY_FILENAME_TEMPLATE,
                 }:
                     merged["filename_template"] = DEFAULT_AUTOSAVE_SETTINGS["filename_template"]
+                    needs_persist = True
+
+                if needs_persist:
                     try:
                         with open(APP_STATE_SETTINGS_FILE, "w", encoding="utf-8") as settings_file:
                             json.dump(merged, settings_file, indent=2, ensure_ascii=False)
                     except Exception as write_error:
-                        print(f"⚠️ Failed to persist filename template migration: {write_error}")
+                        print(f"⚠️ Failed to persist settings migration: {write_error}")
                 return merged
     except Exception as error:
         print(f"⚠️ Failed to load app_state settings: {error}")
@@ -2259,30 +2284,44 @@ def get_llm_outcome_preset_values(preset_name: str | None) -> tuple[float, float
     return float(params["temperature"]), float(params["top_p"]), int(params["max_tokens"])
 
 
-def get_initial_llm_panel_settings(settings: dict | None = None) -> dict:
+def _get_llm_settings_key(namespace: str, setting_name: str) -> str:
+    return f"{namespace}_llm_{setting_name}"
+
+
+def _get_default_llm_setting(namespace: str, setting_name: str) -> str:
+    return str(DEFAULT_AUTOSAVE_SETTINGS[_get_llm_settings_key(namespace, setting_name)])
+
+
+def _get_initial_namespaced_llm_settings(
+    namespace: str,
+    default_system_prompt: str,
+    settings: dict | None = None,
+) -> dict:
     if settings is None:
         settings = load_app_state_settings()
 
-    provider_name = str(
-        settings.get("llm_provider", DEFAULT_AUTOSAVE_SETTINGS["llm_provider"])
-        or DEFAULT_AUTOSAVE_SETTINGS["llm_provider"]
-    )
-    if provider_name not in LLM_PROVIDER_CONFIGS:
-        provider_name = DEFAULT_AUTOSAVE_SETTINGS["llm_provider"]
+    provider_key = _get_llm_settings_key(namespace, "provider")
+    preset_key = _get_llm_settings_key(namespace, "preset")
+    base_url_key = _get_llm_settings_key(namespace, "base_url")
+    model_id_key = _get_llm_settings_key(namespace, "model_id")
+    system_prompt_key = _get_llm_settings_key(namespace, "system_prompt")
 
-    preset_name = normalize_llm_outcome_preset(settings.get("llm_preset"))
+    default_provider = _get_default_llm_setting(namespace, "provider")
+    provider_name = str(settings.get(provider_key, default_provider) or default_provider)
+    if provider_name not in LLM_PROVIDER_CONFIGS:
+        provider_name = default_provider
+
+    preset_name = normalize_llm_outcome_preset(settings.get(preset_key))
     temperature, top_p, max_tokens = get_llm_outcome_preset_values(preset_name)
 
     provider_config = _get_provider_config(provider_name)
-    base_url = str(settings.get("llm_base_url", "") or "").strip() or provider_config["base_url"]
+    base_url = str(settings.get(base_url_key, "") or "").strip() or provider_config["base_url"]
     # Secret hygiene: API keys are session-only and resolved via env vars at runtime.
     api_key = ""
-    model_id = (
-        str(settings.get("llm_model_id", "") or "").strip() or provider_config["default_model"]
-    )
-    system_prompt = str(settings.get("llm_system_prompt", "") or "")
+    model_id = str(settings.get(model_id_key, "") or "").strip() or provider_config["default_model"]
+    system_prompt = str(settings.get(system_prompt_key, "") or "")
     if not system_prompt:
-        system_prompt = DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
+        system_prompt = default_system_prompt
 
     model_choices = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
     if provider_config["default_model"] and provider_config["default_model"] not in model_choices:
@@ -2304,6 +2343,54 @@ def get_initial_llm_panel_settings(settings: dict | None = None) -> dict:
     }
 
 
+def get_initial_llm_panel_settings(settings: dict | None = None) -> dict:
+    return _get_initial_namespaced_llm_settings(
+        namespace="narration",
+        default_system_prompt=DEFAULT_LLM_NARRATION_SYSTEM_PROMPT,
+        settings=settings,
+    )
+
+
+def get_initial_assistant_llm_settings(settings: dict | None = None) -> dict:
+    return _get_initial_namespaced_llm_settings(
+        namespace="assistant",
+        default_system_prompt="",
+        settings=settings,
+    )
+
+
+def _save_namespaced_llm_settings(
+    namespace: str,
+    provider_name: str,
+    base_url: str,
+    model_id: str,
+    system_prompt: str,
+    preset_name: str | None = None,
+    default_system_prompt: str = "",
+) -> None:
+    normalized_provider = str(provider_name or "").strip()
+    default_provider = _get_default_llm_setting(namespace, "provider")
+    if normalized_provider not in LLM_PROVIDER_CONFIGS:
+        normalized_provider = default_provider
+
+    normalized_preset = normalize_llm_outcome_preset(preset_name)
+
+    # Secret hygiene: API keys are session-only and resolved via env vars at runtime.
+    save_app_state_settings(
+        {
+            _get_llm_settings_key(namespace, "provider"): normalized_provider,
+            _get_llm_settings_key(namespace, "preset"): normalized_preset,
+            _get_llm_settings_key(namespace, "base_url"): str(base_url or "").strip(),
+            _get_llm_settings_key(namespace, "model_id"): str(model_id or "").strip(),
+            _get_llm_settings_key(namespace, "system_prompt"): (
+                ""
+                if str(system_prompt or "") == default_system_prompt
+                else str(system_prompt or "")
+            ),
+        }
+    )
+
+
 def save_llm_panel_settings(
     provider_name: str,
     base_url: str,
@@ -2311,30 +2398,41 @@ def save_llm_panel_settings(
     api_key: str,
     system_prompt: str,
     preset_name: str | None = None,
-):
+)-> None:
     try:
-        normalized_provider = str(provider_name or "").strip()
-        if normalized_provider not in LLM_PROVIDER_CONFIGS:
-            normalized_provider = DEFAULT_AUTOSAVE_SETTINGS["llm_provider"]
-
-        normalized_preset = normalize_llm_outcome_preset(preset_name)
-
-        # Secret hygiene: API keys are session-only and resolved via env vars at runtime.
-        save_app_state_settings(
-            {
-                "llm_provider": normalized_provider,
-                "llm_preset": normalized_preset,
-                "llm_base_url": str(base_url or "").strip(),
-                "llm_model_id": str(model_id or "").strip(),
-                "llm_system_prompt": (
-                    ""
-                    if str(system_prompt or "") == DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
-                    else str(system_prompt or "")
-                ),
-            }
+        _save_namespaced_llm_settings(
+            namespace="narration",
+            provider_name=provider_name,
+            base_url=base_url,
+            model_id=model_id,
+            system_prompt=system_prompt,
+            preset_name=preset_name,
+            default_system_prompt=DEFAULT_LLM_NARRATION_SYSTEM_PROMPT,
         )
     except Exception as error:
         print(f"⚠️ Failed to save LLM settings: {error}")
+
+
+def save_assistant_llm_settings(
+    provider_name: str,
+    base_url: str,
+    model_id: str,
+    api_key: str,
+    system_prompt: str,
+    preset_name: str | None = None,
+) -> None:
+    try:
+        _save_namespaced_llm_settings(
+            namespace="assistant",
+            provider_name=provider_name,
+            base_url=base_url,
+            model_id=model_id,
+            system_prompt=system_prompt,
+            preset_name=preset_name,
+            default_system_prompt="",
+        )
+    except Exception as error:
+        print(f"⚠️ Failed to save assistant LLM settings: {error}")
 
 
 def save_output_storage_settings(mode_label: str, custom_path: str):
