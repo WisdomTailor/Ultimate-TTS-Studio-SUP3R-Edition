@@ -281,6 +281,15 @@ LLM_PROVIDER_CONFIGS = {
         "auth_style": "bearer",
         "headers": {},
     },
+    "Hugging Face Inference API": {
+        "base_url": "https://api-inference.huggingface.co/v1",
+        "default_model": "Qwen/Qwen2.5-7B-Instruct",
+        "env_var": "HF_TOKEN",
+        "requires_api_key": True,
+        "kind": "cloud",
+        "auth_style": "bearer",
+        "headers": {},
+    },
     "LM Studio OpenAI Server": {
         "base_url": "http://localhost:1234/v1",
         "default_model": "qwen/qwen3-30b-a3b-instruct-2507",
@@ -331,6 +340,11 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
         "gemini-2.0-flash",
         "gemini-2.5-flash-preview-05-20",
         "gemini-2.5-pro-preview-05-06",
+    ],
+    "Hugging Face Inference API": [
+        "Qwen/Qwen2.5-7B-Instruct",
+        "google/gemma-2-9b-it",
+        "meta-llama/Llama-3.1-8B-Instruct",
     ],
     "LM Studio OpenAI Server": [
         "qwen/qwen3-30b-a3b-instruct-2507",
@@ -410,6 +424,8 @@ def get_llm_shell_key_setup_hint(provider_name: str) -> str:
         hint += "\nOr use: Azure Portal → AI Foundry → Project → Keys"
     elif provider_name == "GitHub Models (OpenAI-compatible)":
         hint += "\nGenerate at: github.com/settings/tokens (Fine-grained or Classic)"
+    elif provider_name == "Hugging Face Inference API":
+        hint += "\nGenerate at: huggingface.co/settings/tokens"
     return hint
 
 
