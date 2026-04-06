@@ -10425,7 +10425,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 visible=False, choices=[], value=[]
                             )
                             ebook_tts_engine = gr.Radio(visible=False, choices=[], value=None)
-                            ebook_audio_format = gr.Radio(visible=False, choices=[], value="wav")
+                            ebook_audio_format = gr.Radio(
+                                visible=False,
+                                choices=[("WAV", "wav"), ("MP3", "mp3")],
+                                value="wav",
+                            )
                             ebook_chunk_length = gr.Slider(visible=False, value=500)
                             ebook_chunk_gap = gr.Slider(visible=False, value=1.0)
                             ebook_chapter_gap = gr.Slider(visible=False, value=2.0)
@@ -11953,7 +11957,15 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         )
                         # Create dummy components
                         indextts2_ref_audio = gr.Audio(visible=False, value=None)
-                        indextts2_emotion_mode = gr.Radio(visible=False, value="audio_reference")
+                        indextts2_emotion_mode = gr.Radio(
+                            visible=False,
+                            choices=[
+                                ("🎵 Audio Reference", "audio_reference"),
+                                ("🎛️ Manual Control", "vector_control"),
+                                ("📝 Text Description", "text_description"),
+                            ],
+                            value="audio_reference",
+                        )
                         indextts2_emotion_audio = gr.Audio(visible=False, value=None)
                         indextts2_emotion_description = gr.Textbox(visible=False, value="")
                         indextts2_emo_alpha = gr.Slider(visible=False, value=1.0)
