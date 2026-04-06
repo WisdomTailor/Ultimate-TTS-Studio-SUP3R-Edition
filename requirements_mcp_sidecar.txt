@@ -1,0 +1,4 @@
+# Explicit deps for app/mcp_sidecar.py
+fastapi>=0.110.0
+uvicorn>=0.30.0
+mcp>=1.9.0
