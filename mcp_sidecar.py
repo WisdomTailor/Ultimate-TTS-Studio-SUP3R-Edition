@@ -43,6 +43,23 @@ def _extract_bearer_token(authorization_header: str | None) -> str:
     return ""
 
 
+def _extract_request_token(request: Request | None) -> str:
+    """Extract MCP token from Authorization header or query parameters."""
+    if request is None:
+        return ""
+
+    header_token = _extract_bearer_token(request.headers.get("authorization", ""))
+    if header_token:
+        return header_token
+
+    # Browser-opened links cannot set Authorization headers, so allow explicit
+    # query token forwarding for authenticated SSE diagnostics.
+    query_token = request.query_params.get("token") or request.query_params.get("access_token")
+    if isinstance(query_token, str):
+        return query_token.strip()
+    return ""
+
+
 def _extract_token_from_context(ctx: Context | None) -> str:
     """Extract bearer token from FastMCP context when available."""
     if ctx is None:
@@ -50,10 +67,7 @@ def _extract_token_from_context(ctx: Context | None) -> str:
 
     try:
         request = ctx.request_context.request
-        if request is None:
-            return ""
-        auth_header = request.headers.get("authorization", "")
-        return _extract_bearer_token(auth_header)
+        return _extract_request_token(request)
     except Exception:
         return ""
 
@@ -352,7 +366,7 @@ def create_http_app(mcp_server: FastMCP) -> FastAPI:
     @app.middleware("http")
     async def mcp_auth_middleware(request: Request, call_next):
         if request.url.path.startswith(DEFAULT_MCP_MOUNT_PATH):
-            token = _extract_bearer_token(request.headers.get("authorization", ""))
+            token = _extract_request_token(request)
             if not get_security().tokens.validate(token):
                 return JSONResponse(
                     status_code=401,
