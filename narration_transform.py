@@ -603,6 +603,47 @@ def _clean_llm_transform_output(text: str, engine: str | None = None) -> str:
     return cleaned.strip()
 
 
+def _resolve_transform_engine_name(engine_name: str = "", engine: str = "") -> str:
+    return (engine_name or engine or "").strip()
+
+
+def _build_llm_system_prompt(
+    system_prompt: str,
+    engine_name: str = "",
+    engine: str = "",
+) -> str:
+    effective_system_prompt = (system_prompt or "").strip() or DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
+    resolved_engine_name = _resolve_transform_engine_name(engine_name=engine_name, engine=engine)
+    if not resolved_engine_name:
+        return effective_system_prompt
+
+    from engine_script_profiles import get_engine_prompt_addendum
+
+    engine_addendum = get_engine_prompt_addendum(resolved_engine_name).strip()
+    if not engine_addendum:
+        return effective_system_prompt
+    return (
+        f"{effective_system_prompt}\n\n## ENGINE-SPECIFIC OPTIMIZATION\n{engine_addendum}"
+    )
+
+
+def _resolve_transform_max_chunk_chars(
+    max_chunk_chars: int,
+    engine_name: str = "",
+    engine: str = "",
+) -> int:
+    resolved_engine_name = _resolve_transform_engine_name(engine_name=engine_name, engine=engine)
+    if not resolved_engine_name or max_chunk_chars <= 0:
+        return max_chunk_chars
+
+    from engine_script_profiles import get_engine_max_chunk_chars
+
+    engine_max_chunk_chars = get_engine_max_chunk_chars(resolved_engine_name)
+    if engine_max_chunk_chars <= 0:
+        return max_chunk_chars
+    return min(max_chunk_chars, engine_max_chunk_chars)
+
+
 def _build_llm_transform_user_prompt(
     source_text: str,
     mode: str,
@@ -934,13 +975,15 @@ def apply_llm_narration_transform(
     top_p: float,
     max_tokens: int,
     allow_local_fallback: bool = True,
-    engine: str = "",
+    engine_name: str = "",
     max_chunk_chars: int = 3000,
+    engine: str = "",
 ) -> tuple[str, str]:
     if not isinstance(source_text, str) or not source_text.strip():
         return source_text, "Narration transform: skipped (empty text)"
 
     deterministic_text = deterministic_normalize(source_text)
+    resolved_engine_name = _resolve_transform_engine_name(engine_name=engine_name, engine=engine)
 
     if not enabled:
         return (
@@ -964,8 +1007,18 @@ def apply_llm_narration_transform(
             + get_llm_shell_key_setup_hint(provider_name)
         )
 
-    effective_system_prompt = (system_prompt or "").strip() or DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
-    chunk_specs = chunk_text_for_transform(deterministic_text, max_chunk_chars=max_chunk_chars)
+    effective_system_prompt = _build_llm_system_prompt(
+        system_prompt=system_prompt,
+        engine_name=resolved_engine_name,
+    )
+    effective_max_chunk_chars = _resolve_transform_max_chunk_chars(
+        max_chunk_chars=max_chunk_chars,
+        engine_name=resolved_engine_name,
+    )
+    chunk_specs = chunk_text_for_transform(
+        deterministic_text,
+        max_chunk_chars=effective_max_chunk_chars,
+    )
     if not chunk_specs:
         chunk_specs = [TransformChunk(text=deterministic_text)]
 
@@ -975,7 +1028,7 @@ def apply_llm_narration_transform(
             "with max_chunk_chars=%s",
             len(deterministic_text),
             len(chunk_specs),
-            max_chunk_chars,
+            effective_max_chunk_chars,
         )
 
     try:
@@ -996,7 +1049,7 @@ def apply_llm_narration_transform(
                 max_tokens=max_tokens,
                 extra_headers=cfg["headers"],
                 auth_style=cfg["auth_style"],
-                engine=engine,
+                engine=resolved_engine_name,
             )
         else:
             transformed_parts: list[str] = []
@@ -1017,7 +1070,7 @@ def apply_llm_narration_transform(
                     max_tokens=max_tokens,
                     extra_headers=cfg["headers"],
                     auth_style=cfg["auth_style"],
-                    engine=engine,
+                    engine=resolved_engine_name,
                 )
                 if not cleaned_chunk:
                     if allow_local_fallback:
@@ -1089,6 +1142,7 @@ def apply_llm_transform_to_textbox(
     top_p: float,
     max_tokens: int,
     allow_local_fallback: bool,
+    engine_name: str = "",
     engine: str = "",
 ) -> tuple[str, str]:
     transformed_text, status = apply_llm_narration_transform(
@@ -1108,6 +1162,7 @@ def apply_llm_transform_to_textbox(
         top_p=top_p,
         max_tokens=max_tokens,
         allow_local_fallback=allow_local_fallback,
+        engine_name=engine_name,
         engine=engine,
     )
     if isinstance(status, str) and status.startswith("LLM transform:"):

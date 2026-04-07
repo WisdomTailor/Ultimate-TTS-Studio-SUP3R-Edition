@@ -6557,7 +6557,7 @@ def on_transform_preview(
     top_p: float,
     max_tokens: int,
     allow_local_fallback: bool,
-    engine: str = "",
+    engine_name: str = "",
 ):
     transformed_text, status = apply_llm_transform_to_textbox(
         source_text=source_text,
@@ -6575,7 +6575,7 @@ def on_transform_preview(
         top_p=top_p,
         max_tokens=max_tokens,
         allow_local_fallback=allow_local_fallback,
-        engine=engine,
+        engine_name=engine_name,
     )
     banner = format_provenance(status)
     return (
@@ -16362,7 +16362,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 "app_name": "Ultimate TTS Studio",
                 "mcp_status": "active",
                 "mcp_version": "0.8.0",
-                "tool_count": "13",
+                "tool_count": "14",
             }
 
         gr.api(mcp_list_engines, api_name="list_engines")
@@ -16399,6 +16399,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             mode: str = "minimal",
             locale: str = "en-US",
             style: str = "conversational",
+            engine_name: str = "",
             engine: str = "",
             temperature: str = "0.2",
             top_p: str = "0.9",
@@ -16421,7 +16422,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 mode: Transform intensity — "minimal", "polish", or "vivid".
                 locale: Target locale (e.g., "en-US", "en-GB").
                 style: Speech style (e.g., "conversational", "formal", "narrative").
-                engine: Target TTS engine name for engine-aware transform tuning.
+                engine_name: Target TTS engine name for engine-aware transform tuning.
+                engine: Backward-compatible alias for engine_name.
                 temperature: LLM sampling temperature (0.0 to 2.0).
                 top_p: LLM nucleus sampling threshold (0.0 to 1.0).
                 max_tokens: Maximum tokens in the LLM response.
@@ -16456,9 +16458,30 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 top_p=float(top_p),
                 max_tokens=int(max_tokens),
                 allow_local_fallback=True,
+                engine_name=engine_name,
                 engine=engine,
             )
             return {"transformed_text": transformed, "status": status}
+
+        def mcp_get_engine_script_profile(
+            engine_name: str,
+            request: gr.Request | None = None,
+        ) -> dict[str, object]:
+            """Return the full optimization profile for a TTS engine."""
+            from engine_script_profiles import (
+                get_engine_max_chunk_chars,
+                get_engine_prompt_addendum,
+                get_engine_script_rules,
+            )
+            from mcp_security import get_security
+
+            get_security().guard("get_engine_script_profile", _extract_bearer_token(request))
+            return {
+                "engine_name": engine_name,
+                "prompt_addendum": get_engine_prompt_addendum(engine_name),
+                "script_rules": get_engine_script_rules(engine_name),
+                "max_chunk_chars": get_engine_max_chunk_chars(engine_name),
+            }
 
         def mcp_structure_conversation(
             script_text: str,
@@ -16520,6 +16543,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
         gr.api(mcp_normalize_text, api_name="normalize_text")
         gr.api(mcp_transform_text, api_name="transform_text")
+        gr.api(mcp_get_engine_script_profile, api_name="get_engine_script_profile")
         gr.api(mcp_structure_conversation, api_name="structure_conversation")
         gr.api(mcp_list_llm_providers, api_name="list_llm_providers")
 
