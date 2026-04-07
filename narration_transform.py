@@ -8,6 +8,7 @@ Gradio imports so the logic can be tested and reused independently from the UI l
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -15,6 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 from engine_registry import (
@@ -31,6 +33,15 @@ from engine_registry import (
     _normalize_allcaps_word,
     strip_unsupported_cues,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class TransformChunk:
+    text: str
+    separator_before: str = ""
 
 
 DEFAULT_LLM_NARRATION_SYSTEM_PROMPT = """You are a TTS script preparation specialist. Your sole task is to transform raw text into clean, speakable narration for ElevenLabs v3 TTS.
@@ -619,6 +630,184 @@ def _build_llm_transform_user_prompt(
     return "\n".join(lines)
 
 
+def _split_text_by_words(text: str, max_chunk_chars: int) -> list[str]:
+    normalized = " ".join(text.split())
+    if not normalized:
+        return []
+    if max_chunk_chars <= 0 or len(normalized) <= max_chunk_chars:
+        return [normalized]
+
+    chunks: list[str] = []
+    current = ""
+    for word in normalized.split():
+        if len(word) > max_chunk_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            for start in range(0, len(word), max_chunk_chars):
+                chunks.append(word[start : start + max_chunk_chars])
+            continue
+
+        if not current:
+            current = word
+            continue
+
+        candidate = f"{current} {word}"
+        if len(candidate) <= max_chunk_chars:
+            current = candidate
+        else:
+            chunks.append(current)
+            current = word
+
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _split_paragraph_for_transform(paragraph: str, max_chunk_chars: int) -> list[str]:
+    cleaned_paragraph = paragraph.strip()
+    if not cleaned_paragraph:
+        return []
+    if max_chunk_chars <= 0 or len(cleaned_paragraph) <= max_chunk_chars:
+        return [cleaned_paragraph]
+
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", cleaned_paragraph)
+        if sentence.strip()
+    ]
+    if len(sentences) <= 1:
+        return _split_text_by_words(cleaned_paragraph, max_chunk_chars)
+
+    chunks: list[str] = []
+    current = ""
+    for sentence in sentences:
+        sentence_parts = (
+            _split_text_by_words(sentence, max_chunk_chars)
+            if len(sentence) > max_chunk_chars
+            else [sentence]
+        )
+        for part in sentence_parts:
+            if not current:
+                current = part
+                continue
+
+            candidate = f"{current} {part}"
+            if len(candidate) <= max_chunk_chars:
+                current = candidate
+            else:
+                chunks.append(current)
+                current = part
+
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def chunk_text_for_transform(source_text: str, max_chunk_chars: int = 3000) -> list[TransformChunk]:
+    """Split narration text into bounded chunks for LLM transforms.
+
+    Args:
+        source_text: Deterministically normalized narration text.
+        max_chunk_chars: Soft maximum number of characters per chunk.
+
+    Returns:
+        Ordered chunks with separator metadata. Reassemble by concatenating each
+        chunk's ``separator_before`` and ``text`` in sequence.
+    """
+    if not isinstance(source_text, str) or not source_text.strip():
+        return []
+
+    if max_chunk_chars <= 0:
+        return [TransformChunk(text=source_text.strip())]
+
+    paragraphs = [
+        paragraph.strip()
+        for paragraph in re.split(r"\n\s*\n", source_text.strip())
+        if paragraph.strip()
+    ]
+    if not paragraphs:
+        return []
+
+    units: list[TransformChunk] = []
+    for paragraph in paragraphs:
+        paragraph_segments = _split_paragraph_for_transform(paragraph, max_chunk_chars)
+        for segment_index, segment in enumerate(paragraph_segments):
+            if not units:
+                separator_before = ""
+            elif segment_index == 0:
+                separator_before = "\n\n"
+            else:
+                separator_before = " "
+            units.append(TransformChunk(text=segment, separator_before=separator_before))
+
+    packed_chunks: list[TransformChunk] = []
+    current_text = ""
+    current_separator = ""
+    for unit in units:
+        if not current_text:
+            current_text = unit.text
+            current_separator = unit.separator_before
+            continue
+
+        candidate = f"{current_text}{unit.separator_before}{unit.text}"
+        if len(candidate) <= max_chunk_chars:
+            current_text = candidate
+        else:
+            packed_chunks.append(
+                TransformChunk(text=current_text, separator_before=current_separator)
+            )
+            current_text = unit.text
+            current_separator = unit.separator_before
+
+    if current_text:
+        packed_chunks.append(TransformChunk(text=current_text, separator_before=current_separator))
+
+    return packed_chunks
+
+
+def _run_llm_transform_chunk(
+    chunk_text: str,
+    *,
+    base_url: str,
+    api_key: str,
+    model_id: str,
+    system_prompt: str,
+    mode: str,
+    locale: str,
+    style: str,
+    max_tag_density: float,
+    timeout_seconds: int,
+    temperature: float,
+    top_p: float,
+    max_tokens: int,
+    extra_headers: dict[str, str],
+    auth_style: str,
+    engine: str,
+) -> str:
+    user_prompt = _build_llm_transform_user_prompt(
+        source_text=chunk_text,
+        mode=mode,
+        locale=locale,
+        style=style,
+        max_tag_density=max_tag_density,
+    )
+    raw_output = call_openai_compatible_chat(
+        base_url=base_url,
+        api_key=api_key,
+        model_id=model_id,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        timeout_seconds=timeout_seconds,
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+        extra_headers=extra_headers,
+        auth_style=auth_style,
+    )
+    return _clean_llm_transform_output(raw_output, engine=engine)
+
+
 def call_openai_compatible_chat(
     base_url: str,
     api_key: str,
@@ -746,6 +935,7 @@ def apply_llm_narration_transform(
     max_tokens: int,
     allow_local_fallback: bool = True,
     engine: str = "",
+    max_chunk_chars: int = 3000,
 ) -> tuple[str, str]:
     if not isinstance(source_text, str) or not source_text.strip():
         return source_text, "Narration transform: skipped (empty text)"
@@ -775,29 +965,79 @@ def apply_llm_narration_transform(
         )
 
     effective_system_prompt = (system_prompt or "").strip() or DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
-    user_prompt = _build_llm_transform_user_prompt(
-        source_text=deterministic_text,
-        mode=mode,
-        locale=locale,
-        style=style,
-        max_tag_density=max_tag_density,
-    )
+    chunk_specs = chunk_text_for_transform(deterministic_text, max_chunk_chars=max_chunk_chars)
+    if not chunk_specs:
+        chunk_specs = [TransformChunk(text=deterministic_text)]
+
+    if len(deterministic_text) > 3000 and len(chunk_specs) > 1:
+        logger.warning(
+            "LLM narration transform input is %s chars; chunking into %s requests "
+            "with max_chunk_chars=%s",
+            len(deterministic_text),
+            len(chunk_specs),
+            max_chunk_chars,
+        )
 
     try:
-        raw_output = call_openai_compatible_chat(
-            base_url=base_url,
-            api_key=resolved_api_key,
-            model_id=model_id,
-            system_prompt=effective_system_prompt,
-            user_prompt=user_prompt,
-            timeout_seconds=timeout_seconds,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=max_tokens,
-            extra_headers=cfg["headers"],
-            auth_style=cfg["auth_style"],
-        )
-        cleaned = _clean_llm_transform_output(raw_output, engine=engine)
+        if len(chunk_specs) == 1:
+            cleaned = _run_llm_transform_chunk(
+                deterministic_text,
+                base_url=base_url,
+                api_key=resolved_api_key,
+                model_id=model_id,
+                system_prompt=effective_system_prompt,
+                mode=mode,
+                locale=locale,
+                style=style,
+                max_tag_density=max_tag_density,
+                timeout_seconds=timeout_seconds,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                extra_headers=cfg["headers"],
+                auth_style=cfg["auth_style"],
+                engine=engine,
+            )
+        else:
+            transformed_parts: list[str] = []
+            for chunk_spec in chunk_specs:
+                cleaned_chunk = _run_llm_transform_chunk(
+                    chunk_spec.text,
+                    base_url=base_url,
+                    api_key=resolved_api_key,
+                    model_id=model_id,
+                    system_prompt=effective_system_prompt,
+                    mode=mode,
+                    locale=locale,
+                    style=style,
+                    max_tag_density=max_tag_density,
+                    timeout_seconds=timeout_seconds,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
+                    extra_headers=cfg["headers"],
+                    auth_style=cfg["auth_style"],
+                    engine=engine,
+                )
+                if not cleaned_chunk:
+                    if allow_local_fallback:
+                        return (
+                            deterministic_text,
+                            "Narration transform: deterministic normalization applied; "
+                            "LLM returned empty output for a chunk, returned deterministic result",
+                        )
+                    return (
+                        source_text,
+                        "Narration transform: deterministic normalization applied; "
+                        "LLM returned empty output for a chunk, using original text",
+                    )
+
+                if transformed_parts:
+                    transformed_parts.append(chunk_spec.separator_before)
+                transformed_parts.append(cleaned_chunk.strip())
+
+            cleaned = "".join(transformed_parts).strip()
+
         if not cleaned:
             if allow_local_fallback:
                 return (
@@ -817,6 +1057,7 @@ def apply_llm_narration_transform(
             f"Model: {model_id}\n"
             f"API key source: {key_source}\n"
             f"Mode: {mode}"
+            + (f"\nChunks: {len(chunk_specs)}" if len(chunk_specs) > 1 else "")
         )
     except Exception as error:
         if allow_local_fallback:
