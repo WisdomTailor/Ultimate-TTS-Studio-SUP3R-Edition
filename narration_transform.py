@@ -272,7 +272,8 @@ LLM_PROVIDER_CONFIGS = {
         "headers": {},
     },
     "GitHub Models (OpenAI-compatible)": {
-        "base_url": "https://models.github.ai/v1",
+        "base_url": "https://models.github.ai/inference",
+        "catalog_url": "https://models.github.ai/catalog/models",
         "default_model": "openai/gpt-4.1-mini",
         "env_var": "GITHUB_MODELS_TOKEN",
         "requires_api_key": True,
@@ -484,10 +485,13 @@ def fetch_provider_models(
     """Fetch model IDs from provider model discovery endpoints."""
     cfg = _get_provider_config(provider_name)
     clean_base = (base_url or "").strip().rstrip("/")
+    catalog_url = str(cfg.get("catalog_url") or "").strip()
     if not clean_base:
         return [], "❌ Base URL is required to fetch models."
 
-    if "/openai" in clean_base:
+    if catalog_url:
+        models_url = catalog_url
+    elif "/openai" in clean_base:
         base_without_openai = clean_base.rsplit("/openai", 1)[0]
         if cfg.get("auth_style") == "api-key":
             models_url = base_without_openai + "/models?api-version=2024-10-21"
