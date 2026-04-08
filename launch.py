@@ -4,6 +4,7 @@
 # to find the correct section, handlers, and event bindings.
 
 import random
+import copy
 import numpy as np
 import torch
 import gradio as gr
@@ -26,6 +27,9 @@ import urllib.error
 from typing import Any, Optional
 from datetime import datetime
 from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
 
 # Suppress redirect warning on Windows/MacOS
 warnings.filterwarnings("ignore", message="Redirects are currently not supported")
@@ -2123,6 +2127,7 @@ APP_STATE_DIR = os.path.join(os.getcwd(), "app_state")
 APP_STATE_PRESETS_FILE = os.path.join(APP_STATE_DIR, "presets.json")
 APP_STATE_BUNDLES_FILE = os.path.join(APP_STATE_DIR, "bundles.json")
 APP_STATE_SETTINGS_FILE = os.path.join(APP_STATE_DIR, "settings.json")
+APP_STATE_SPEAKER_PROFILES_FILE = Path(APP_STATE_DIR) / "speaker_profiles.json"
 APP_STATE_VOICES_DIR = os.path.join(APP_STATE_DIR, "voices")
 APP_STATE_OUTPUTS_DIR = os.path.join(APP_STATE_DIR, "outputs")
 
@@ -5038,6 +5043,187 @@ def get_voice_preset_dropdown_update(selected: str = ""):
     return gr.update(choices=choices, value=selected_value)
 
 
+def load_speaker_profile_store() -> dict:
+    """Load the conversation speaker profile store from disk."""
+    default_store = {"version": 1, "profiles": {}}
+    ensure_app_state_dirs()
+    if not APP_STATE_SPEAKER_PROFILES_FILE.exists():
+        return default_store
+
+    try:
+        with open(APP_STATE_SPEAKER_PROFILES_FILE, "r", encoding="utf-8") as file:
+            store = json.load(file)
+        if not isinstance(store, dict):
+            return default_store
+        if "profiles" not in store or not isinstance(store.get("profiles"), dict):
+            store["profiles"] = {}
+        store.setdefault("version", 1)
+        return store
+    except Exception as error:
+        logger.error(f"Failed to load speaker profiles: {error}")
+        return default_store
+
+
+def save_speaker_profile_store(store: dict) -> bool:
+    """Save the conversation speaker profile store to disk."""
+    ensure_app_state_dirs()
+    try:
+        with open(APP_STATE_SPEAKER_PROFILES_FILE, "w", encoding="utf-8") as file:
+            json.dump(store, file, indent=2, ensure_ascii=False)
+        return True
+    except Exception as error:
+        logger.error(f"Failed to save speaker profiles: {error}")
+        return False
+
+
+def get_speaker_profile_choices() -> list[str]:
+    """Return list of saved conversation speaker profile names."""
+    store = load_speaker_profile_store()
+    return sorted(store.get("profiles", {}).keys())
+
+
+def _is_app_state_voice_path(audio_path: str) -> bool:
+    if not isinstance(audio_path, str) or not audio_path.strip():
+        return False
+
+    abs_audio = os.path.abspath(audio_path)
+    abs_voices_dir = os.path.abspath(APP_STATE_VOICES_DIR)
+    voices_prefix = abs_voices_dir + os.sep
+    return abs_audio == abs_voices_dir or abs_audio.startswith(voices_prefix)
+
+
+def _normalize_speaker_profile_name(profile_name: str) -> str:
+    return str(profile_name or "").strip()
+
+
+def _speaker_profile_status_update(message: str):
+    return gr.update(value=message, visible=True)
+
+
+def _clone_conversation_speaker_settings(
+    speaker_settings_state: dict | None,
+    speakers: list[str] | None,
+) -> dict[str, dict[str, Any]]:
+    normalized_speakers = [
+        str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
+    ]
+    updated_state: dict[str, dict[str, Any]] = {}
+
+    existing_state = (
+        copy.deepcopy(speaker_settings_state)
+        if isinstance(speaker_settings_state, dict)
+        else {}
+    )
+
+    if not normalized_speakers:
+        for speaker_name, settings in existing_state.items():
+            if isinstance(speaker_name, str) and isinstance(settings, dict):
+                updated_state[speaker_name] = settings
+        return updated_state
+
+    default_settings = create_default_speaker_settings(normalized_speakers)
+    for speaker_name in normalized_speakers:
+        merged_settings = dict(default_settings.get(speaker_name, {}))
+        existing_settings = existing_state.get(speaker_name, {})
+        if isinstance(existing_settings, dict):
+            merged_settings.update(existing_settings)
+        updated_state[speaker_name] = merged_settings
+    return updated_state
+
+
+def update_conversation_speaker_setting(
+    speaker_settings_state: dict | None,
+    speakers: list[str] | None,
+    speaker_slot_index: int,
+    key: str,
+    value: Any,
+) -> dict[str, dict[str, Any]]:
+    """Persist a conversation speaker-panel change into the shared state object."""
+    normalized_speakers = [
+        str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
+    ]
+    updated_state = _clone_conversation_speaker_settings(
+        speaker_settings_state,
+        normalized_speakers,
+    )
+
+    if not (0 <= speaker_slot_index < len(normalized_speakers)):
+        return updated_state
+
+    speaker_name = normalized_speakers[speaker_slot_index]
+    updated_state.setdefault(speaker_name, {})[key] = value
+    return updated_state
+
+
+def update_conversation_tts_engine(
+    selected_engine: str,
+    speaker_settings_state: dict | None,
+    speakers: list[str] | None,
+) -> dict[str, dict[str, Any]]:
+    """Mirror the active conversation engine into each saved speaker entry."""
+    normalized_speakers = [
+        str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
+    ]
+    updated_state = _clone_conversation_speaker_settings(
+        speaker_settings_state,
+        normalized_speakers,
+    )
+    normalized_engine = str(selected_engine or "").strip()
+    if not normalized_engine:
+        return updated_state
+
+    for speaker_name in normalized_speakers:
+        updated_state.setdefault(speaker_name, {})["tts_engine"] = normalized_engine
+    return updated_state
+
+
+def _speaker_profile_audio_referenced_elsewhere(
+    store: dict,
+    profile_name: str,
+    audio_path: str,
+) -> bool:
+    if not isinstance(audio_path, str) or not audio_path.strip():
+        return False
+
+    target_audio = os.path.abspath(audio_path)
+    for other_profile_name, profile_entry in store.get("profiles", {}).items():
+        if other_profile_name == profile_name or not isinstance(profile_entry, dict):
+            continue
+        speakers = profile_entry.get("speakers", {})
+        if not isinstance(speakers, dict):
+            continue
+        for speaker_settings in speakers.values():
+            if not isinstance(speaker_settings, dict):
+                continue
+            other_audio = str(speaker_settings.get("ref_audio", "") or "").strip()
+            if other_audio and os.path.abspath(other_audio) == target_audio:
+                return True
+    return False
+
+
+def _build_speaker_profile_component_values(
+    speaker_settings: dict[str, dict[str, Any]],
+) -> tuple[list[str | None], list[str]]:
+    audio_values: list[str | None] = []
+    ref_text_values: list[str] = []
+
+    for speaker_name in list(speaker_settings.keys())[:5]:
+        settings = speaker_settings.get(speaker_name, {})
+        if not isinstance(settings, dict):
+            settings = {}
+
+        audio_path = str(settings.get("ref_audio", "") or "").strip()
+        audio_values.append(audio_path if audio_path and os.path.exists(audio_path) else None)
+        ref_text_values.append(str(settings.get("fish_ref_text", "") or ""))
+
+    while len(audio_values) < 5:
+        audio_values.append(None)
+    while len(ref_text_values) < 5:
+        ref_text_values.append("")
+
+    return audio_values, ref_text_values
+
+
 def get_preset_audio_path(preset_name: str) -> str:
     normalized = _normalize_preset_name(preset_name)
     if not normalized:
@@ -5184,6 +5370,189 @@ def save_current_preset(preset_name, tts_engine, **settings):
 
     dropdown_update, message, _ = on_save_preset(normalized_name, candidate_audio, True)
     return message, dropdown_update
+
+
+def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
+    """Save the current conversation speaker settings as a reusable profile."""
+    normalized_name = _normalize_speaker_profile_name(profile_name)
+    if not normalized_name:
+        return gr.update(), _speaker_profile_status_update("❌ Please enter a profile name")
+
+    if not isinstance(speaker_settings_state, dict) or not speaker_settings_state:
+        return (
+            gr.update(),
+            _speaker_profile_status_update(
+                "❌ No conversation speaker settings are available to save"
+            ),
+        )
+
+    try:
+        saved_speakers: dict[str, dict[str, Any]] = {}
+        for speaker_name, settings in copy.deepcopy(speaker_settings_state).items():
+            if (
+                not isinstance(speaker_name, str)
+                or not speaker_name.strip()
+                or not isinstance(settings, dict)
+            ):
+                continue
+
+            normalized_speaker_name = speaker_name.strip()
+            saved_settings = dict(settings)
+            ref_audio = str(saved_settings.get("ref_audio", "") or "").strip()
+            if ref_audio and os.path.exists(ref_audio) and not _is_app_state_voice_path(ref_audio):
+                saved_settings["ref_audio"] = _copy_preset_audio_into_app_state(
+                    normalized_speaker_name,
+                    ref_audio,
+                )
+            elif ref_audio:
+                saved_settings["ref_audio"] = os.path.abspath(ref_audio)
+            else:
+                saved_settings["ref_audio"] = ""
+
+            saved_speakers[normalized_speaker_name] = saved_settings
+
+        if not saved_speakers:
+            return (
+                gr.update(),
+                _speaker_profile_status_update(
+                    "❌ No valid speaker settings were found to save in this profile"
+                ),
+            )
+
+        store = load_speaker_profile_store()
+        store.setdefault("profiles", {})
+        store["profiles"][normalized_name] = {
+            "created": datetime.now().isoformat(),
+            "speakers": saved_speakers,
+        }
+
+        if not save_speaker_profile_store(store):
+            return (
+                gr.update(),
+                _speaker_profile_status_update("❌ Failed to save speaker profile"),
+            )
+
+        return (
+            gr.update(choices=get_speaker_profile_choices(), value=normalized_name),
+            _speaker_profile_status_update(
+                f"✅ Speaker profile '{normalized_name}' saved ({len(saved_speakers)} speakers)"
+            ),
+        )
+    except Exception as error:
+        logger.error(f"Failed to save speaker profile '{normalized_name}': {error}")
+        return (
+            gr.update(),
+            _speaker_profile_status_update(f"❌ Failed to save speaker profile: {error}"),
+        )
+
+
+def on_load_speaker_profile(profile_name: str, current_settings_state: dict):
+    """Load a saved conversation speaker profile into the speaker panels."""
+    normalized_name = _normalize_speaker_profile_name(profile_name)
+    if not normalized_name:
+        return (
+            current_settings_state if isinstance(current_settings_state, dict) else {},
+            *[gr.update() for _ in range(10)],
+            _speaker_profile_status_update("ℹ️ Select a speaker profile to load"),
+        )
+
+    store = load_speaker_profile_store()
+    profile_entry = store.get("profiles", {}).get(normalized_name)
+    if not isinstance(profile_entry, dict):
+        return (
+            current_settings_state if isinstance(current_settings_state, dict) else {},
+            *[gr.update() for _ in range(10)],
+            _speaker_profile_status_update(
+                f"⚠️ Speaker profile '{normalized_name}' not found"
+            ),
+        )
+
+    saved_speakers = profile_entry.get("speakers", {})
+    if not isinstance(saved_speakers, dict):
+        saved_speakers = {}
+
+    normalized_settings = _clone_conversation_speaker_settings(
+        saved_speakers,
+        list(saved_speakers.keys()),
+    )
+
+    missing_audio_count = 0
+    for speaker_settings in normalized_settings.values():
+        if not isinstance(speaker_settings, dict):
+            continue
+        ref_audio = str(speaker_settings.get("ref_audio", "") or "").strip()
+        if ref_audio and not os.path.exists(ref_audio):
+            speaker_settings["ref_audio"] = ""
+            missing_audio_count += 1
+
+    audio_values, ref_text_values = _build_speaker_profile_component_values(normalized_settings)
+
+    status_message = f"✅ Loaded speaker profile '{normalized_name}'"
+    if missing_audio_count:
+        status_message += f" ({missing_audio_count} missing audio file(s) skipped)"
+
+    return (
+        normalized_settings,
+        *audio_values,
+        *ref_text_values,
+        _speaker_profile_status_update(status_message),
+    )
+
+
+def on_delete_speaker_profile(profile_name: str):
+    """Delete a saved conversation speaker profile."""
+    normalized_name = _normalize_speaker_profile_name(profile_name)
+    if not normalized_name:
+        return (
+            gr.update(),
+            _speaker_profile_status_update("ℹ️ Select a speaker profile to delete"),
+        )
+
+    store = load_speaker_profile_store()
+    profiles = store.get("profiles", {})
+    if normalized_name not in profiles:
+        return (
+            gr.update(choices=get_speaker_profile_choices(), value=None),
+            _speaker_profile_status_update(f"⚠️ Speaker profile '{normalized_name}' not found"),
+        )
+
+    deleted_audio_count = 0
+    profile_entry = profiles.pop(normalized_name)
+    if isinstance(profile_entry, dict):
+        speakers = profile_entry.get("speakers", {})
+        if isinstance(speakers, dict):
+            for speaker_settings in speakers.values():
+                if not isinstance(speaker_settings, dict):
+                    continue
+                audio_path = str(speaker_settings.get("ref_audio", "") or "").strip()
+                if not audio_path or not _is_app_state_voice_path(audio_path):
+                    continue
+                if _speaker_profile_audio_referenced_elsewhere(store, normalized_name, audio_path):
+                    continue
+                try:
+                    abs_audio_path = os.path.abspath(audio_path)
+                    if os.path.exists(abs_audio_path):
+                        os.remove(abs_audio_path)
+                        deleted_audio_count += 1
+                except Exception as error:
+                    logger.error(
+                        f"Failed to remove speaker profile audio '{audio_path}': {error}"
+                    )
+
+    if not save_speaker_profile_store(store):
+        return (
+            gr.update(),
+            _speaker_profile_status_update("❌ Failed to delete speaker profile"),
+        )
+
+    status_message = f"✅ Speaker profile '{normalized_name}' deleted"
+    if deleted_audio_count:
+        status_message += f" ({deleted_audio_count} audio file(s) removed)"
+
+    return (
+        gr.update(choices=get_speaker_profile_choices(), value=None),
+        _speaker_profile_status_update(status_message),
+    )
 
 
 # ===== EBOOK TO AUDIOBOOK FUNCTIONS =====
@@ -9510,6 +9879,36 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             ) as conversation_workspace:
                                 with gr.Row():
                                     with gr.Column(scale=1):
+                                        with gr.Row():
+                                            speaker_profile_selector = gr.Dropdown(
+                                                label="Speaker Profile",
+                                                choices=get_speaker_profile_choices(),
+                                                value=None,
+                                                interactive=True,
+                                                scale=3,
+                                            )
+                                            save_speaker_profile_btn = gr.Button(
+                                                "💾 Save Profile",
+                                                scale=1,
+                                            )
+                                            delete_speaker_profile_btn = gr.Button(
+                                                "🗑️ Delete",
+                                                scale=1,
+                                            )
+
+                                        speaker_profile_name_input = gr.Textbox(
+                                            label="Profile Name",
+                                            placeholder="Enter a name for this speaker profile...",
+                                            elem_classes=["fade-in"],
+                                        )
+
+                                        speaker_profile_status = gr.Textbox(
+                                            label="Profile Status",
+                                            interactive=False,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        )
+
                                         detected_speakers = gr.Textbox(
                                             label="🔍 Character Roster Summary",
                                             value="No speakers detected",
@@ -15308,6 +15707,37 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             outputs=[conversation_script, *conversation_analysis_outputs],
         )
 
+        speaker_profile_selector.change(
+            fn=on_load_speaker_profile,
+            inputs=[speaker_profile_selector, conversation_speaker_settings_state],
+            outputs=[
+                conversation_speaker_settings_state,
+                speaker_1_audio,
+                speaker_2_audio,
+                speaker_3_audio,
+                speaker_4_audio,
+                speaker_5_audio,
+                speaker_1_ref_text,
+                speaker_2_ref_text,
+                speaker_3_ref_text,
+                speaker_4_ref_text,
+                speaker_5_ref_text,
+                speaker_profile_status,
+            ],
+        )
+
+        save_speaker_profile_btn.click(
+            fn=on_save_speaker_profile,
+            inputs=[speaker_profile_name_input, conversation_speaker_settings_state],
+            outputs=[speaker_profile_selector, speaker_profile_status],
+        )
+
+        delete_speaker_profile_btn.click(
+            fn=on_delete_speaker_profile,
+            inputs=[speaker_profile_selector],
+            outputs=[speaker_profile_selector, speaker_profile_status],
+        )
+
         ai_format_script_btn.click(
             fn=handle_ai_format_script,
             inputs=[
@@ -15546,6 +15976,240 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         )
         speaker_5_transcribe_btn.click(
             fn=handle_qwen_transcribe, inputs=[speaker_5_audio], outputs=[speaker_5_ref_text]
+        )
+
+        speaker_1_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                0,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_1_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_2_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                1,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_2_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_3_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                2,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_3_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_4_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                3,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_4_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_5_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                4,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_5_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+
+        speaker_1_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                0,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_1_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_2_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                1,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_2_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_3_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                2,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_3_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_4_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                3,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_4_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_5_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                4,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_5_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+
+        speaker_1_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                0,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_1_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_2_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                1,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_2_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_3_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                2,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_3_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_4_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                3,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_4_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_5_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                4,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_5_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+
+        tts_engine.change(
+            fn=update_conversation_tts_engine,
+            inputs=[tts_engine, conversation_speaker_settings_state, conversation_speakers_state],
+            outputs=[conversation_speaker_settings_state],
         )
 
         # Function to switch tabs based on TTS engine selection
