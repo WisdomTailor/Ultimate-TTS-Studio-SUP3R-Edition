@@ -78,6 +78,71 @@ def get_speaker_names_from_script(script_text: str) -> list[str]:
     return sorted({item["speaker"] for item in conversation})
 
 
+def detect_suspect_speaker_names(speakers: list[str]) -> list[str]:
+    """Detect speaker names that look like parser artifacts from prose text.
+
+    Returns a list of warning messages if suspect patterns are found.
+    """
+    warnings = []
+    suspect_count = 0
+
+    for name in speakers:
+        is_suspect = False
+        if len(name) > 40:
+            is_suspect = True
+        elif any(ch in name for ch in ['"', "'", ",", ".", "!", "?", ";"]):
+            is_suspect = True
+        elif name.lower() in {
+            "the",
+            "a",
+            "an",
+            "this",
+            "that",
+            "it",
+            "he",
+            "she",
+            "they",
+            "said",
+            "asked",
+            "replied",
+            "answered",
+            "whispered",
+            "shouted",
+            "yes",
+            "no",
+            "answer",
+            "question",
+            "response",
+            "but",
+            "and",
+            "then",
+            "so",
+            "however",
+            "meanwhile",
+            "suddenly",
+            "finally",
+        }:
+            is_suspect = True
+        elif name.count(" ") > 3:
+            is_suspect = True
+
+        if is_suspect:
+            suspect_count += 1
+
+    if suspect_count > 0:
+        ratio = suspect_count / max(len(speakers), 1)
+        if ratio >= 0.3 or suspect_count >= 2:
+            warnings.append(
+                f"⚠️ {suspect_count} of {len(speakers)} detected speaker names look like "
+                f"prose fragments, not character names. This usually means the input is "
+                f"narrative text rather than pre-formatted dialogue.\n\n"
+                f"💡 TIP: Use the ✨ AI Format button instead — it uses an LLM to "
+                f"intelligently extract character names and attribute dialogue from prose."
+            )
+
+    return warnings
+
+
 def create_default_speaker_settings(speakers: list[str]) -> dict[str, dict[str, Any]]:
     """Create default per-speaker synthesis settings for conversation mode."""
     default_settings: dict[str, dict[str, Any]] = {}
@@ -280,6 +345,7 @@ def apply_per_line_transform(
 __all__ = [
     "parse_conversation_script",
     "get_speaker_names_from_script",
+    "detect_suspect_speaker_names",
     "create_default_speaker_settings",
     "format_conversation_info",
     "parse_to_narration_script",

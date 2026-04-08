@@ -444,6 +444,7 @@ from pronunciation import (
 )
 from conversation_logic import (
     create_default_speaker_settings,
+    detect_suspect_speaker_names,
     format_conversation_with_llm,
     format_conversation_info,
     get_speaker_names_from_script,
@@ -14662,7 +14663,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 "Reference text helps engines that support guided cloning."
             )
 
-        def _build_conversation_summary(conversation_rows, speakers, selected_engine: str) -> str:
+        def _build_conversation_summary(
+            conversation_rows,
+            speakers,
+            selected_engine: str,
+            warnings: list[str] | None = None,
+        ) -> str:
             line_count = len(conversation_rows)
             speaker_count = len(speakers)
             line_counts: dict[str, int] = {}
@@ -14674,7 +14680,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 f"• {speaker}: {line_counts.get(speaker, 0)} lines" for speaker in speakers
             )
 
+            warning_prefix = ""
+            if warnings:
+                warning_prefix = "\n\n".join(warnings).strip() + "\n\n"
+
             return (
+                f"{warning_prefix}"
                 f"Detected {speaker_count} speakers across {line_count} lines.\n"
                 f"Active engine: {selected_engine}\n\n"
                 f"{speaker_breakdown}\n\n"
@@ -14778,6 +14789,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     "No speakers detected. Please check the Speaker: Text format."
                 )
 
+            speaker_warnings = detect_suspect_speaker_names(speakers)
+
             voice_samples = list(voice_samples or [None] * 5)
             ref_texts = list(ref_texts or [""] * 5)
             kokoro_voices = list(kokoro_voices or ["af_heart"] * 5)
@@ -14805,7 +14818,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
             conversation_table = _build_conversation_table_rows(conversation_rows)
 
             return (
-                _build_conversation_summary(conversation_rows, speakers, selected_engine),
+                _build_conversation_summary(
+                    conversation_rows,
+                    speakers,
+                    selected_engine,
+                    warnings=speaker_warnings,
+                ),
                 gr.update(visible=True),
                 gr.update(visible=True),
                 gr.update(choices=roster_choices, value=str(normalized_selected_index)),
