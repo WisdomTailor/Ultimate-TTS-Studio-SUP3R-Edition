@@ -9,6 +9,8 @@ from types import ModuleType
 
 import pytest
 
+import narration_transform as narration_transform_module
+
 
 APP_DIR = Path(__file__).resolve().parents[1]
 LAUNCH_PATH = APP_DIR / "launch.py"
@@ -238,3 +240,70 @@ class TestEngineCapabilityMatrix:
                 assert (
                     capabilities.get("emotion_vectors") is False
                 ), f"{engine} should not have emotion_vectors"
+
+
+class TestGenerateVoiceCasting:
+    def test_returns_error_for_empty_speaker_list(self) -> None:
+        result_text, error_message = narration_transform_module.generate_voice_casting(
+            speaker_names=[],
+            base_url="http://localhost:8000/v1",
+            api_key="",
+            model_id="demo-model",
+            timeout_seconds=30,
+            extra_headers={},
+            auth_style="bearer",
+        )
+
+        assert result_text == ""
+        assert error_message == "At least one speaker name is required."
+
+    def test_returns_error_when_model_configuration_missing(self) -> None:
+        result_text, error_message = narration_transform_module.generate_voice_casting(
+            speaker_names=["Alice"],
+            base_url="",
+            api_key="",
+            model_id="",
+            timeout_seconds=30,
+            extra_headers={},
+            auth_style="bearer",
+        )
+
+        assert result_text == ""
+        assert error_message == "Base URL is required."
+
+    def test_formats_casting_response_by_speaker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured_kwargs: dict[str, object] = {}
+
+        def fake_chat_call(**kwargs: object) -> str:
+            captured_kwargs.update(kwargs)
+            return (
+                "Alice:\n"
+                "  Description: Young, curious lead with quick, confident delivery.\n"
+                "  Voice Profile: Bright, nimble mezzo\n\n"
+                "Bob:\n"
+                "  Description: Older mentor with calm authority and measured pacing.\n"
+                "  Voice Profile: Warm, grounded baritone"
+            )
+
+        monkeypatch.setattr(
+            narration_transform_module,
+            "call_openai_compatible_chat",
+            fake_chat_call,
+        )
+
+        result_text, error_message = narration_transform_module.generate_voice_casting(
+            speaker_names=["Alice", "Bob"],
+            base_url="http://localhost:8000/v1",
+            api_key="",
+            model_id="demo-model",
+            timeout_seconds=45,
+            extra_headers={"X-Test": "1"},
+            auth_style="bearer",
+        )
+
+        assert error_message == ""
+        assert "Alice:" in result_text
+        assert "Bob:" in result_text
+        assert "Voice Profile: Bright, nimble mezzo" in result_text
+        assert captured_kwargs["temperature"] == 0.7
+        assert captured_kwargs["max_tokens"] == 1024

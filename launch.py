@@ -441,6 +441,7 @@ from narration_transform import (
     test_llm_connection,
     apply_llm_narration_transform,
     apply_llm_transform_to_textbox,
+    generate_voice_casting,
     format_provenance,
 )
 from assistant_service import DEFAULT_ASSISTANT_SYSTEM_PROMPT
@@ -9940,6 +9941,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 "🗑️ Delete",
                                                 scale=1,
                                             )
+                                            cast_characters_btn = gr.Button(
+                                                "🎭 Cast Characters",
+                                                variant="secondary",
+                                                scale=1,
+                                                elem_classes=["fade-in"],
+                                            )
 
                                         speaker_profile_name_input = gr.Textbox(
                                             label="Profile Name",
@@ -15604,6 +15611,56 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 ),
             )
 
+        def handle_cast_characters(
+            speakers_state,
+            provider_name,
+            base_url,
+            api_key,
+            model_id,
+            timeout_seconds,
+        ):
+            """Use the configured LLM to generate voice profiles for discovered speakers."""
+            if (
+                not speakers_state
+                or not isinstance(speakers_state, list)
+                or len(speakers_state) == 0
+            ):
+                return _speaker_profile_status_update(
+                    "❌ Analyze a script first to discover speakers."
+                )
+
+            clean_base_url = str(base_url or "").strip()
+            clean_model_id = str(model_id or "").strip()
+            if not clean_base_url or not clean_model_id:
+                return _speaker_profile_status_update(
+                    "❌ Configure the LLM provider base URL and model ID before casting."
+                )
+
+            provider_config = _get_provider_config(provider_name)
+            resolved_api_key, _ = resolve_llm_api_key(provider_name, api_key)
+            if provider_config.get("requires_api_key") and not resolved_api_key:
+                return _speaker_profile_status_update(
+                    f"❌ {provider_name} API key required before casting.\n"
+                    + get_llm_shell_key_setup_hint(provider_name)
+                )
+
+            result_text, error_msg = generate_voice_casting(
+                speaker_names=speakers_state,
+                base_url=clean_base_url,
+                api_key=resolved_api_key,
+                model_id=clean_model_id,
+                timeout_seconds=int(timeout_seconds or 60),
+                extra_headers=dict(provider_config.get("headers", {})),
+                auth_style=provider_config.get("auth_style", "bearer"),
+            )
+
+            if error_msg:
+                return _speaker_profile_status_update(f"❌ Cast failed: {error_msg}")
+
+            return _speaker_profile_status_update(
+                f"🎭 Voice Casting Results:\n\n{result_text}"
+            )
+
         def handle_tts_engine_change(selected_engine):
             """Handle TTS engine selection changes and update UI accordingly."""
             print(f"🎯 TTS Engine changed to: {selected_engine}")
@@ -15807,6 +15864,19 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=on_delete_speaker_profile,
             inputs=[speaker_profile_selector],
             outputs=[speaker_profile_selector, speaker_profile_status],
+        )
+
+        cast_characters_btn.click(
+            fn=handle_cast_characters,
+            inputs=[
+                conversation_speakers_state,
+                llm_provider,
+                llm_base_url,
+                llm_api_key,
+                llm_model_id,
+                llm_timeout_seconds,
+            ],
+            outputs=[speaker_profile_status],
         )
 
         ai_format_script_btn.click(

@@ -67,6 +67,19 @@ Vivid — Everything Polish does, plus: add sparse [emotional] audio cues honori
 dramatic pauses, occasional ALL-CAPS for spoken stress. Calibrate tone and rhythm to the STYLE.
 """
 
+VOICE_CASTING_SYSTEM_PROMPT = """You are a professional voice casting director for audio productions. Given a list of character names from a script, generate a concise voice profile for each character.
+
+For each character, provide:
+- A brief character description (age estimate, personality, speaking style)
+- A 3-5 word voice profile descriptor (e.g., "Warm, authoritative baritone" or "Bright, energetic soprano")
+
+Format your response as a simple list:
+CHARACTER_NAME:
+    Description: [brief description]
+    Voice Profile: [3-5 word descriptor]
+
+Be creative but realistic. Infer character traits from their names and typical narrative conventions. Keep descriptions concise - a few sentences maximum per character."""
+
 CONTENT_TYPE_PRESETS: dict[str, dict[str, str | None]] = {
     "General (Default)": {
         "system_prompt": None,
@@ -1034,6 +1047,174 @@ def call_openai_compatible_chat(
     if not isinstance(content, str) or not content.strip():
         raise ValueError("LLM response content is empty")
     return content.strip()
+
+
+def _normalize_voice_casting_speaker_names(speaker_names: list[str]) -> list[str]:
+    normalized_names: list[str] = []
+    seen_names: set[str] = set()
+
+    for speaker_name in speaker_names:
+        clean_name = str(speaker_name or "").strip()
+        if not clean_name:
+            continue
+
+        folded_name = clean_name.casefold()
+        if folded_name in seen_names:
+            continue
+
+        seen_names.add(folded_name)
+        normalized_names.append(clean_name)
+
+    return normalized_names
+
+
+def _normalize_voice_casting_block(block_lines: list[str]) -> tuple[str, str]:
+    description_parts: list[str] = []
+    voice_profile_parts: list[str] = []
+    extra_lines: list[str] = []
+    current_field = ""
+
+    for block_line in block_lines:
+        stripped_line = block_line.strip()
+        if not stripped_line:
+            current_field = ""
+            continue
+
+        description_match = re.match(r"^Description:\s*(.+)$", stripped_line, re.IGNORECASE)
+        if description_match:
+            description_parts = [description_match.group(1).strip()]
+            current_field = "description"
+            continue
+
+        voice_profile_match = re.match(
+            r"^Voice\s*Profile:\s*(.+)$",
+            stripped_line,
+            re.IGNORECASE,
+        )
+        if voice_profile_match:
+            voice_profile_parts = [voice_profile_match.group(1).strip()]
+            current_field = "voice_profile"
+            continue
+
+        if current_field == "description":
+            description_parts.append(stripped_line)
+        elif current_field == "voice_profile":
+            voice_profile_parts.append(stripped_line)
+        else:
+            extra_lines.append(stripped_line)
+
+    description_text = " ".join(description_parts).strip()
+    voice_profile_text = " ".join(voice_profile_parts).strip()
+
+    if not description_text and extra_lines:
+        description_text = " ".join(extra_lines).strip()
+    if extra_lines and voice_profile_text:
+        description_text = " ".join(part for part in [description_text, *extra_lines] if part).strip()
+
+    description_text = re.sub(r"\s+", " ", description_text).strip()
+    voice_profile_text = re.sub(r"\s+", " ", voice_profile_text).strip()
+
+    return description_text, voice_profile_text
+
+
+def _format_voice_casting_result(raw_text: str, speaker_names: list[str]) -> str:
+    clean_names = _normalize_voice_casting_speaker_names(speaker_names)
+    if not clean_names:
+        return ""
+
+    heading_pattern = re.compile(
+        r"^\s*(?:[-*]\s*|\d+\.\s*)?(?P<name>"
+        + "|".join(re.escape(name) for name in sorted(clean_names, key=len, reverse=True))
+        + r")\s*:?\s*$",
+        re.IGNORECASE,
+    )
+    canonical_names = {name.casefold(): name for name in clean_names}
+    sections: dict[str, list[str]] = {name: [] for name in clean_names}
+    current_name: str | None = None
+
+    for raw_line in str(raw_text or "").splitlines():
+        header_match = heading_pattern.match(raw_line.rstrip())
+        if header_match:
+            current_name = canonical_names[header_match.group("name").casefold()]
+            continue
+
+        if current_name is not None:
+            sections[current_name].append(raw_line)
+
+    formatted_sections: list[str] = []
+    for speaker_name in clean_names:
+        description_text, voice_profile_text = _normalize_voice_casting_block(
+            sections.get(speaker_name, [])
+        )
+        if not description_text and not voice_profile_text:
+            description_text = "No description returned."
+        if not voice_profile_text:
+            voice_profile_text = "Not provided"
+
+        formatted_sections.append(
+            "\n".join(
+                [
+                    f"{speaker_name}:",
+                    f"  Description: {description_text}",
+                    f"  Voice Profile: {voice_profile_text}",
+                ]
+            )
+        )
+
+    return "\n\n".join(formatted_sections)
+
+
+def generate_voice_casting(
+    speaker_names: list[str],
+    base_url: str,
+    api_key: str,
+    model_id: str,
+    timeout_seconds: int,
+    extra_headers: dict[str, str],
+    auth_style: str,
+) -> tuple[str, str]:
+    clean_speaker_names = _normalize_voice_casting_speaker_names(speaker_names)
+    if not clean_speaker_names:
+        return "", "At least one speaker name is required."
+
+    clean_base_url = str(base_url or "").strip()
+    if not clean_base_url:
+        return "", "Base URL is required."
+
+    clean_model_id = str(model_id or "").strip()
+    if not clean_model_id:
+        return "", "Model ID is required."
+
+    user_prompt = "\n".join(
+        [
+            "Generate voice casting guidance for the following speakers:",
+            *(f"- {speaker_name}" for speaker_name in clean_speaker_names),
+            "",
+            "Return every speaker using the exact format requested in the system prompt.",
+        ]
+    )
+
+    try:
+        raw_output = call_openai_compatible_chat(
+            base_url=clean_base_url,
+            api_key=str(api_key or "").strip(),
+            model_id=clean_model_id,
+            system_prompt=VOICE_CASTING_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            timeout_seconds=int(timeout_seconds or 60),
+            temperature=0.7,
+            top_p=0.9,
+            max_tokens=1024,
+            extra_headers=extra_headers,
+            auth_style=auth_style,
+        )
+        return _format_voice_casting_result(raw_output, clean_speaker_names), ""
+    except urllib.error.HTTPError as error:
+        return "", f"LLM HTTP error: {error.code} {error.reason}"
+    except urllib.error.URLError as error:
+        return "", f"LLM URL error: {error.reason}"
+    except Exception as error:
+        return "", str(error)
 
 
 def test_llm_connection(
