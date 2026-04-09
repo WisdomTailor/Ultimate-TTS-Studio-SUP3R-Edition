@@ -184,6 +184,7 @@ def get_content_type_system_prompt(preset_name: str) -> str:
         return system_prompt.strip()
     return DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
 
+
 _DIGIT_WORDS = {
     "0": "zero",
     "1": "one",
@@ -719,8 +720,35 @@ def try_start_lm_studio() -> str:
     )
 
 
-def _clean_llm_transform_output(text: str, engine: str | None = None) -> str:
+def strip_think_tags(text: str) -> str:
+    """Remove Qwen3-style <think>...</think> reasoning blocks from LLM output."""
     if not isinstance(text, str):
+        return ""
+
+    token_pattern = re.compile(r"</?think>", flags=re.IGNORECASE)
+    depth = 0
+    cursor = 0
+    visible_parts: list[str] = []
+
+    for match in token_pattern.finditer(text):
+        if depth == 0 and match.start() > cursor:
+            visible_parts.append(text[cursor : match.start()])
+
+        if match.group(0).startswith("</"):
+            depth = max(0, depth - 1)
+        else:
+            depth += 1
+        cursor = match.end()
+
+    if depth == 0 and cursor < len(text):
+        visible_parts.append(text[cursor:])
+
+    return "".join(visible_parts).strip()
+
+
+def _clean_llm_transform_output(text: str, engine: str | None = None) -> str:
+    text = strip_think_tags(text)
+    if not text:
         return ""
 
     cleaned = text.strip()
@@ -762,9 +790,7 @@ def _build_llm_system_prompt(
     engine_addendum = get_engine_prompt_addendum(resolved_engine_name).strip()
     if not engine_addendum:
         return effective_system_prompt
-    return (
-        f"{effective_system_prompt}\n\n## ENGINE-SPECIFIC OPTIMIZATION\n{engine_addendum}"
-    )
+    return f"{effective_system_prompt}\n\n## ENGINE-SPECIFIC OPTIMIZATION\n{engine_addendum}"
 
 
 def _resolve_transform_max_chunk_chars(
@@ -959,12 +985,13 @@ def _run_llm_transform_chunk(
     style: str,
     max_tag_density: float,
     timeout_seconds: int,
-    temperature: float,
-    top_p: float,
-    max_tokens: int,
-    extra_headers: dict[str, str],
-    auth_style: str,
-    engine: str,
+    temperature: float = 0.25,
+    top_p: float = 0.85,
+    repeat_penalty: float = 1.08,
+    max_tokens: int = 1024,
+    extra_headers: dict[str, str] | None = None,
+    auth_style: str = "bearer",
+    engine: str = "",
 ) -> str:
     user_prompt = _build_llm_transform_user_prompt(
         source_text=chunk_text,
@@ -982,6 +1009,7 @@ def _run_llm_transform_chunk(
         timeout_seconds=timeout_seconds,
         temperature=temperature,
         top_p=top_p,
+        repeat_penalty=repeat_penalty,
         max_tokens=max_tokens,
         extra_headers=extra_headers,
         auth_style=auth_style,
@@ -998,6 +1026,7 @@ def call_openai_compatible_chat(
     timeout_seconds: int = 60,
     temperature: float = 0.2,
     top_p: float = 0.9,
+    repeat_penalty: float = 0.0,
     max_tokens: int = 1024,
     extra_headers: dict[str, str] | None = None,
     auth_style: str = "bearer",
@@ -1022,6 +1051,8 @@ def call_openai_compatible_chat(
         "top_p": float(top_p),
         "max_tokens": int(max_tokens),
     }
+    if float(repeat_penalty) > 0:
+        payload["repetition_penalty"] = float(repeat_penalty)
 
     headers = {"Content-Type": "application/json"}
     if extra_headers:
@@ -1109,7 +1140,9 @@ def _normalize_voice_casting_block(block_lines: list[str]) -> tuple[str, str]:
     if not description_text and extra_lines:
         description_text = " ".join(extra_lines).strip()
     if extra_lines and voice_profile_text:
-        description_text = " ".join(part for part in [description_text, *extra_lines] if part).strip()
+        description_text = " ".join(
+            part for part in [description_text, *extra_lines] if part
+        ).strip()
 
     description_text = re.sub(r"\s+", " ", description_text).strip()
     voice_profile_text = re.sub(r"\s+", " ", voice_profile_text).strip()
@@ -1208,6 +1241,7 @@ def generate_voice_casting(
             extra_headers=extra_headers,
             auth_style=auth_style,
         )
+        raw_output = strip_think_tags(raw_output)
         return _format_voice_casting_result(raw_output, clean_speaker_names), ""
     except urllib.error.HTTPError as error:
         return "", f"LLM HTTP error: {error.code} {error.reason}"
@@ -1279,9 +1313,10 @@ def apply_llm_narration_transform(
     max_tag_density: float,
     system_prompt: str,
     timeout_seconds: int,
-    temperature: float,
-    top_p: float,
-    max_tokens: int,
+    temperature: float = 0.25,
+    top_p: float = 0.85,
+    repeat_penalty: float = 1.08,
+    max_tokens: int = 1024,
     allow_local_fallback: bool = True,
     engine_name: str = "",
     max_chunk_chars: int = 3000,
@@ -1354,6 +1389,7 @@ def apply_llm_narration_transform(
                 timeout_seconds=timeout_seconds,
                 temperature=temperature,
                 top_p=top_p,
+                repeat_penalty=repeat_penalty,
                 max_tokens=max_tokens,
                 extra_headers=cfg["headers"],
                 auth_style=cfg["auth_style"],
@@ -1375,6 +1411,7 @@ def apply_llm_narration_transform(
                     timeout_seconds=timeout_seconds,
                     temperature=temperature,
                     top_p=top_p,
+                    repeat_penalty=repeat_penalty,
                     max_tokens=max_tokens,
                     extra_headers=cfg["headers"],
                     auth_style=cfg["auth_style"],
@@ -1417,8 +1454,7 @@ def apply_llm_narration_transform(
             f"Provider: {provider_name}\n"
             f"Model: {model_id}\n"
             f"API key source: {key_source}\n"
-            f"Mode: {mode}"
-            + (f"\nChunks: {len(chunk_specs)}" if len(chunk_specs) > 1 else "")
+            f"Mode: {mode}" + (f"\nChunks: {len(chunk_specs)}" if len(chunk_specs) > 1 else "")
         )
     except Exception as error:
         if allow_local_fallback:

@@ -5141,9 +5141,7 @@ def _clone_conversation_speaker_settings(
     updated_state: dict[str, dict[str, Any]] = {}
 
     existing_state = (
-        copy.deepcopy(speaker_settings_state)
-        if isinstance(speaker_settings_state, dict)
-        else {}
+        copy.deepcopy(speaker_settings_state) if isinstance(speaker_settings_state, dict) else {}
     )
 
     if not normalized_speakers:
@@ -5493,9 +5491,7 @@ def on_load_speaker_profile(profile_name: str, current_settings_state: dict):
         return (
             current_settings_state if isinstance(current_settings_state, dict) else {},
             *[gr.update() for _ in range(10)],
-            _speaker_profile_status_update(
-                f"⚠️ Speaker profile '{normalized_name}' not found"
-            ),
+            _speaker_profile_status_update(f"⚠️ Speaker profile '{normalized_name}' not found"),
         )
 
     saved_speakers = profile_entry.get("speakers", {})
@@ -5566,9 +5562,7 @@ def on_delete_speaker_profile(profile_name: str):
                         os.remove(abs_audio_path)
                         deleted_audio_count += 1
                 except Exception as error:
-                    logger.error(
-                        f"Failed to remove speaker profile audio '{audio_path}': {error}"
-                    )
+                    logger.error(f"Failed to remove speaker profile audio '{audio_path}': {error}")
 
     if not save_speaker_profile_store(store):
         return (
@@ -7809,8 +7803,7 @@ def create_gradio_interface():
     llm_content_type_info = (
         "Choose the prompt preset that replaces the base system prompt. "
         + " ".join(
-            f"{name}: {preset['description']}"
-            for name, preset in CONTENT_TYPE_PRESETS.items()
+            f"{name}: {preset['description']}" for name, preset in CONTENT_TYPE_PRESETS.items()
         )
     )
     lexicon_path = Path(__file__).parent / "app_state" / "lexicon.json"
@@ -15657,9 +15650,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             if error_msg:
                 return _speaker_profile_status_update(f"❌ Cast failed: {error_msg}")
 
-            return _speaker_profile_status_update(
-                f"🎭 Voice Casting Results:\n\n{result_text}"
-            )
+            return _speaker_profile_status_update(f"🎭 Voice Casting Results:\n\n{result_text}")
 
         def handle_tts_engine_change(selected_engine):
             """Handle TTS engine selection changes and update UI accordingly."""

@@ -118,6 +118,7 @@ def _extract_launch_subset() -> ModuleType:
 
 def _load_launch_symbols() -> ModuleType:
     global _CACHED_LAUNCH_SYMBOLS
+    direct_import_error: Exception | None = None
 
     if _CACHED_LAUNCH_SYMBOLS is not None:
         return _CACHED_LAUNCH_SYMBOLS
@@ -131,7 +132,8 @@ def _load_launch_symbols() -> ModuleType:
     try:
         _CACHED_LAUNCH_SYMBOLS = importlib.import_module("launch")
         return _CACHED_LAUNCH_SYMBOLS
-    except Exception as direct_import_error:
+    except Exception as error:
+        direct_import_error = error
         sys.modules.pop("launch", None)
 
     try:
@@ -204,6 +206,33 @@ class TestStripUnsupportedCues:
         assert (
             result == "This Is Very Loud"
         ), "Expected ALL-CAPS emphasis to be normalized to title case for F5-TTS"
+
+
+class TestStripThinkTags:
+    @pytest.mark.parametrize(
+        "input_text,expected",
+        [
+            ("<think>internal reasoning</think>Final script", "Final script"),
+            (
+                "<think>outer <think>inner</think> still outer</think>Visible text",
+                "Visible text",
+            ),
+            ("Already clean output", "Already clean output"),
+            ("", ""),
+        ],
+        ids=["basic", "nested-tags", "no-tags", "empty-string"],
+    )
+    def test_strip_think_tags(self, input_text: str, expected: str) -> None:
+        assert narration_transform_module.strip_think_tags(input_text) == expected
+
+
+class TestCleanLlmTransformOutput:
+    def test_strips_think_tags_before_other_cleanup(self) -> None:
+        raw_text = "<think>reasoning block</think>```text\n<speak>Hello there</speak>\n```"
+
+        result = narration_transform_module._clean_llm_transform_output(raw_text)
+
+        assert result == "Hello there"
 
 
 class TestEngineCapabilityMatrix:
