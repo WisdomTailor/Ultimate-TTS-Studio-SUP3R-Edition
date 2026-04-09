@@ -28,6 +28,7 @@ REQUIRED_FUNCTIONS = {
     "ensure_app_state_dirs",
     "load_app_state_settings",
     "save_app_state_settings",
+    "normalize_llm_content_type",
     "normalize_llm_outcome_preset",
     "get_llm_outcome_preset_values",
     "_get_llm_settings_key",
@@ -63,11 +64,23 @@ def _extract_settings_module() -> ModuleType:
             selected_nodes.append(node)
 
     module = ModuleType("launch_settings_subset")
+    content_type_presets = {
+        "General (Default)": {
+            "system_prompt": None,
+            "description": "General-purpose cleanup.",
+        },
+        "Audiobook Narration": {
+            "system_prompt": "Audiobook system prompt",
+            "description": "Audiobook narration cleanup.",
+        },
+    }
     module.__dict__.update(
         {
             "__builtins__": __builtins__,
             "json": json,
             "os": os,
+            "CONTENT_TYPE_PRESETS": content_type_presets,
+            "DEFAULT_CONTENT_TYPE_PRESET": "General (Default)",
             "DEFAULT_LLM_NARRATION_SYSTEM_PROMPT": "Narration system prompt",
             "DEFAULT_LLM_OUTCOME_PRESET": "Balanced",
             "LLM_OUTCOME_PRESETS": {
@@ -93,6 +106,11 @@ def _extract_settings_module() -> ModuleType:
     )
     module.__dict__["_get_provider_config"] = lambda provider_name: module.LLM_PROVIDER_CONFIGS.get(
         provider_name, module._DEFAULT_PROVIDER_CONFIG
+    )
+    module.__dict__["get_content_type_preset_names"] = lambda: list(content_type_presets.keys())
+    module.__dict__["get_content_type_system_prompt"] = lambda preset_name: (
+        content_type_presets.get(preset_name, {}).get("system_prompt")
+        or module.DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
     )
 
     extracted = ast.Module(body=selected_nodes, type_ignores=[])
@@ -154,6 +172,7 @@ class TestSettingsNamespace:
         assert loaded == settings_module.DEFAULT_AUTOSAVE_SETTINGS
         assert loaded["narration_llm_provider"] == "LM Studio OpenAI Server"
         assert loaded["assistant_llm_provider"] == "LM Studio OpenAI Server"
+        assert loaded["narration_llm_content_type"] == "General (Default)"
         assert loaded["narration_llm_system_prompt"] == ""
         assert loaded["assistant_llm_system_prompt"] == ""
 
@@ -163,6 +182,7 @@ class TestSettingsNamespace:
             base_url="https://narration.example/v1",
             model_id="narration-model",
             api_key="unused-session-key",
+            content_type_name="Audiobook Narration",
             system_prompt="Narration custom prompt",
             preset_name="Precise",
         )
@@ -185,6 +205,7 @@ class TestSettingsNamespace:
         assert narration["preset"] == "Precise"
         assert narration["base_url"] == "https://narration.example/v1"
         assert narration["model_id"] == "narration-model"
+        assert narration["content_type"] == "Audiobook Narration"
         assert narration["system_prompt"] == "Narration custom prompt"
         assert assistant["provider"] == "LM Studio OpenAI Server"
         assert assistant["base_url"] == "http://127.0.0.1:9999/v1"
@@ -199,6 +220,7 @@ class TestSettingsNamespace:
             base_url="https://narration.example/v1",
             model_id="narration-model",
             api_key="unused-session-key",
+            content_type_name="Audiobook Narration",
             system_prompt="Narration custom prompt",
             preset_name="Precise",
         )
@@ -216,6 +238,7 @@ class TestSettingsNamespace:
 
         assert loaded["narration_llm_provider"] == "OpenAI"
         assert loaded["narration_llm_base_url"] == "https://narration.example/v1"
+        assert loaded["narration_llm_content_type"] == "Audiobook Narration"
         assert loaded["narration_llm_model_id"] == "narration-model"
         assert loaded["assistant_llm_provider"] == "LM Studio OpenAI Server"
         assert loaded["assistant_llm_base_url"] == "http://127.0.0.1:7777/v1"
@@ -229,6 +252,7 @@ class TestSettingsNamespace:
         narration = settings_module.get_initial_llm_panel_settings(loaded)
         assistant = settings_module.get_initial_assistant_llm_settings(loaded)
 
+        assert narration["content_type"] == "General (Default)"
         assert narration["system_prompt"] == settings_module.DEFAULT_LLM_NARRATION_SYSTEM_PROMPT
         assert assistant["system_prompt"] == ""
         assert set(assistant) == {
@@ -243,3 +267,24 @@ class TestSettingsNamespace:
             "model_choices",
             "system_prompt",
         }
+
+    def test_narration_content_type_uses_preset_prompt_when_system_prompt_is_blank(
+        self, settings_module: ModuleType
+    ) -> None:
+        settings_module.save_llm_panel_settings(
+            provider_name="OpenAI",
+            base_url="https://narration.example/v1",
+            model_id="narration-model",
+            api_key="unused-session-key",
+            content_type_name="Audiobook Narration",
+            system_prompt="Audiobook system prompt",
+            preset_name="Precise",
+        )
+
+        loaded = settings_module.load_app_state_settings()
+        narration = settings_module.get_initial_llm_panel_settings(loaded)
+
+        assert loaded["narration_llm_content_type"] == "Audiobook Narration"
+        assert loaded["narration_llm_system_prompt"] == ""
+        assert narration["content_type"] == "Audiobook Narration"
+        assert narration["system_prompt"] == "Audiobook system prompt"

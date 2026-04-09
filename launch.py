@@ -415,7 +415,9 @@ except Exception as error:
     print(f"⚠️ eBook converter not available. Error: {error}")
 
 from narration_transform import (
+    CONTENT_TYPE_PRESETS,
     DEFAULT_LLM_NARRATION_SYSTEM_PROMPT,
+    DEFAULT_CONTENT_TYPE_PRESET,
     LLM_PROVIDER_CONFIGS,
     LLM_PROVIDER_MODEL_SUGGESTIONS,
     LLM_OUTCOME_PRESETS,
@@ -429,6 +431,8 @@ from narration_transform import (
     _build_llm_transform_user_prompt,
     _clean_llm_transform_output,
     _apply_local_narration_transform,
+    get_content_type_preset_names,
+    get_content_type_system_prompt,
     get_llm_provider_env_var,
     get_llm_shell_key_setup_hint,
     fetch_provider_models,
@@ -2146,6 +2150,7 @@ DEFAULT_AUTOSAVE_SETTINGS = {
     "narration_llm_preset": "Balanced",
     "narration_llm_base_url": "",
     "narration_llm_model_id": "",
+    "narration_llm_content_type": DEFAULT_CONTENT_TYPE_PRESET,
     "narration_llm_system_prompt": "",
     "assistant_llm_provider": "LM Studio OpenAI Server",
     "assistant_llm_preset": "Balanced",
@@ -2285,6 +2290,13 @@ def normalize_llm_outcome_preset(preset_name: str | None) -> str:
     return candidate
 
 
+def normalize_llm_content_type(content_type_name: str | None) -> str:
+    candidate = str(content_type_name or "").strip()
+    if candidate not in get_content_type_preset_names():
+        return DEFAULT_CONTENT_TYPE_PRESET
+    return candidate
+
+
 def get_llm_outcome_preset_values(preset_name: str | None) -> tuple[float, float, int]:
     normalized_preset = normalize_llm_outcome_preset(preset_name)
     params = LLM_OUTCOME_PRESETS[normalized_preset]
@@ -2351,11 +2363,19 @@ def _get_initial_namespaced_llm_settings(
 
 
 def get_initial_llm_panel_settings(settings: dict | None = None) -> dict:
-    return _get_initial_namespaced_llm_settings(
+    if settings is None:
+        settings = load_app_state_settings()
+
+    content_type = normalize_llm_content_type(
+        settings.get(_get_llm_settings_key("narration", "content_type"))
+    )
+    llm_settings = _get_initial_namespaced_llm_settings(
         namespace="narration",
-        default_system_prompt=DEFAULT_LLM_NARRATION_SYSTEM_PROMPT,
+        default_system_prompt=get_content_type_system_prompt(content_type),
         settings=settings,
     )
+    llm_settings["content_type"] = content_type
+    return llm_settings
 
 
 def get_initial_assistant_llm_settings(settings: dict | None = None) -> dict:
@@ -2374,6 +2394,7 @@ def _save_namespaced_llm_settings(
     system_prompt: str,
     preset_name: str | None = None,
     default_system_prompt: str = "",
+    content_type_name: str | None = None,
 ) -> None:
     normalized_provider = str(provider_name or "").strip()
     default_provider = _get_default_llm_setting(namespace, "provider")
@@ -2381,21 +2402,28 @@ def _save_namespaced_llm_settings(
         normalized_provider = default_provider
 
     normalized_preset = normalize_llm_outcome_preset(preset_name)
+    normalized_content_type = None
+    effective_default_system_prompt = default_system_prompt
+    if namespace == "narration":
+        normalized_content_type = normalize_llm_content_type(content_type_name)
+        effective_default_system_prompt = get_content_type_system_prompt(normalized_content_type)
 
     # Secret hygiene: API keys are session-only and resolved via env vars at runtime.
-    save_app_state_settings(
-        {
-            _get_llm_settings_key(namespace, "provider"): normalized_provider,
-            _get_llm_settings_key(namespace, "preset"): normalized_preset,
-            _get_llm_settings_key(namespace, "base_url"): str(base_url or "").strip(),
-            _get_llm_settings_key(namespace, "model_id"): str(model_id or "").strip(),
-            _get_llm_settings_key(namespace, "system_prompt"): (
-                ""
-                if str(system_prompt or "") == default_system_prompt
-                else str(system_prompt or "")
-            ),
-        }
-    )
+    updates = {
+        _get_llm_settings_key(namespace, "provider"): normalized_provider,
+        _get_llm_settings_key(namespace, "preset"): normalized_preset,
+        _get_llm_settings_key(namespace, "base_url"): str(base_url or "").strip(),
+        _get_llm_settings_key(namespace, "model_id"): str(model_id or "").strip(),
+        _get_llm_settings_key(namespace, "system_prompt"): (
+            ""
+            if str(system_prompt or "") == effective_default_system_prompt
+            else str(system_prompt or "")
+        ),
+    }
+    if namespace == "narration" and normalized_content_type is not None:
+        updates[_get_llm_settings_key(namespace, "content_type")] = normalized_content_type
+
+    save_app_state_settings(updates)
 
 
 def save_llm_panel_settings(
@@ -2403,6 +2431,7 @@ def save_llm_panel_settings(
     base_url: str,
     model_id: str,
     api_key: str,
+    content_type_name: str,
     system_prompt: str,
     preset_name: str | None = None,
 ) -> None:
@@ -2415,6 +2444,7 @@ def save_llm_panel_settings(
             system_prompt=system_prompt,
             preset_name=preset_name,
             default_system_prompt=DEFAULT_LLM_NARRATION_SYSTEM_PROMPT,
+            content_type_name=content_type_name,
         )
     except Exception as error:
         print(f"⚠️ Failed to save LLM settings: {error}")
@@ -7775,6 +7805,13 @@ def create_gradio_interface():
     """Create the unified Gradio interface."""
     current_storage_settings = load_app_state_settings()
     current_llm_settings = get_initial_llm_panel_settings(current_storage_settings)
+    llm_content_type_info = (
+        "Choose the prompt preset that replaces the base system prompt. "
+        + " ".join(
+            f"{name}: {preset['description']}"
+            for name, preset in CONTENT_TYPE_PRESETS.items()
+        )
+    )
     lexicon_path = Path(__file__).parent / "app_state" / "lexicon.json"
     current_storage_mode, current_storage_path = resolve_output_storage_settings(
         current_storage_settings
@@ -9536,6 +9573,14 @@ def create_gradio_interface():
                                     type="password",
                                     placeholder="Optional in UI. Prefer shell env var for safety: GOOGLE_API_KEY or OPENAI_API_KEY",
                                     info="Required for cloud providers (Gemini, GitHub, Foundry). Can also be set as an environment variable for security.",
+                                )
+
+                            with gr.Row():
+                                llm_content_type = gr.Dropdown(
+                                    label="Content Type",
+                                    choices=get_content_type_preset_names(),
+                                    value=current_llm_settings["content_type"],
+                                    info=llm_content_type_info,
                                 )
 
                             with gr.Row():
@@ -14434,6 +14479,24 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
+        llm_content_type.change(
+            fn=get_content_type_system_prompt,
+            inputs=[llm_content_type],
+            outputs=[llm_system_prompt],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_content_type,
                 llm_system_prompt,
                 llm_preset,
             ],
@@ -14446,6 +14509,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
+                llm_content_type,
                 llm_system_prompt,
                 llm_preset,
             ],
@@ -14458,6 +14522,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
+                llm_content_type,
                 llm_system_prompt,
                 llm_preset,
             ],
@@ -14470,6 +14535,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
+                llm_content_type,
                 llm_system_prompt,
                 llm_preset,
             ],
@@ -14482,6 +14548,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
+                llm_content_type,
                 llm_system_prompt,
                 llm_preset,
             ],
@@ -14498,6 +14565,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
+                llm_content_type,
                 llm_system_prompt,
                 llm_preset,
             ],
@@ -14514,20 +14582,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
-                llm_system_prompt,
-                llm_preset,
-            ],
-        )
-
-        llm_prompt_reset_btn.click(
-            fn=lambda: DEFAULT_LLM_NARRATION_SYSTEM_PROMPT, outputs=[llm_system_prompt]
-        ).then(
-            fn=save_llm_panel_settings,
-            inputs=[
-                llm_provider,
-                llm_base_url,
-                llm_model_id,
-                llm_api_key,
+                llm_content_type,
                 llm_system_prompt,
                 llm_preset,
             ],
@@ -14537,6 +14592,22 @@ Alice: I went to Japan. It was absolutely incredible!""",
             fn=test_llm_connection,
             inputs=[llm_provider, llm_base_url, llm_api_key, llm_model_id, llm_timeout_seconds],
             outputs=[llm_connection_status],
+        )
+
+        llm_prompt_reset_btn.click(
+            fn=lambda: (DEFAULT_CONTENT_TYPE_PRESET, DEFAULT_LLM_NARRATION_SYSTEM_PROMPT),
+            outputs=[llm_content_type, llm_system_prompt],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
         )
 
         assistant_send_btn.click(
