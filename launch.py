@@ -7918,13 +7918,15 @@ def create_gradio_interface():
 
     # Kokoro voices will be preloaded when the model is loaded
 
+    gr_themes = getattr(gr, "themes")
+
     with gr.Blocks(
         title="✨ ULTIMATE TTS STUDIO PRO ✨",
-        theme=gr.themes.Soft(
+        theme=gr_themes.Soft(
             primary_hue="purple",
             secondary_hue="blue",
             neutral_hue="gray",
-            font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
+            font=[gr_themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
         ).set(
             body_background_fill="*neutral_950",
             body_background_fill_dark="*neutral_950",
@@ -17249,11 +17251,14 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 "tool_count": "14",
             }
 
-        gr.api(mcp_list_engines, api_name="list_engines")
-        gr.api(mcp_get_engine_info, api_name="get_engine_info")
-        gr.api(mcp_list_voices, api_name="list_voices")
-        gr.api(mcp_list_outputs, api_name="list_outputs")
-        gr.api(mcp_get_app_version, api_name="get_app_version")
+        def register_mcp_api(fn: Any, api_name: str) -> None:
+            getattr(gr, "api")(fn, api_name=api_name)
+
+        register_mcp_api(mcp_list_engines, api_name="list_engines")
+        register_mcp_api(mcp_get_engine_info, api_name="get_engine_info")
+        register_mcp_api(mcp_list_voices, api_name="list_voices")
+        register_mcp_api(mcp_list_outputs, api_name="list_outputs")
+        register_mcp_api(mcp_get_app_version, api_name="get_app_version")
 
         # ── MCP stateless transform tools (Phase 4a WI-4) ────────────────
         def mcp_normalize_text(text: str, request: gr.Request) -> str:
@@ -17425,11 +17430,11 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 for name, cfg in LLM_PROVIDER_CONFIGS.items()
             ]
 
-        gr.api(mcp_normalize_text, api_name="normalize_text")
-        gr.api(mcp_transform_text, api_name="transform_text")
-        gr.api(mcp_get_engine_script_profile, api_name="get_engine_script_profile")
-        gr.api(mcp_structure_conversation, api_name="structure_conversation")
-        gr.api(mcp_list_llm_providers, api_name="list_llm_providers")
+        register_mcp_api(mcp_normalize_text, api_name="normalize_text")
+        register_mcp_api(mcp_transform_text, api_name="transform_text")
+        register_mcp_api(mcp_get_engine_script_profile, api_name="get_engine_script_profile")
+        register_mcp_api(mcp_structure_conversation, api_name="structure_conversation")
+        register_mcp_api(mcp_list_llm_providers, api_name="list_llm_providers")
 
         # ── MCP synthesis tools (Phase 4a WI-6) ──────────────────────────
         def mcp_synthesize(
@@ -17505,7 +17510,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 )
             return response
 
-        gr.api(mcp_synthesize, api_name="synthesize")
+        register_mcp_api(mcp_synthesize, api_name="synthesize")
 
         # ── MCP job tools (Phase 4a WI-7) ────────────────────────────
         def mcp_submit_synthesis_job(
@@ -17649,9 +17654,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 "status": "cancelled" if cancelled else "already_terminal",
             }
 
-        gr.api(mcp_submit_synthesis_job, api_name="submit_synthesis_job")
-        gr.api(mcp_get_job_status, api_name="get_job_status")
-        gr.api(mcp_cancel_job, api_name="cancel_job")
+        register_mcp_api(mcp_submit_synthesis_job, api_name="submit_synthesis_job")
+        register_mcp_api(mcp_get_job_status, api_name="get_job_status")
+        register_mcp_api(mcp_cancel_job, api_name="cancel_job")
 
     return demo
 
