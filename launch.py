@@ -5475,13 +5475,35 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
         )
 
 
-def on_load_speaker_profile(profile_name: str, current_settings_state: dict):
-    """Load a saved conversation speaker profile into the speaker panels."""
+def on_load_speaker_profile(
+    profile_name: str,
+    current_settings_state: dict,
+    selected_speaker_index: int | None,
+    speakers: list[str] | None,
+):
+    """Load a saved conversation speaker profile into the active speaker slot."""
     normalized_name = _normalize_speaker_profile_name(profile_name)
+    normalized_speakers = [
+        str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
+    ]
+    updated_state = _clone_conversation_speaker_settings(
+        current_settings_state,
+        normalized_speakers,
+    )
+    try:
+        normalized_index = (
+            int(selected_speaker_index) if selected_speaker_index not in (None, "") else None
+        )
+    except (TypeError, ValueError):
+        normalized_index = None
+    if normalized_index is None or not (0 <= normalized_index < len(normalized_speakers)):
+        normalized_index = 0 if normalized_speakers else None
+
     if not normalized_name:
         return (
-            current_settings_state if isinstance(current_settings_state, dict) else {},
+            updated_state,
             *[gr.update() for _ in range(10)],
+            gr.update(value=""),
             _speaker_profile_status_update("ℹ️ Select a speaker profile to load"),
         )
 
@@ -5489,8 +5511,9 @@ def on_load_speaker_profile(profile_name: str, current_settings_state: dict):
     profile_entry = store.get("profiles", {}).get(normalized_name)
     if not isinstance(profile_entry, dict):
         return (
-            current_settings_state if isinstance(current_settings_state, dict) else {},
+            updated_state,
             *[gr.update() for _ in range(10)],
+            gr.update(value=""),
             _speaker_profile_status_update(f"⚠️ Speaker profile '{normalized_name}' not found"),
         )
 
@@ -5498,30 +5521,54 @@ def on_load_speaker_profile(profile_name: str, current_settings_state: dict):
     if not isinstance(saved_speakers, dict):
         saved_speakers = {}
 
-    normalized_settings = _clone_conversation_speaker_settings(
-        saved_speakers,
-        list(saved_speakers.keys()),
-    )
+    loaded_settings: dict[str, Any] = {}
+    target_speaker_name = None
+    if normalized_index is not None and normalized_index < len(normalized_speakers):
+        target_speaker_name = normalized_speakers[normalized_index]
+        target_saved_settings = saved_speakers.get(target_speaker_name)
+        if isinstance(target_saved_settings, dict):
+            loaded_settings = copy.deepcopy(target_saved_settings)
+
+    if not loaded_settings:
+        for saved_settings in saved_speakers.values():
+            if isinstance(saved_settings, dict):
+                loaded_settings = copy.deepcopy(saved_settings)
+                break
 
     missing_audio_count = 0
-    for speaker_settings in normalized_settings.values():
-        if not isinstance(speaker_settings, dict):
-            continue
-        ref_audio = str(speaker_settings.get("ref_audio", "") or "").strip()
-        if ref_audio and not os.path.exists(ref_audio):
-            speaker_settings["ref_audio"] = ""
-            missing_audio_count += 1
+    ref_audio = str(loaded_settings.get("ref_audio", "") or "").strip()
+    if ref_audio and not os.path.exists(ref_audio):
+        loaded_settings["ref_audio"] = ""
+        missing_audio_count += 1
 
-    audio_values, ref_text_values = _build_speaker_profile_component_values(normalized_settings)
+    if target_speaker_name is not None:
+        updated_state.setdefault(target_speaker_name, {}).update(loaded_settings)
+        updated_state[target_speaker_name]["selected_profile"] = normalized_name
+    elif loaded_settings:
+        normalized_profile_state = _clone_conversation_speaker_settings(
+            saved_speakers,
+            list(saved_speakers.keys()),
+        )
+        for speaker_name, speaker_settings in normalized_profile_state.items():
+            if not isinstance(speaker_settings, dict):
+                continue
+            saved_audio = str(speaker_settings.get("ref_audio", "") or "").strip()
+            if saved_audio and not os.path.exists(saved_audio):
+                speaker_settings["ref_audio"] = ""
+                missing_audio_count += 1
+        updated_state = normalized_profile_state
+
+    audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
 
     status_message = f"✅ Loaded speaker profile '{normalized_name}'"
     if missing_audio_count:
         status_message += f" ({missing_audio_count} missing audio file(s) skipped)"
 
     return (
-        normalized_settings,
+        updated_state,
         *audio_values,
         *ref_text_values,
+        gr.update(value=normalized_name),
         _speaker_profile_status_update(status_message),
     )
 
@@ -15386,6 +15433,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     ),
                     gr.update(value=""),
                     None,
+                    gr.update(value=None),
+                    gr.update(value=""),
                     *hidden_updates,
                 )
 
@@ -15394,6 +15443,13 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 normalized_index = 0
 
             selected_speaker_name = speakers[normalized_index]
+            selected_profile_name = ""
+            if isinstance(speaker_settings, dict):
+                current_speaker_settings = speaker_settings.get(selected_speaker_name, {})
+                if isinstance(current_speaker_settings, dict):
+                    selected_profile_name = str(
+                        current_speaker_settings.get("selected_profile", "") or ""
+                    ).strip()
             roster_choices = _build_conversation_roster_choices(
                 speakers,
                 selected_engine,
@@ -15413,6 +15469,12 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 ),
                 gr.update(value=_build_conversation_capabilities(selected_engine)),
                 normalized_index,
+                (
+                    gr.update(value=selected_profile_name)
+                    if selected_profile_name
+                    else gr.update()
+                ),
+                gr.update(value=selected_profile_name),
                 *_build_conversation_panel_updates(speakers, selected_engine, normalized_index),
             )
 
@@ -15828,7 +15890,12 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
         speaker_profile_selector.change(
             fn=on_load_speaker_profile,
-            inputs=[speaker_profile_selector, conversation_speaker_settings_state],
+            inputs=[
+                speaker_profile_selector,
+                conversation_speaker_settings_state,
+                conversation_selected_speaker_state,
+                conversation_speakers_state,
+            ],
             outputs=[
                 conversation_speaker_settings_state,
                 speaker_1_audio,
@@ -15841,6 +15908,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_3_ref_text,
                 speaker_4_ref_text,
                 speaker_5_ref_text,
+                speaker_profile_name_input,
                 speaker_profile_status,
             ],
         )
@@ -15902,6 +15970,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 selected_character_hint,
                 selected_character_capabilities,
                 conversation_selected_speaker_state,
+                speaker_profile_selector,
+                speaker_profile_name_input,
                 *conversation_panel_updates,
             ],
         )
