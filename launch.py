@@ -2156,6 +2156,7 @@ DEFAULT_AUTOSAVE_SETTINGS = {
     "assistant_llm_provider": "LM Studio OpenAI Server",
     "assistant_llm_preset": "Balanced",
     "assistant_llm_base_url": "",
+    "assistant_llm_api_key": "",
     "assistant_llm_model_id": "",
     "assistant_llm_system_prompt": "",
 }
@@ -2323,6 +2324,7 @@ def _get_initial_namespaced_llm_settings(
     provider_key = _get_llm_settings_key(namespace, "provider")
     preset_key = _get_llm_settings_key(namespace, "preset")
     base_url_key = _get_llm_settings_key(namespace, "base_url")
+    api_key_key = _get_llm_settings_key(namespace, "api_key")
     model_id_key = _get_llm_settings_key(namespace, "model_id")
     system_prompt_key = _get_llm_settings_key(namespace, "system_prompt")
 
@@ -2336,8 +2338,9 @@ def _get_initial_namespaced_llm_settings(
 
     provider_config = _get_provider_config(provider_name)
     base_url = str(settings.get(base_url_key, "") or "").strip() or provider_config["base_url"]
-    # Secret hygiene: API keys are session-only and resolved via env vars at runtime.
     api_key = ""
+    if namespace == "assistant":
+        api_key = str(settings.get(api_key_key, "") or "").strip()
     model_id = normalize_provider_model_id(
         provider_name,
         str(settings.get(model_id_key, "") or "").strip() or provider_config["default_model"],
@@ -2396,6 +2399,7 @@ def _save_namespaced_llm_settings(
     provider_name: str,
     base_url: str,
     model_id: str,
+    api_key: str,
     system_prompt: str,
     preset_name: str | None = None,
     default_system_prompt: str = "",
@@ -2413,7 +2417,6 @@ def _save_namespaced_llm_settings(
         normalized_content_type = normalize_llm_content_type(content_type_name)
         effective_default_system_prompt = get_content_type_system_prompt(normalized_content_type)
 
-    # Secret hygiene: API keys are session-only and resolved via env vars at runtime.
     updates = {
         _get_llm_settings_key(namespace, "provider"): normalized_provider,
         _get_llm_settings_key(namespace, "preset"): normalized_preset,
@@ -2425,6 +2428,8 @@ def _save_namespaced_llm_settings(
             else str(system_prompt or "")
         ),
     }
+    if namespace == "assistant":
+        updates[_get_llm_settings_key(namespace, "api_key")] = str(api_key or "").strip()
     if namespace == "narration" and normalized_content_type is not None:
         updates[_get_llm_settings_key(namespace, "content_type")] = normalized_content_type
 
@@ -2446,6 +2451,7 @@ def save_llm_panel_settings(
             provider_name=provider_name,
             base_url=base_url,
             model_id=model_id,
+            api_key="",
             system_prompt=system_prompt,
             preset_name=preset_name,
             default_system_prompt=DEFAULT_LLM_NARRATION_SYSTEM_PROMPT,
@@ -2469,6 +2475,7 @@ def save_assistant_llm_settings(
             provider_name=provider_name,
             base_url=base_url,
             model_id=model_id,
+            api_key=api_key,
             system_prompt=system_prompt,
             preset_name=preset_name,
             default_system_prompt="",
@@ -2492,8 +2499,8 @@ def build_assistant_provider_help_markdown(provider_name: str) -> str:
         f"- Default URL: {cfg.get('base_url', '')}\n"
         f"- Default model: {cfg.get('default_model', '') or '(set this manually)'}\n"
         f"- {key_line}\n"
-        "- Saved to disk: provider, base URL, model, system prompt in app/app_state/settings.json.\n"
-        "- Never saved: the API key typed into this field."
+        "- Saved to disk: provider, base URL, model, system prompt, and assistant API key in app/app_state/settings.json.\n"
+        "- Assistant API keys are stored locally in plaintext on this machine."
     )
 
 
@@ -11357,11 +11364,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     elem_classes=["fade-in"],
                                 )
                                 assistant_llm_api_key = gr.Textbox(
-                                    value="",
+                                    value=assistant_llm_settings["api_key"],
                                     label="🔑 API Key",
                                     type="password",
                                     scale=2,
-                                    info="Session-only. Not saved. Gemini accepts GOOGLE_API_KEY or GEMINI_API_KEY.",
+                                    info="Persisted for the Assistant in app/app_state/settings.json. Gemini accepts GOOGLE_API_KEY or GEMINI_API_KEY.",
                                     elem_classes=["fade-in"],
                                 )
 
@@ -13504,7 +13511,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 api_key=api_key,
                 system_prompt=system_prompt,
             )
-            return "✅ Assistant settings saved. API keys are not stored in settings.json."
+            return "✅ Assistant settings saved. The assistant API key is stored in app/app_state/settings.json."
 
         def handle_assistant_provider_change(provider_name):
             """Handle assistant LLM provider change using the shared provider defaults."""
@@ -14784,10 +14791,63 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[assistant_llm_status],
         )
 
+        assistant_llm_base_url.change(
+            fn=save_assistant_llm_settings,
+            inputs=[
+                assistant_llm_provider,
+                assistant_llm_base_url,
+                assistant_llm_model_id,
+                assistant_llm_api_key,
+                assistant_llm_system_prompt,
+            ],
+        )
+
+        assistant_llm_api_key.change(
+            fn=save_assistant_llm_settings,
+            inputs=[
+                assistant_llm_provider,
+                assistant_llm_base_url,
+                assistant_llm_model_id,
+                assistant_llm_api_key,
+                assistant_llm_system_prompt,
+            ],
+        )
+
+        assistant_llm_model_id.change(
+            fn=save_assistant_llm_settings,
+            inputs=[
+                assistant_llm_provider,
+                assistant_llm_base_url,
+                assistant_llm_model_id,
+                assistant_llm_api_key,
+                assistant_llm_system_prompt,
+            ],
+        )
+
+        assistant_llm_system_prompt.change(
+            fn=save_assistant_llm_settings,
+            inputs=[
+                assistant_llm_provider,
+                assistant_llm_base_url,
+                assistant_llm_model_id,
+                assistant_llm_api_key,
+                assistant_llm_system_prompt,
+            ],
+        )
+
         assistant_llm_provider.change(
             fn=handle_assistant_provider_change,
             inputs=[assistant_llm_provider],
             outputs=[assistant_llm_base_url, assistant_llm_model_id, assistant_provider_help],
+        ).then(
+            fn=save_assistant_llm_settings,
+            inputs=[
+                assistant_llm_provider,
+                assistant_llm_base_url,
+                assistant_llm_model_id,
+                assistant_llm_api_key,
+                assistant_llm_system_prompt,
+            ],
         )
 
         demo.load(
