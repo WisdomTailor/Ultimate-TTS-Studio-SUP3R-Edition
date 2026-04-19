@@ -2174,6 +2174,25 @@ PREVIOUS_DEFAULT_FILENAME_TEMPLATE = "{preset}_{project}_{timestamp}"
 PRESET_ONLY_FILENAME_TEMPLATE = "{preset}_{timestamp}"
 
 
+DEPRECATED_PROVIDER_MODEL_ALIASES = {
+    "Google Gemini API (OpenAI-compatible)": {
+        "gemini-2.0-flash": "gemini-2.5-flash",
+        "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
+        "gemini-2.5-pro-preview-05-06": "gemini-2.5-pro",
+    }
+}
+
+
+def normalize_provider_model_id(provider_name: str, model_id: str) -> str:
+    normalized_model_id = str(model_id or "").strip()
+    if not normalized_model_id:
+        return ""
+
+    replacements = DEPRECATED_PROVIDER_MODEL_ALIASES.get(provider_name, {})
+    return replacements.get(normalized_model_id, normalized_model_id)
+
+
 def ensure_app_state_dirs():
     os.makedirs(APP_STATE_DIR, exist_ok=True)
     os.makedirs(APP_STATE_VOICES_DIR, exist_ok=True)
@@ -6808,15 +6827,6 @@ LLM_PROVIDER_ENV_VAR_ALIASES = {
     "Google Gemini API (OpenAI-compatible)": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
 }
 
-DEPRECATED_PROVIDER_MODEL_ALIASES = {
-    "Google Gemini API (OpenAI-compatible)": {
-        "gemini-2.0-flash": "gemini-2.5-flash",
-        "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
-        "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
-        "gemini-2.5-pro-preview-05-06": "gemini-2.5-pro",
-    }
-}
-
 _DEFAULT_PROVIDER_CONFIG = {
     "base_url": "http://localhost:8000/v1",
     "default_model": "",
@@ -6843,15 +6853,6 @@ def get_llm_provider_static_defaults(provider_name: str):
 
 def get_llm_provider_env_var(provider_name: str) -> str:
     return _get_provider_config(provider_name)["env_var"]
-
-
-def normalize_provider_model_id(provider_name: str, model_id: str) -> str:
-    normalized_model_id = str(model_id or "").strip()
-    if not normalized_model_id:
-        return ""
-
-    replacements = DEPRECATED_PROVIDER_MODEL_ALIASES.get(provider_name, {})
-    return replacements.get(normalized_model_id, normalized_model_id)
 
 
 def get_llm_provider_env_vars(provider_name: str) -> list[str]:
