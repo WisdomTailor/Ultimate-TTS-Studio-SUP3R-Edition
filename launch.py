@@ -2473,6 +2473,26 @@ def save_assistant_llm_settings(
         print(f"⚠️ Failed to save assistant LLM settings: {error}")
 
 
+def build_assistant_provider_help_markdown(provider_name: str) -> str:
+    cfg = _get_provider_config(provider_name)
+    env_vars = ", ".join(get_llm_provider_env_vars(provider_name))
+
+    if cfg.get("requires_api_key"):
+        key_line = f"API key required. Accepted env vars: {env_vars}."
+    else:
+        key_line = "API key usually not required for this local provider."
+
+    return (
+        "### Assistant setup help\n"
+        f"- Provider: {provider_name}\n"
+        f"- Default URL: {cfg.get('base_url', '')}\n"
+        f"- Default model: {cfg.get('default_model', '') or '(set this manually)'}\n"
+        f"- {key_line}\n"
+        "- Saved to disk: provider, base URL, model, system prompt in app/app_state/settings.json.\n"
+        "- Never saved: the API key typed into this field."
+    )
+
+
 def save_output_storage_settings(mode_label: str, custom_path: str):
     mode = "custom" if str(mode_label or "").lower().startswith("custom") else "project"
     normalized_path = str(custom_path or "").strip()
@@ -6753,6 +6773,10 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
     ],
 }
 
+LLM_PROVIDER_ENV_VAR_ALIASES = {
+    "Google Gemini API (OpenAI-compatible)": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
+}
+
 _DEFAULT_PROVIDER_CONFIG = {
     "base_url": "http://localhost:8000/v1",
     "default_model": "",
@@ -6781,15 +6805,26 @@ def get_llm_provider_env_var(provider_name: str) -> str:
     return _get_provider_config(provider_name)["env_var"]
 
 
+def get_llm_provider_env_vars(provider_name: str) -> list[str]:
+    primary_env_var = str(_get_provider_config(provider_name)["env_var"])
+    env_vars = [primary_env_var]
+    for alias in LLM_PROVIDER_ENV_VAR_ALIASES.get(provider_name, []):
+        if alias not in env_vars:
+            env_vars.append(alias)
+    return env_vars
+
+
 def get_llm_shell_key_setup_hint(provider_name: str) -> str:
-    cfg = _get_provider_config(provider_name)
-    env_name = cfg["env_var"]
+    env_vars = get_llm_provider_env_vars(provider_name)
+    env_name = env_vars[0]
     hint = (
         f"Set key in shell (placeholder only):\n"
         f'PowerShell: $env:{env_name} = "<PASTE_KEY_HERE>"\n'
         f"CMD: set {env_name}=<PASTE_KEY_HERE>\n"
         f'Bash: export {env_name}="<PASTE_KEY_HERE>"'
     )
+    if len(env_vars) > 1:
+        hint += "\nAlso accepted: " + ", ".join(env_vars[1:])
     if provider_name == "Microsoft Foundry (OpenAI-compatible)":
         hint += "\nOr use: Azure Portal \u2192 AI Foundry \u2192 Project \u2192 Keys"
     elif provider_name == "GitHub Models (OpenAI-compatible)":
@@ -6801,10 +6836,10 @@ def resolve_llm_api_key(provider_name: str, api_key: str):
     if isinstance(api_key, str) and api_key.strip():
         return api_key.strip(), "ui"
 
-    env_name = get_llm_provider_env_var(provider_name)
-    env_value = os.environ.get(env_name, "")
-    if isinstance(env_value, str) and env_value.strip():
-        return env_value.strip(), "env"
+    for env_name in get_llm_provider_env_vars(provider_name):
+        env_value = os.environ.get(env_name, "")
+        if isinstance(env_value, str) and env_value.strip():
+            return env_value.strip(), f"env:{env_name}"
 
     return "", "missing"
 
@@ -11296,6 +11331,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     value=assistant_llm_settings["base_url"],
                                     label="🌐 Base URL",
                                     scale=3,
+                                    info="Auto-filled from the provider. Change this only if your provider uses a different OpenAI-compatible endpoint.",
                                     elem_classes=["fade-in"],
                                 )
                                 assistant_llm_api_key = gr.Textbox(
@@ -11303,15 +11339,23 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     label="🔑 API Key",
                                     type="password",
                                     scale=2,
-                                    info="Session-only. Not saved. Use env vars for persistence.",
+                                    info="Session-only. Not saved. Gemini accepts GOOGLE_API_KEY or GEMINI_API_KEY.",
                                     elem_classes=["fade-in"],
                                 )
+
+                            assistant_provider_help = gr.Markdown(
+                                value=build_assistant_provider_help_markdown(
+                                    assistant_llm_settings["provider"]
+                                ),
+                                elem_classes=["fade-in"],
+                            )
 
                             assistant_llm_model_id = gr.Dropdown(
                                 choices=assistant_llm_settings["model_choices"],
                                 value=assistant_llm_settings["model_id"],
                                 label="🧠 Model",
                                 allow_custom_value=True,
+                                info="The model must match the provider. Gemini providers need a Gemini model ID.",
                                 elem_classes=["fade-in"],
                             )
 
@@ -13426,7 +13470,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             if result.startswith("✅"):
                 indicator = f"🤖 Assistant: Connected ({provider})"
             else:
-                indicator = "🤖 Assistant: Connection failed"
+                indicator = f"🤖 Assistant: Connection failed ({provider})"
             return result, indicator
 
         def handle_assistant_save_settings(provider, base_url, model_id, api_key, system_prompt):
@@ -13438,7 +13482,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 api_key=api_key,
                 system_prompt=system_prompt,
             )
-            return "✅ Assistant LLM settings saved"
+            return "✅ Assistant settings saved. API keys are not stored in settings.json."
 
         def handle_assistant_provider_change(provider_name):
             """Handle assistant LLM provider change using the shared provider defaults."""
@@ -13449,6 +13493,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             return (
                 gr.update(value=cfg["base_url"]),
                 gr.update(choices=suggestions, value=cfg["default_model"]),
+                build_assistant_provider_help_markdown(provider_name),
             )
 
         def _resolve_job_id(manager, raw_job_id):
@@ -14719,7 +14764,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         assistant_llm_provider.change(
             fn=handle_assistant_provider_change,
             inputs=[assistant_llm_provider],
-            outputs=[assistant_llm_base_url, assistant_llm_model_id],
+            outputs=[assistant_llm_base_url, assistant_llm_model_id, assistant_provider_help],
         )
 
         demo.load(
@@ -15471,11 +15516,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 ),
                 gr.update(value=_build_conversation_capabilities(selected_engine)),
                 normalized_index,
-                (
-                    gr.update(value=selected_profile_name)
-                    if selected_profile_name
-                    else gr.update()
-                ),
+                (gr.update(value=selected_profile_name) if selected_profile_name else gr.update()),
                 gr.update(value=selected_profile_name),
                 *_build_conversation_panel_updates(speakers, selected_engine, normalized_index),
             )

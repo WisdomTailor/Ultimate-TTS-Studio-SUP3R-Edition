@@ -519,6 +519,10 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
     ],
 }
 
+LLM_PROVIDER_ENV_VAR_ALIASES: dict[str, list[str]] = {
+    "Google Gemini API (OpenAI-compatible)": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
+}
+
 _DEFAULT_PROVIDER_CONFIG = {
     "base_url": "http://localhost:8000/v1",
     "default_model": "",
@@ -560,15 +564,30 @@ def get_llm_provider_env_var(provider_name: str) -> str:
     return _get_provider_config(provider_name)["env_var"]
 
 
+def get_llm_provider_env_vars(provider_name: str) -> list[str]:
+    cfg = _get_provider_config(provider_name)
+    primary_env_var = str(cfg["env_var"])
+    aliases = list(LLM_PROVIDER_ENV_VAR_ALIASES.get(provider_name, []))
+    env_vars = [primary_env_var]
+    for alias in aliases:
+        if alias not in env_vars:
+            env_vars.append(alias)
+    return env_vars
+
+
 def get_llm_shell_key_setup_hint(provider_name: str) -> str:
     cfg = _get_provider_config(provider_name)
-    env_name = cfg["env_var"]
+    env_names = get_llm_provider_env_vars(provider_name)
+    primary_env_name = env_names[0]
     hint = (
         f"Set key in shell (placeholder only):\n"
-        f'PowerShell: $env:{env_name} = "<PASTE_KEY_HERE>"\n'
-        f"CMD: set {env_name}=<PASTE_KEY_HERE>\n"
-        f'Bash: export {env_name}="<PASTE_KEY_HERE>"'
+        f'PowerShell: $env:{primary_env_name} = "<PASTE_KEY_HERE>"\n'
+        f"CMD: set {primary_env_name}=<PASTE_KEY_HERE>\n"
+        f'Bash: export {primary_env_name}="<PASTE_KEY_HERE>"'
     )
+    if len(env_names) > 1:
+        alias_list = ", ".join(env_names[1:])
+        hint += f"\nAlso accepted: {alias_list}"
     if provider_name == "Microsoft Foundry (OpenAI-compatible)":
         hint += "\nOr use: Azure Portal → AI Foundry → Project → Keys"
     elif provider_name == "GitHub Models (OpenAI-compatible)":
@@ -582,12 +601,38 @@ def resolve_llm_api_key(provider_name: str, api_key: str) -> tuple[str, str]:
     if isinstance(api_key, str) and api_key.strip():
         return api_key.strip(), "ui"
 
-    env_name = get_llm_provider_env_var(provider_name)
-    env_value = os.environ.get(env_name, "")
-    if isinstance(env_value, str) and env_value.strip():
-        return env_value.strip(), "env"
+    for env_name in get_llm_provider_env_vars(provider_name):
+        env_value = os.environ.get(env_name, "")
+        if isinstance(env_value, str) and env_value.strip():
+            return env_value.strip(), f"env:{env_name}"
 
     return "", "missing"
+
+
+def _extract_http_error_message(raw_error_body: str) -> str:
+    clean_body = str(raw_error_body or "").strip()
+    if not clean_body:
+        return ""
+
+    try:
+        payload = json.loads(clean_body)
+    except json.JSONDecodeError:
+        return clean_body[:300]
+
+    if isinstance(payload, dict):
+        error_obj = payload.get("error")
+        if isinstance(error_obj, dict):
+            message = str(error_obj.get("message") or "").strip()
+            status = str(error_obj.get("status") or "").strip()
+            code = str(error_obj.get("code") or "").strip()
+            parts = [part for part in [message, status, code] if part]
+            if parts:
+                return " | ".join(parts)
+        message = str(payload.get("message") or "").strip()
+        if message:
+            return message
+
+    return clean_body[:300]
 
 
 def _resolve_api_key_internal(provider_name: str, api_key: str) -> tuple[str, str]:
@@ -1065,9 +1110,16 @@ def call_openai_compatible_chat(
 
     request_body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(endpoint, data=request_body, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=max(5, int(timeout_seconds))) as resp:
-        raw = resp.read().decode("utf-8", errors="replace")
-        data = json.loads(raw)
+    try:
+        with urllib.request.urlopen(req, timeout=max(5, int(timeout_seconds))) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            data = json.loads(raw)
+    except urllib.error.HTTPError as error:
+        raw_error = error.read().decode("utf-8", errors="replace")
+        detail = _extract_http_error_message(raw_error)
+        if detail:
+            raise ValueError(f"HTTP {error.code} {error.reason}: {detail}") from error
+        raise ValueError(f"HTTP {error.code} {error.reason}") from error
 
     choices = data.get("choices") or []
     if not choices:

@@ -10,10 +10,12 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from typing import Sequence
+from urllib.parse import urlparse
 
 from narration_transform import (
     _get_provider_config,
     call_openai_compatible_chat,
+    get_llm_provider_env_vars,
     resolve_llm_api_key,
 )
 
@@ -26,6 +28,56 @@ DEFAULT_ASSISTANT_SYSTEM_PROMPT = (
     "Be concise and practical. When suggesting settings, include specific "
     "parameter values. If you don't know something, say so."
 )
+
+GEMINI_PROVIDER_NAME = "Google Gemini API (OpenAI-compatible)"
+
+
+def _infer_provider_from_base_url(base_url: str) -> str | None:
+    parsed = urlparse(str(base_url or "").strip())
+    host = (parsed.netloc or "").lower()
+
+    if "generativelanguage.googleapis.com" in host:
+        return GEMINI_PROVIDER_NAME
+    if "models.github.ai" in host:
+        return "GitHub Models (OpenAI-compatible)"
+    if "huggingface.co" in host:
+        return "Hugging Face Inference API"
+    if host.startswith("localhost:1234") or host.startswith("127.0.0.1:1234"):
+        return "LM Studio OpenAI Server"
+    if host.startswith("localhost:11434") or host.startswith("127.0.0.1:11434"):
+        return "Ollama (OpenAI-compatible)"
+
+    return None
+
+
+def _validate_request_configuration(
+    request: AssistantRequest,
+    *,
+    provider_config: dict,
+    resolved_api_key: str,
+    model_id: str,
+) -> list[str]:
+    issues: list[str] = []
+    effective_base_url = request.base_url.strip() or str(provider_config.get("base_url") or "")
+    inferred_provider = _infer_provider_from_base_url(effective_base_url)
+
+    if inferred_provider and inferred_provider != request.provider_name:
+        issues.append(
+            f"Provider/base URL mismatch. Selected '{request.provider_name}' but the URL looks like '{inferred_provider}'."
+        )
+
+    if request.provider_name == GEMINI_PROVIDER_NAME and model_id and not model_id.lower().startswith(
+        "gemini"
+    ):
+        issues.append(f"Gemini requires a Gemini model ID. Current model: {model_id}")
+
+    if provider_config["requires_api_key"] and not resolved_api_key:
+        accepted_env_vars = ", ".join(get_llm_provider_env_vars(request.provider_name))
+        issues.append(
+            f"API key required for {request.provider_name}. Enter it in the UI or set: {accepted_env_vars}"
+        )
+
+    return issues
 
 
 @dataclass(frozen=True)
@@ -132,17 +184,23 @@ def chat(request: AssistantRequest) -> AssistantResponse:
     provider_config = _get_provider_config(request.provider_name)
     resolved_api_key, _key_source = resolve_llm_api_key(request.provider_name, request.api_key)
 
-    if provider_config["requires_api_key"] and not resolved_api_key:
+    model_id = request.model_id.strip() or provider_config["default_model"]
+    configuration_issues = _validate_request_configuration(
+        request,
+        provider_config=provider_config,
+        resolved_api_key=resolved_api_key,
+        model_id=model_id,
+    )
+    if configuration_issues:
         return AssistantResponse(
             content="",
             provider_name=request.provider_name,
-            model_id=request.model_id.strip() or provider_config["default_model"],
+            model_id=model_id,
             elapsed_seconds=0.0,
-            error=f"API key required for {request.provider_name}",
+            error=" ".join(configuration_issues),
         )
 
     base_url = request.base_url.strip() or provider_config["base_url"]
-    model_id = request.model_id.strip() or provider_config["default_model"]
     system_prompt = request.system_prompt.strip() or DEFAULT_ASSISTANT_SYSTEM_PROMPT
     user_prompt = _flatten_history_to_user_prompt(
         request.conversation_history,
@@ -220,7 +278,13 @@ def test_assistant_connection(
     )
 
     if response.error:
-        return f"❌ Assistant connection failed: {response.error}"
+        return (
+            "❌ Assistant connection failed\n"
+            f"Provider: {provider_name}\n"
+            f"URL: {effective_base_url}\n"
+            f"Model: {response.model_id or '(missing)'}\n"
+            f"Error: {response.error}"
+        )
 
     return (
         "✅ Assistant connection successful\n"
