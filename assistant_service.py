@@ -147,6 +147,7 @@ class AssistantResponse:
         provider_name: Provider used for the request.
         model_id: Model used for the request.
         elapsed_seconds: Request duration in seconds.
+        key_source: Where the API key came from.
         error: Non-empty error message when the call failed.
     """
 
@@ -154,6 +155,7 @@ class AssistantResponse:
     provider_name: str
     model_id: str
     elapsed_seconds: float
+    key_source: str = "missing"
     error: str = ""
 
 
@@ -192,6 +194,7 @@ def chat(request: AssistantRequest) -> AssistantResponse:
             provider_name=request.provider_name,
             model_id=request.model_id.strip(),
             elapsed_seconds=0.0,
+            key_source="missing",
             error="Empty message",
         )
 
@@ -212,6 +215,7 @@ def chat(request: AssistantRequest) -> AssistantResponse:
             provider_name=request.provider_name,
             model_id=model_id,
             elapsed_seconds=0.0,
+            key_source=_key_source,
             error=" ".join(configuration_issues),
         )
 
@@ -244,6 +248,7 @@ def chat(request: AssistantRequest) -> AssistantResponse:
             provider_name=request.provider_name,
             model_id=model_id,
             elapsed_seconds=round(elapsed, 2),
+            key_source=_key_source,
             error=_build_provider_error_message(request.provider_name, model_id, error),
         )
 
@@ -253,6 +258,7 @@ def chat(request: AssistantRequest) -> AssistantResponse:
         provider_name=request.provider_name,
         model_id=model_id,
         elapsed_seconds=round(elapsed, 2),
+        key_source=_key_source,
     )
 
 
@@ -298,6 +304,7 @@ def test_assistant_connection(
             f"Provider: {provider_name}\n"
             f"URL: {effective_base_url}\n"
             f"Model: {response.model_id or '(missing)'}\n"
+            f"Key source: {response.key_source}\n"
             f"Error: {response.error}"
         )
 
@@ -306,6 +313,7 @@ def test_assistant_connection(
         f"Provider: {provider_name}\n"
         f"URL: {effective_base_url}\n"
         f"Model: {response.model_id}\n"
+        f"Key source: {response.key_source}\n"
         f"Response: {response.content[:120]}\n"
         f"Latency: {response.elapsed_seconds}s"
     )

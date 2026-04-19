@@ -2207,6 +2207,26 @@ def load_app_state_settings() -> dict:
                     merged["filename_template"] = DEFAULT_AUTOSAVE_SETTINGS["filename_template"]
                     needs_persist = True
 
+                normalized_narration_model = normalize_provider_model_id(
+                    str(merged.get("narration_llm_provider", "") or ""),
+                    str(merged.get("narration_llm_model_id", "") or ""),
+                )
+                if normalized_narration_model != str(
+                    merged.get("narration_llm_model_id", "") or ""
+                ):
+                    merged["narration_llm_model_id"] = normalized_narration_model
+                    needs_persist = True
+
+                normalized_assistant_model = normalize_provider_model_id(
+                    str(merged.get("assistant_llm_provider", "") or ""),
+                    str(merged.get("assistant_llm_model_id", "") or ""),
+                )
+                if normalized_assistant_model != str(
+                    merged.get("assistant_llm_model_id", "") or ""
+                ):
+                    merged["assistant_llm_model_id"] = normalized_assistant_model
+                    needs_persist = True
+
                 if needs_persist:
                     try:
                         with open(APP_STATE_SETTINGS_FILE, "w", encoding="utf-8") as settings_file:
