@@ -2338,14 +2338,18 @@ def _get_initial_namespaced_llm_settings(
     base_url = str(settings.get(base_url_key, "") or "").strip() or provider_config["base_url"]
     # Secret hygiene: API keys are session-only and resolved via env vars at runtime.
     api_key = ""
-    model_id = str(settings.get(model_id_key, "") or "").strip() or provider_config["default_model"]
+    model_id = normalize_provider_model_id(
+        provider_name,
+        str(settings.get(model_id_key, "") or "").strip() or provider_config["default_model"],
+    )
     system_prompt = str(settings.get(system_prompt_key, "") or "")
     if not system_prompt:
         system_prompt = default_system_prompt
 
     model_choices = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
-    if provider_config["default_model"] and provider_config["default_model"] not in model_choices:
-        model_choices.insert(0, provider_config["default_model"])
+    default_model = normalize_provider_model_id(provider_name, provider_config["default_model"])
+    if default_model and default_model not in model_choices:
+        model_choices.insert(0, default_model)
     if model_id and model_id not in model_choices:
         model_choices.insert(0, model_id)
 
@@ -6691,7 +6695,7 @@ LLM_PROVIDER_CONFIGS = {
     },
     "Google Gemini API (OpenAI-compatible)": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "default_model": "gemini-2.0-flash",
+        "default_model": "gemini-2.5-flash",
         "env_var": "GOOGLE_API_KEY",
         "requires_api_key": True,
         "kind": "cloud",
@@ -6745,9 +6749,9 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
         "meta-llama/Llama-3.1-8B-Instruct",
     ],
     "Google Gemini API (OpenAI-compatible)": [
-        "gemini-2.0-flash",
-        "gemini-2.5-flash-preview-05-20",
-        "gemini-2.5-pro-preview-05-06",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-pro",
     ],
     "LM Studio OpenAI Server": [
         "qwen/qwen3-30b-a3b-instruct-2507",
@@ -6777,6 +6781,15 @@ LLM_PROVIDER_ENV_VAR_ALIASES = {
     "Google Gemini API (OpenAI-compatible)": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
 }
 
+DEPRECATED_PROVIDER_MODEL_ALIASES = {
+    "Google Gemini API (OpenAI-compatible)": {
+        "gemini-2.0-flash": "gemini-2.5-flash",
+        "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
+        "gemini-2.5-pro-preview-05-06": "gemini-2.5-pro",
+    }
+}
+
 _DEFAULT_PROVIDER_CONFIG = {
     "base_url": "http://localhost:8000/v1",
     "default_model": "",
@@ -6803,6 +6816,15 @@ def get_llm_provider_static_defaults(provider_name: str):
 
 def get_llm_provider_env_var(provider_name: str) -> str:
     return _get_provider_config(provider_name)["env_var"]
+
+
+def normalize_provider_model_id(provider_name: str, model_id: str) -> str:
+    normalized_model_id = str(model_id or "").strip()
+    if not normalized_model_id:
+        return ""
+
+    replacements = DEPRECATED_PROVIDER_MODEL_ALIASES.get(provider_name, {})
+    return replacements.get(normalized_model_id, normalized_model_id)
 
 
 def get_llm_provider_env_vars(provider_name: str) -> list[str]:
@@ -6983,7 +7005,7 @@ def on_llm_provider_change(provider_name: str):
     """Update provider defaults, optionally start LM Studio, and fetch live models."""
     cfg = _get_provider_config(provider_name)
     base_url = cfg["base_url"]
-    default_model = cfg["default_model"]
+    default_model = normalize_provider_model_id(provider_name, cfg["default_model"])
 
     start_status = ""
     if provider_name == "LM Studio OpenAI Server":
@@ -7010,7 +7032,7 @@ def refresh_llm_models(provider_name: str, base_url: str, api_key: str):
     if not models:
         cfg = _get_provider_config(provider_name)
         models = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
-        default_model = cfg["default_model"]
+        default_model = normalize_provider_model_id(provider_name, cfg["default_model"])
         if default_model and default_model not in models:
             models.insert(0, default_model)
 
@@ -13488,11 +13510,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
             """Handle assistant LLM provider change using the shared provider defaults."""
             cfg = _get_provider_config(provider_name)
             suggestions = list(LLM_PROVIDER_MODEL_SUGGESTIONS.get(provider_name, []))
-            if cfg["default_model"] and cfg["default_model"] not in suggestions:
-                suggestions.insert(0, cfg["default_model"])
+            default_model = normalize_provider_model_id(provider_name, cfg["default_model"])
+            if default_model and default_model not in suggestions:
+                suggestions.insert(0, default_model)
             return (
                 gr.update(value=cfg["base_url"]),
-                gr.update(choices=suggestions, value=cfg["default_model"]),
+                gr.update(choices=suggestions, value=default_model),
                 build_assistant_provider_help_markdown(provider_name),
             )
 

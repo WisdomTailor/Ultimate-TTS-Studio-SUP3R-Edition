@@ -16,6 +16,7 @@ from narration_transform import (
     _get_provider_config,
     call_openai_compatible_chat,
     get_llm_provider_env_vars,
+    normalize_provider_model_id,
     resolve_llm_api_key,
 )
 
@@ -66,8 +67,10 @@ def _validate_request_configuration(
             f"Provider/base URL mismatch. Selected '{request.provider_name}' but the URL looks like '{inferred_provider}'."
         )
 
-    if request.provider_name == GEMINI_PROVIDER_NAME and model_id and not model_id.lower().startswith(
-        "gemini"
+    if (
+        request.provider_name == GEMINI_PROVIDER_NAME
+        and model_id
+        and not model_id.lower().startswith("gemini")
     ):
         issues.append(f"Gemini requires a Gemini model ID. Current model: {model_id}")
 
@@ -78,6 +81,17 @@ def _validate_request_configuration(
         )
 
     return issues
+
+
+def _build_provider_error_message(provider_name: str, model_id: str, error: Exception) -> str:
+    message = str(error)
+
+    if provider_name == GEMINI_PROVIDER_NAME:
+        replacement_model = normalize_provider_model_id(provider_name, model_id)
+        if replacement_model != model_id:
+            return f"{message} Try model '{replacement_model}' instead of '{model_id}'."
+
+    return message
 
 
 @dataclass(frozen=True)
@@ -185,6 +199,7 @@ def chat(request: AssistantRequest) -> AssistantResponse:
     resolved_api_key, _key_source = resolve_llm_api_key(request.provider_name, request.api_key)
 
     model_id = request.model_id.strip() or provider_config["default_model"]
+    model_id = normalize_provider_model_id(request.provider_name, model_id)
     configuration_issues = _validate_request_configuration(
         request,
         provider_config=provider_config,
@@ -229,7 +244,7 @@ def chat(request: AssistantRequest) -> AssistantResponse:
             provider_name=request.provider_name,
             model_id=model_id,
             elapsed_seconds=round(elapsed, 2),
-            error=str(error),
+            error=_build_provider_error_message(request.provider_name, model_id, error),
         )
 
     elapsed = time.monotonic() - start
