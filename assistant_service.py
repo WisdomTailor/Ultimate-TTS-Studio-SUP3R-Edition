@@ -132,10 +132,10 @@ class AssistantRequest:
     api_key: str = ""
     model_id: str = ""
     system_prompt: str = ""
-    temperature: float = 0.4
+    temperature: float = 0.7
     top_p: float = 0.9
-    max_tokens: int = 1024
-    timeout_seconds: int = 30
+    max_tokens: int = 4096
+    timeout_seconds: int = 60
 
 
 @dataclass(frozen=True)

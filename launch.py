@@ -9841,9 +9841,7 @@ def create_gradio_interface():
                                     placeholder="Enter a name to save current prompt...",
                                     scale=3,
                                 )
-                                prompt_save_btn = gr.Button(
-                                    "💾 Save", variant="secondary", scale=1
-                                )
+                                prompt_save_btn = gr.Button("💾 Save", variant="secondary", scale=1)
                                 prompt_delete_btn = gr.Button(
                                     "🗑️ Delete Selected", variant="stop", scale=1
                                 )
@@ -11363,6 +11361,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             label="💬 Assistant Chat",
                             height=400,
                             type="messages",
+                            autoscroll=True,
                             elem_classes=["fade-in"],
                         )
 
@@ -13485,6 +13484,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             from assistant_service import AssistantRequest, ChatMessage, chat as assistant_chat
 
+            assistant_settings = get_initial_assistant_llm_settings()
+            assistant_temperature = float(assistant_settings.get("temperature", 0.7))
+            assistant_top_p = float(assistant_settings.get("top_p", 0.9))
+            assistant_max_tokens = int(assistant_settings.get("max_tokens", 4096))
+            assistant_timeout = max(60, (assistant_max_tokens // 1024) * 15)
+
             history_messages = []
             for msg in chat_history or []:
                 if isinstance(msg, dict):
@@ -13503,10 +13508,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 api_key=api_key or "",
                 model_id=model_id or "",
                 system_prompt=system_prompt or "",
-                temperature=0.4,
-                top_p=0.9,
-                max_tokens=1024,
-                timeout_seconds=30,
+                temperature=assistant_temperature,
+                top_p=assistant_top_p,
+                max_tokens=assistant_max_tokens,
+                timeout_seconds=assistant_timeout,
             )
 
             response = assistant_chat(request)
@@ -14704,7 +14709,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_delete_prompt(selected_name: str):
             status = delete_prompt_from_library(selected_name)
             new_choices = get_prompt_library_names()
-            new_value = selected_name if selected_name in new_choices else DEFAULT_CONTENT_TYPE_PRESET
+            new_value = (
+                selected_name if selected_name in new_choices else DEFAULT_CONTENT_TYPE_PRESET
+            )
             if new_value not in new_choices and new_choices:
                 new_value = new_choices[0]
             new_prompt = get_content_type_system_prompt(new_value)
@@ -14734,7 +14741,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_restore_builtins(current_selection: str):
             status = restore_builtin_prompts()
             new_choices = get_prompt_library_names()
-            selected_name = current_selection if current_selection in new_choices else DEFAULT_CONTENT_TYPE_PRESET
+            selected_name = (
+                current_selection
+                if current_selection in new_choices
+                else DEFAULT_CONTENT_TYPE_PRESET
+            )
             if selected_name not in new_choices and new_choices:
                 selected_name = new_choices[0]
             return gr.update(choices=new_choices, value=selected_name), status
