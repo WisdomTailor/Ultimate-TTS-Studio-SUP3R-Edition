@@ -2452,6 +2452,41 @@ def get_initial_assistant_llm_settings(settings: dict | None = None) -> dict:
     )
 
 
+def get_assistant_status_indicator_text(
+    provider_name: str | None = None,
+    base_url: str | None = None,
+    model_id: str | None = None,
+    settings: dict | None = None,
+) -> str:
+    if settings is None:
+        settings = load_app_state_settings()
+
+    provider_key = _get_llm_settings_key("assistant", "provider")
+    base_url_key = _get_llm_settings_key("assistant", "base_url")
+    model_id_key = _get_llm_settings_key("assistant", "model_id")
+
+    effective_provider = str(
+        provider_name if provider_name is not None else settings.get(provider_key, "") or ""
+    ).strip()
+    if effective_provider not in LLM_PROVIDER_CONFIGS:
+        effective_provider = _get_default_llm_setting("assistant", "provider")
+
+    effective_base_url = str(
+        base_url if base_url is not None else settings.get(base_url_key, "") or ""
+    ).strip()
+    effective_model_id = str(
+        model_id if model_id is not None else settings.get(model_id_key, "") or ""
+    ).strip()
+
+    if effective_provider and effective_base_url and effective_model_id:
+        return f"🤖 Assistant: Configured ({effective_provider})"
+    return "🤖 Assistant: Not configured"
+
+
+def get_initial_assistant_status_indicator() -> str:
+    return get_assistant_status_indicator_text()
+
+
 def _save_namespaced_llm_settings(
     namespace: str,
     provider_name: str,
@@ -2540,6 +2575,32 @@ def save_assistant_llm_settings(
         )
     except Exception as error:
         print(f"⚠️ Failed to save assistant LLM settings: {error}")
+
+
+def _build_voice_preset_entry(audio_path: str, created: str | None = None) -> dict[str, str]:
+    return {
+        "audio_path": os.path.abspath(str(audio_path or "").strip()),
+        "created": created or datetime.now().isoformat(),
+    }
+
+
+def upsert_voice_preset_entry(
+    preset_name: str,
+    audio_path: str,
+    created: str | None = None,
+) -> bool:
+    normalized_name = _normalize_preset_name(preset_name)
+    normalized_audio_path = str(audio_path or "").strip()
+    if not normalized_name or not normalized_audio_path:
+        return False
+
+    store = load_voice_preset_store()
+    store.setdefault("presets", {})
+    store["presets"][normalized_name] = _build_voice_preset_entry(
+        normalized_audio_path,
+        created=created,
+    )
+    return save_voice_preset_store(store)
 
 
 def build_assistant_provider_help_markdown(provider_name: str) -> str:
@@ -5178,7 +5239,7 @@ def load_speaker_profile_store() -> dict:
         if "profiles" not in store or not isinstance(store.get("profiles"), dict):
             store["profiles"] = {}
         store.setdefault("version", 1)
-        return store
+        return _normalize_speaker_profile_store(store)
     except Exception as error:
         logger.error(f"Failed to load speaker profiles: {error}")
         return default_store
@@ -5218,6 +5279,78 @@ def _normalize_speaker_profile_name(profile_name: str) -> str:
 
 def _speaker_profile_status_update(message: str):
     return gr.update(value=message, visible=True)
+
+
+def _normalize_saved_speaker_profile_settings(
+    profile_name: str,
+    speaker_settings: dict[str, Any],
+    fallback_audio_path: str = "",
+) -> dict[str, Any]:
+    normalized_settings = copy.deepcopy(speaker_settings) if isinstance(speaker_settings, dict) else {}
+
+    ref_audio = str(normalized_settings.get("ref_audio", "") or "").strip()
+    if ref_audio:
+        normalized_settings["ref_audio"] = os.path.abspath(ref_audio)
+    elif fallback_audio_path:
+        normalized_settings["ref_audio"] = os.path.abspath(fallback_audio_path)
+    else:
+        normalized_settings["ref_audio"] = ""
+
+    normalized_settings["selected_profile"] = profile_name
+    return normalized_settings
+
+
+def _normalize_speaker_profile_entry(profile_name: str, profile_entry: Any) -> dict[str, Any]:
+    if not isinstance(profile_entry, dict):
+        return {"created": "", "speakers": {}}
+
+    raw_speakers = profile_entry.get("speakers", {})
+    if not isinstance(raw_speakers, dict):
+        raw_speakers = {
+            str(speaker_name).strip(): speaker_settings
+            for speaker_name, speaker_settings in profile_entry.items()
+            if isinstance(speaker_name, str) and isinstance(speaker_settings, dict)
+        }
+
+    fallback_audio_path = get_preset_audio_path(profile_name) if len(raw_speakers) == 1 else ""
+    normalized_speakers: dict[str, dict[str, Any]] = {}
+    for speaker_name, speaker_settings in raw_speakers.items():
+        normalized_speaker_name = str(speaker_name or "").strip()
+        if not normalized_speaker_name or not isinstance(speaker_settings, dict):
+            continue
+
+        normalized_speakers[normalized_speaker_name] = _normalize_saved_speaker_profile_settings(
+            profile_name,
+            speaker_settings,
+            fallback_audio_path=fallback_audio_path,
+        )
+
+    return {
+        "created": str(profile_entry.get("created", "") or ""),
+        "speakers": normalized_speakers,
+    }
+
+
+def _normalize_speaker_profile_store(store: dict | None) -> dict:
+    normalized_store = {"version": 1, "profiles": {}}
+    if not isinstance(store, dict):
+        return normalized_store
+
+    normalized_store["version"] = int(store.get("version", 1) or 1)
+    raw_profiles = store.get("profiles", {})
+    if not isinstance(raw_profiles, dict):
+        return normalized_store
+
+    for profile_name, profile_entry in raw_profiles.items():
+        normalized_name = _normalize_speaker_profile_name(profile_name)
+        if not normalized_name:
+            continue
+        normalized_store["profiles"][normalized_name] = _normalize_speaker_profile_entry(
+            normalized_name,
+            profile_entry,
+        )
+
+    return normalized_store
 
 
 def _clone_conversation_speaker_settings(
@@ -5319,6 +5452,100 @@ def _speaker_profile_audio_referenced_elsewhere(
     return False
 
 
+def _get_unique_profile_audio_paths(speaker_settings: dict[str, dict[str, Any]]) -> list[str]:
+    unique_audio_paths: list[str] = []
+    seen_audio_paths: set[str] = set()
+
+    for settings in speaker_settings.values():
+        if not isinstance(settings, dict):
+            continue
+
+        audio_path = str(settings.get("ref_audio", "") or "").strip()
+        if not audio_path:
+            continue
+
+        normalized_audio_path = os.path.abspath(audio_path)
+        if normalized_audio_path in seen_audio_paths:
+            continue
+
+        seen_audio_paths.add(normalized_audio_path)
+        unique_audio_paths.append(normalized_audio_path)
+
+    return unique_audio_paths
+
+
+def _sync_speaker_profile_voice_library(
+    profile_name: str,
+    speaker_settings: dict[str, dict[str, Any]],
+) -> None:
+    unique_audio_paths = _get_unique_profile_audio_paths(speaker_settings)
+    if len(unique_audio_paths) != 1:
+        return
+
+    if not upsert_voice_preset_entry(profile_name, unique_audio_paths[0]):
+        logger.warning(f"Failed to sync speaker profile '{profile_name}' into voice presets")
+
+
+def _delete_speaker_profile_voice_library_mirror(
+    profile_name: str,
+    deleted_audio_paths: list[str],
+) -> None:
+    normalized_name = _normalize_preset_name(profile_name)
+    if not normalized_name:
+        return
+
+    expected_audio_paths = {os.path.abspath(path) for path in deleted_audio_paths if path}
+    if not expected_audio_paths:
+        return
+
+    store = load_voice_preset_store()
+    preset_entry = store.get("presets", {}).get(normalized_name)
+    if not isinstance(preset_entry, dict):
+        return
+
+    preset_audio_path = str(preset_entry.get("audio_path", "") or "").strip()
+    if not preset_audio_path or os.path.abspath(preset_audio_path) not in expected_audio_paths:
+        return
+
+    store["presets"].pop(normalized_name, None)
+    if not save_voice_preset_store(store):
+        logger.warning(
+            f"Failed to remove mirrored voice preset entry for speaker profile '{profile_name}'"
+        )
+
+
+def _get_active_speaker_profile_name(
+    speaker_settings_state: dict | None,
+    speakers: list[str] | None,
+    selected_speaker_name: str | None = None,
+) -> str:
+    if not isinstance(speaker_settings_state, dict):
+        return ""
+
+    candidate_names: list[str] = []
+    for speaker_name in speakers or list(speaker_settings_state.keys()):
+        speaker_settings = speaker_settings_state.get(speaker_name, {})
+        if not isinstance(speaker_settings, dict):
+            continue
+
+        selected_profile = _normalize_speaker_profile_name(
+            speaker_settings.get("selected_profile", "")
+        )
+        if selected_profile:
+            candidate_names.append(selected_profile)
+
+    unique_names = sorted(set(candidate_names))
+    if len(unique_names) == 1:
+        return unique_names[0]
+
+    if selected_speaker_name:
+        selected_settings = speaker_settings_state.get(selected_speaker_name, {})
+        if isinstance(selected_settings, dict):
+            return _normalize_speaker_profile_name(selected_settings.get("selected_profile", ""))
+
+    return ""
+
+
 def _build_speaker_profile_component_values(
     speaker_settings: dict[str, dict[str, Any]],
 ) -> tuple[list[str | None], list[str]]:
@@ -5410,12 +5637,7 @@ def on_save_preset(preset_name: str, audio_path: str, copy_into_app: bool):
         if copy_into_app:
             final_audio_path = _copy_preset_audio_into_app_state(normalized_name, audio_path)
 
-        store = load_voice_preset_store()
-        store["presets"][normalized_name] = {
-            "audio_path": final_audio_path,
-            "created": datetime.now().isoformat(),
-        }
-        if not save_voice_preset_store(store):
+        if not upsert_voice_preset_entry(normalized_name, final_audio_path):
             return gr.update(), "❌ Failed to save preset", gr.update(value=normalized_name)
 
         choices = get_voice_preset_choices()
@@ -5493,11 +5715,20 @@ def save_current_preset(preset_name, tts_engine, **settings):
 def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
     """Save the current conversation speaker settings as a reusable profile."""
     normalized_name = _normalize_speaker_profile_name(profile_name)
+    current_state = _clone_conversation_speaker_settings(
+        speaker_settings_state,
+        list(speaker_settings_state.keys()) if isinstance(speaker_settings_state, dict) else None,
+    )
     if not normalized_name:
-        return gr.update(), _speaker_profile_status_update("❌ Please enter a profile name")
+        return (
+            current_state,
+            gr.update(),
+            _speaker_profile_status_update("❌ Please enter a profile name"),
+        )
 
     if not isinstance(speaker_settings_state, dict) or not speaker_settings_state:
         return (
+            current_state,
             gr.update(),
             _speaker_profile_status_update(
                 "❌ No conversation speaker settings are available to save"
@@ -5527,10 +5758,14 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
             else:
                 saved_settings["ref_audio"] = ""
 
+            saved_settings["selected_profile"] = normalized_name
+
             saved_speakers[normalized_speaker_name] = saved_settings
+            current_state.setdefault(normalized_speaker_name, {}).update(copy.deepcopy(saved_settings))
 
         if not saved_speakers:
             return (
+                current_state,
                 gr.update(),
                 _speaker_profile_status_update(
                     "❌ No valid speaker settings were found to save in this profile"
@@ -5546,11 +5781,15 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
 
         if not save_speaker_profile_store(store):
             return (
+                current_state,
                 gr.update(),
                 _speaker_profile_status_update("❌ Failed to save speaker profile"),
             )
 
+        _sync_speaker_profile_voice_library(normalized_name, saved_speakers)
+
         return (
+            current_state,
             gr.update(choices=get_speaker_profile_choices(), value=normalized_name),
             _speaker_profile_status_update(
                 f"✅ Speaker profile '{normalized_name}' saved ({len(saved_speakers)} speakers)"
@@ -5559,6 +5798,7 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
     except Exception as error:
         logger.error(f"Failed to save speaker profile '{normalized_name}': {error}")
         return (
+            current_state,
             gr.update(),
             _speaker_profile_status_update(f"❌ Failed to save speaker profile: {error}"),
         )
@@ -5570,7 +5810,7 @@ def on_load_speaker_profile(
     selected_speaker_index: int | None,
     speakers: list[str] | None,
 ):
-    """Load a saved conversation speaker profile into the active speaker slot."""
+    """Load a saved conversation speaker profile into the active conversation state."""
     normalized_name = _normalize_speaker_profile_name(profile_name)
     normalized_speakers = [
         str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
@@ -5606,46 +5846,58 @@ def on_load_speaker_profile(
             _speaker_profile_status_update(f"⚠️ Speaker profile '{normalized_name}' not found"),
         )
 
-    saved_speakers = profile_entry.get("speakers", {})
+    normalized_profile_entry = _normalize_speaker_profile_entry(normalized_name, profile_entry)
+    saved_speakers = normalized_profile_entry.get("speakers", {})
     if not isinstance(saved_speakers, dict):
         saved_speakers = {}
 
-    loaded_settings: dict[str, Any] = {}
-    target_speaker_name = None
-    if normalized_index is not None and normalized_index < len(normalized_speakers):
-        target_speaker_name = normalized_speakers[normalized_index]
-        target_saved_settings = saved_speakers.get(target_speaker_name)
-        if isinstance(target_saved_settings, dict):
-            loaded_settings = copy.deepcopy(target_saved_settings)
-
-    if not loaded_settings:
-        for saved_settings in saved_speakers.values():
-            if isinstance(saved_settings, dict):
-                loaded_settings = copy.deepcopy(saved_settings)
-                break
-
     missing_audio_count = 0
-    ref_audio = str(loaded_settings.get("ref_audio", "") or "").strip()
-    if ref_audio and not os.path.exists(ref_audio):
-        loaded_settings["ref_audio"] = ""
-        missing_audio_count += 1
+    if normalized_speakers:
+        matched_speakers = 0
+        for speaker_name in normalized_speakers:
+            updated_state.setdefault(speaker_name, {})["selected_profile"] = normalized_name
+            saved_settings = saved_speakers.get(speaker_name)
+            if not isinstance(saved_settings, dict):
+                continue
 
-    if target_speaker_name is not None:
-        updated_state.setdefault(target_speaker_name, {}).update(loaded_settings)
-        updated_state[target_speaker_name]["selected_profile"] = normalized_name
-    elif loaded_settings:
-        normalized_profile_state = _clone_conversation_speaker_settings(
-            saved_speakers,
-            list(saved_speakers.keys()),
-        )
-        for speaker_name, speaker_settings in normalized_profile_state.items():
+            matched_speakers += 1
+
+            normalized_settings = copy.deepcopy(saved_settings)
+            saved_audio = str(normalized_settings.get("ref_audio", "") or "").strip()
+            if saved_audio and not os.path.exists(saved_audio):
+                normalized_settings["ref_audio"] = ""
+                missing_audio_count += 1
+
+            normalized_settings["selected_profile"] = normalized_name
+            updated_state.setdefault(speaker_name, {}).update(normalized_settings)
+
+        if matched_speakers == 0:
+            for speaker_name, (_, saved_settings) in zip(normalized_speakers, saved_speakers.items()):
+                if not isinstance(saved_settings, dict):
+                    continue
+
+                normalized_settings = copy.deepcopy(saved_settings)
+                saved_audio = str(normalized_settings.get("ref_audio", "") or "").strip()
+                if saved_audio and not os.path.exists(saved_audio):
+                    normalized_settings["ref_audio"] = ""
+                    missing_audio_count += 1
+
+                normalized_settings["selected_profile"] = normalized_name
+                updated_state.setdefault(speaker_name, {}).update(normalized_settings)
+    else:
+        updated_state = _clone_conversation_speaker_settings(saved_speakers, list(saved_speakers.keys()))
+        for speaker_name, speaker_settings in updated_state.items():
             if not isinstance(speaker_settings, dict):
                 continue
             saved_audio = str(speaker_settings.get("ref_audio", "") or "").strip()
             if saved_audio and not os.path.exists(saved_audio):
                 speaker_settings["ref_audio"] = ""
                 missing_audio_count += 1
-        updated_state = normalized_profile_state
+            speaker_settings["selected_profile"] = normalized_name
+
+    if normalized_index is not None and 0 <= normalized_index < len(normalized_speakers):
+        selected_speaker_name = normalized_speakers[normalized_index]
+        updated_state.setdefault(selected_speaker_name, {})["selected_profile"] = normalized_name
 
     audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
 
@@ -5662,11 +5914,16 @@ def on_load_speaker_profile(
     )
 
 
-def on_delete_speaker_profile(profile_name: str):
+def on_delete_speaker_profile(profile_name: str, current_settings_state: dict | None = None):
     """Delete a saved conversation speaker profile."""
     normalized_name = _normalize_speaker_profile_name(profile_name)
+    current_state = _clone_conversation_speaker_settings(
+        current_settings_state,
+        list(current_settings_state.keys()) if isinstance(current_settings_state, dict) else None,
+    )
     if not normalized_name:
         return (
+            current_state,
             gr.update(),
             _speaker_profile_status_update("ℹ️ Select a speaker profile to delete"),
         )
@@ -5675,12 +5932,16 @@ def on_delete_speaker_profile(profile_name: str):
     profiles = store.get("profiles", {})
     if normalized_name not in profiles:
         return (
+            current_state,
             gr.update(choices=get_speaker_profile_choices(), value=None),
             _speaker_profile_status_update(f"⚠️ Speaker profile '{normalized_name}' not found"),
         )
 
     deleted_audio_count = 0
     profile_entry = profiles.pop(normalized_name)
+    deleted_audio_paths = _get_unique_profile_audio_paths(
+        _normalize_speaker_profile_entry(normalized_name, profile_entry).get("speakers", {})
+    )
     if isinstance(profile_entry, dict):
         speakers = profile_entry.get("speakers", {})
         if isinstance(speakers, dict):
@@ -5702,15 +5963,25 @@ def on_delete_speaker_profile(profile_name: str):
 
     if not save_speaker_profile_store(store):
         return (
+            current_state,
             gr.update(),
             _speaker_profile_status_update("❌ Failed to delete speaker profile"),
         )
+
+    _delete_speaker_profile_voice_library_mirror(normalized_name, deleted_audio_paths)
 
     status_message = f"✅ Speaker profile '{normalized_name}' deleted"
     if deleted_audio_count:
         status_message += f" ({deleted_audio_count} audio file(s) removed)"
 
+    for speaker_settings in current_state.values():
+        if not isinstance(speaker_settings, dict):
+            continue
+        if _normalize_speaker_profile_name(speaker_settings.get("selected_profile", "")) == normalized_name:
+            speaker_settings["selected_profile"] = ""
+
     return (
+        current_state,
         gr.update(choices=get_speaker_profile_choices(), value=None),
         _speaker_profile_status_update(status_message),
     )
@@ -13696,7 +13967,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     ),
                 }
             )
-            return "✅ Assistant settings saved (including generation parameters)."
+            return (
+                "✅ Assistant settings saved (including generation parameters).",
+                get_assistant_status_indicator_text(provider, base_url, model_id),
+            )
 
         def handle_assistant_provider_change(provider_name):
             """Handle assistant LLM provider change using the shared provider defaults."""
@@ -13709,6 +13983,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 gr.update(value=cfg["base_url"]),
                 gr.update(choices=suggestions, value=default_model),
                 build_assistant_provider_help_markdown(provider_name),
+                get_assistant_status_indicator_text(
+                    provider_name=provider_name,
+                    base_url=cfg["base_url"],
+                    model_id=default_model,
+                ),
             )
 
         def _resolve_job_id(manager, raw_job_id):
@@ -15056,7 +15335,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 assistant_llm_top_p,
                 assistant_llm_max_tokens,
             ],
-            outputs=[assistant_llm_status],
+            outputs=[assistant_llm_status, assistant_status_indicator],
         )
 
         assistant_llm_base_url.change(
@@ -15121,7 +15400,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
         assistant_llm_provider.change(
             fn=handle_assistant_provider_change,
             inputs=[assistant_llm_provider],
-            outputs=[assistant_llm_base_url, assistant_llm_model_id, assistant_provider_help],
+            outputs=[
+                assistant_llm_base_url,
+                assistant_llm_model_id,
+                assistant_provider_help,
+                assistant_status_indicator,
+            ],
         ).then(
             fn=save_assistant_llm_settings,
             inputs=[
@@ -15132,6 +15416,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 assistant_llm_system_prompt,
             ],
         )
+
+        demo.load(fn=get_initial_assistant_status_indicator, outputs=[assistant_status_indicator])
 
         demo.load(
             fn=handle_job_panel_refresh,
@@ -15856,13 +16142,11 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 normalized_index = 0
 
             selected_speaker_name = speakers[normalized_index]
-            selected_profile_name = ""
-            if isinstance(speaker_settings, dict):
-                current_speaker_settings = speaker_settings.get(selected_speaker_name, {})
-                if isinstance(current_speaker_settings, dict):
-                    selected_profile_name = str(
-                        current_speaker_settings.get("selected_profile", "") or ""
-                    ).strip()
+            selected_profile_name = _get_active_speaker_profile_name(
+                speaker_settings,
+                speakers,
+                selected_speaker_name=selected_speaker_name,
+            )
             roster_choices = _build_conversation_roster_choices(
                 speakers,
                 selected_engine,
@@ -16325,13 +16609,21 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         save_speaker_profile_btn.click(
             fn=on_save_speaker_profile,
             inputs=[speaker_profile_name_input, conversation_speaker_settings_state],
-            outputs=[speaker_profile_selector, speaker_profile_status],
+            outputs=[
+                conversation_speaker_settings_state,
+                speaker_profile_selector,
+                speaker_profile_status,
+            ],
         )
 
         delete_speaker_profile_btn.click(
             fn=on_delete_speaker_profile,
-            inputs=[speaker_profile_selector],
-            outputs=[speaker_profile_selector, speaker_profile_status],
+            inputs=[speaker_profile_selector, conversation_speaker_settings_state],
+            outputs=[
+                conversation_speaker_settings_state,
+                speaker_profile_selector,
+                speaker_profile_status,
+            ],
         )
 
         cast_characters_btn.click(
