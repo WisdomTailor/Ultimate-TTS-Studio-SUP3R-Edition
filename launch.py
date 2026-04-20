@@ -8545,10 +8545,28 @@ def create_gradio_interface():
         }
 
         #text_synthesize_input textarea {
-            resize: vertical !important;
             min-height: 210px !important;
+        }
+
+        .gradio-container textarea:not([readonly]):not([disabled]) {
+            resize: vertical !important;
             max-height: 72vh !important;
+            overflow-y: auto !important;
             line-height: 1.5 !important;
+        }
+
+        #assistant_chat_panel {
+            min-height: 340px !important;
+            height: clamp(340px, 44vh, 72vh) !important;
+            max-height: 72vh !important;
+            resize: vertical !important;
+            overflow: auto !important;
+        }
+
+        #assistant_chat_panel .wrap,
+        #assistant_chat_panel .bubble-wrap,
+        #assistant_chat_panel [class*="message"] {
+            max-height: 100% !important;
         }
 
         /* Sliders */
@@ -9097,14 +9115,61 @@ def create_gradio_interface():
             });
         }
 
+        function setupExpandableTextPanels() {
+            const textareas = document.querySelectorAll(
+                '.gradio-container textarea:not([readonly]):not([disabled])'
+            );
+
+            textareas.forEach((textarea) => {
+                if (textarea.dataset.autosizeBound === 'true') {
+                    return;
+                }
+
+                const resizeTextarea = () => {
+                    const computedStyle = window.getComputedStyle(textarea);
+                    const configuredMaxHeight = parseFloat(computedStyle.maxHeight);
+                    const maxHeight = Number.isFinite(configuredMaxHeight)
+                        ? configuredMaxHeight
+                        : window.innerHeight * 0.72;
+                    const minimumHeight = Math.max(
+                        textarea.dataset.baseHeight
+                            ? parseFloat(textarea.dataset.baseHeight)
+                            : 0,
+                        parseFloat(computedStyle.minHeight) || 0,
+                        textarea.offsetHeight,
+                        72
+                    );
+
+                    textarea.dataset.baseHeight = String(minimumHeight);
+                    textarea.style.height = 'auto';
+
+                    const nextHeight = Math.min(
+                        Math.max(textarea.scrollHeight, minimumHeight),
+                        maxHeight
+                    );
+
+                    textarea.style.height = `${nextHeight}px`;
+                    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+                };
+
+                textarea.addEventListener('input', resizeTextarea);
+                textarea.addEventListener('change', resizeTextarea);
+                textarea.dataset.autosizeBound = 'true';
+
+                requestAnimationFrame(resizeTextarea);
+            });
+        }
+
         // Run voice selection setup after DOM loads and when content changes
         document.addEventListener('DOMContentLoaded', setupVoiceSelection);
+        document.addEventListener('DOMContentLoaded', setupExpandableTextPanels);
 
         // Also run when new content is added (Gradio dynamic updates)
         const contentObserver = new MutationObserver(function(mutations) {
             mutations.forEach(function(mutation) {
                 if (mutation.addedNodes.length > 0) {
                     setupVoiceSelection();
+                    setupExpandableTextPanels();
                     setupTabSwitching();
                     setupEbookPanelExpansion();
                 }
@@ -9183,6 +9248,7 @@ def create_gradio_interface():
         // Initialize tab switching on page load
         document.addEventListener('DOMContentLoaded', function() {
             setupTabSwitching();
+            setupExpandableTextPanels();
             setupEbookPanelExpansion();
         });
         </script>
@@ -11377,7 +11443,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             height=400,
                             type="messages",
                             autoscroll=True,
-                            elem_classes=["fade-in"],
+                            elem_classes=["fade-in", "expandable-chat-panel"],
+                            elem_id="assistant_chat_panel",
                         )
 
                         with gr.Row():
