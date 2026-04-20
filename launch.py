@@ -431,11 +431,15 @@ from narration_transform import (
     _build_llm_transform_user_prompt,
     _clean_llm_transform_output,
     _apply_local_narration_transform,
+    delete_prompt_from_library,
     get_content_type_preset_names,
     get_content_type_system_prompt,
+    get_prompt_library_names,
     get_llm_provider_env_var,
     get_llm_shell_key_setup_hint,
     fetch_provider_models,
+    restore_builtin_prompts,
+    save_prompt_to_library,
     try_start_lm_studio,
     call_openai_compatible_chat,
     test_llm_connection,
@@ -7933,7 +7937,7 @@ def create_gradio_interface():
     current_storage_settings = load_app_state_settings()
     current_llm_settings = get_initial_llm_panel_settings(current_storage_settings)
     llm_content_type_info = (
-        "Choose the prompt preset that replaces the base system prompt. "
+        "Choose a saved prompt or built-in preset for narration transform. Built-ins: "
         + " ".join(
             f"{name}: {preset['description']}" for name, preset in CONTENT_TYPE_PRESETS.items()
         )
@@ -9705,7 +9709,7 @@ def create_gradio_interface():
 
                             with gr.Row():
                                 llm_content_type = gr.Dropdown(
-                                    label="Content Type",
+                                    label="Prompt Library",
                                     choices=get_content_type_preset_names(),
                                     value=current_llm_settings["content_type"],
                                     info=llm_content_type_info,
@@ -9828,7 +9832,31 @@ def create_gradio_interface():
                                 lines=8,
                                 max_lines=20,
                                 value=current_llm_settings["system_prompt"],
-                                info="Instructions that tell the AI how to transform your text. Edit to customize behavior, or click Reset to restore default.",
+                                info="Instructions that tell the AI how to transform your text. Edit to customize behavior, save variants to the prompt library, or restore built-ins.",
+                            )
+
+                            with gr.Row():
+                                prompt_save_name = gr.Textbox(
+                                    label="Prompt Name",
+                                    placeholder="Enter a name to save current prompt...",
+                                    scale=3,
+                                )
+                                prompt_save_btn = gr.Button(
+                                    "💾 Save", variant="secondary", scale=1
+                                )
+                                prompt_delete_btn = gr.Button(
+                                    "🗑️ Delete Selected", variant="stop", scale=1
+                                )
+                                prompt_restore_btn = gr.Button(
+                                    "♻️ Restore Built-ins", variant="secondary", scale=1
+                                )
+
+                            prompt_library_status = gr.Textbox(
+                                label="Prompt Library",
+                                lines=1,
+                                interactive=False,
+                                visible=True,
+                                value="",
                             )
 
                             with gr.Row():
@@ -9837,9 +9865,6 @@ def create_gradio_interface():
                                 )
                                 llm_apply_btn = gr.Button(
                                     "✨ Apply Transform to Text Box", variant="primary"
-                                )
-                                llm_prompt_reset_btn = gr.Button(
-                                    "♻️ Reset Default Prompt", variant="secondary"
                                 )
 
                             llm_connection_status = gr.Textbox(
@@ -14647,6 +14672,90 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ],
         )
 
+        def handle_save_prompt(name: str, system_prompt: str):
+            status = save_prompt_to_library(name, system_prompt)
+            new_choices = get_prompt_library_names()
+            selected_name = name if name in new_choices else DEFAULT_CONTENT_TYPE_PRESET
+            if selected_name not in new_choices and new_choices:
+                selected_name = new_choices[0]
+            return (
+                gr.update(choices=new_choices, value=selected_name),
+                status,
+                "",
+            )
+
+        prompt_save_btn.click(
+            fn=handle_save_prompt,
+            inputs=[prompt_save_name, llm_system_prompt],
+            outputs=[llm_content_type, prompt_library_status, prompt_save_name],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
+        def handle_delete_prompt(selected_name: str):
+            status = delete_prompt_from_library(selected_name)
+            new_choices = get_prompt_library_names()
+            new_value = selected_name if selected_name in new_choices else DEFAULT_CONTENT_TYPE_PRESET
+            if new_value not in new_choices and new_choices:
+                new_value = new_choices[0]
+            new_prompt = get_content_type_system_prompt(new_value)
+            return (
+                gr.update(choices=new_choices, value=new_value),
+                new_prompt,
+                status,
+            )
+
+        prompt_delete_btn.click(
+            fn=handle_delete_prompt,
+            inputs=[llm_content_type],
+            outputs=[llm_content_type, llm_system_prompt, prompt_library_status],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
+        def handle_restore_builtins(current_selection: str):
+            status = restore_builtin_prompts()
+            new_choices = get_prompt_library_names()
+            selected_name = current_selection if current_selection in new_choices else DEFAULT_CONTENT_TYPE_PRESET
+            if selected_name not in new_choices and new_choices:
+                selected_name = new_choices[0]
+            return gr.update(choices=new_choices, value=selected_name), status
+
+        prompt_restore_btn.click(
+            fn=handle_restore_builtins,
+            inputs=[llm_content_type],
+            outputs=[llm_content_type, prompt_library_status],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
         llm_model_id.change(
             fn=save_llm_panel_settings,
             inputs=[
@@ -14737,22 +14846,6 @@ Alice: I went to Japan. It was absolutely incredible!""",
             fn=test_llm_connection,
             inputs=[llm_provider, llm_base_url, llm_api_key, llm_model_id, llm_timeout_seconds],
             outputs=[llm_connection_status],
-        )
-
-        llm_prompt_reset_btn.click(
-            fn=lambda: (DEFAULT_CONTENT_TYPE_PRESET, DEFAULT_LLM_NARRATION_SYSTEM_PROMPT),
-            outputs=[llm_content_type, llm_system_prompt],
-        ).then(
-            fn=save_llm_panel_settings,
-            inputs=[
-                llm_provider,
-                llm_base_url,
-                llm_model_id,
-                llm_api_key,
-                llm_content_type,
-                llm_system_prompt,
-                llm_preset,
-            ],
         )
 
         assistant_send_btn.click(

@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from engine_registry import (
@@ -170,15 +171,160 @@ Guardrails:
     },
 }
 
+BUILT_IN_PROMPTS = CONTENT_TYPE_PRESETS
+
 DEFAULT_CONTENT_TYPE_PRESET = "General (Default)"
+PROMPT_LIBRARY_FILE = Path(__file__).resolve().parent.parent / "app_state" / "prompt_library.json"
+
+
+def _build_default_prompts() -> list[dict[str, object]]:
+    """Convert built-in prompt presets into the prompt library format."""
+    prompts: list[dict[str, object]] = []
+    for name, preset in BUILT_IN_PROMPTS.items():
+        prompts.append(
+            {
+                "name": name,
+                "system_prompt": preset.get("system_prompt") or "",
+                "description": preset.get("description", ""),
+                "scope": "synthesis",
+                "built_in": True,
+                "created_at": "2025-01-01T00:00:00",
+            }
+        )
+    return prompts
+
+
+def _save_prompt_library(prompts: list[dict[str, object]]) -> None:
+    """Persist the prompt library to disk."""
+    try:
+        PROMPT_LIBRARY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with PROMPT_LIBRARY_FILE.open("w", encoding="utf-8") as file_obj:
+            json.dump({"version": 1, "prompts": prompts}, file_obj, indent=2, ensure_ascii=False)
+    except Exception as error:
+        logger.warning("Failed to save prompt library: %s", error)
+        raise
+
+
+def _ensure_prompt_library() -> list[dict[str, object]]:
+    """Load the prompt library from disk, seeding from built-ins on first run."""
+    if PROMPT_LIBRARY_FILE.exists():
+        try:
+            with PROMPT_LIBRARY_FILE.open("r", encoding="utf-8") as file_obj:
+                data = json.load(file_obj)
+            if isinstance(data, dict) and isinstance(data.get("prompts"), list):
+                return data["prompts"]
+        except Exception as error:
+            logger.warning("Failed to load prompt library: %s", error)
+
+    prompts = _build_default_prompts()
+    try:
+        _save_prompt_library(prompts)
+    except Exception:
+        pass
+    return prompts
+
+
+def get_prompt_library_names() -> list[str]:
+    """Return all prompt names for dropdown choices."""
+    prompts = _ensure_prompt_library()
+    return [str(prompt.get("name", "")).strip() for prompt in prompts if prompt.get("name")]
+
+
+def get_prompt_by_name(name: str) -> dict[str, object] | None:
+    """Return a prompt entry by name."""
+    target_name = str(name or "").strip()
+    if not target_name:
+        return None
+
+    prompts = _ensure_prompt_library()
+    for prompt in prompts:
+        if str(prompt.get("name", "")).strip() == target_name:
+            return prompt
+    return None
+
+
+def save_prompt_to_library(name: str, system_prompt: str, description: str = "") -> str:
+    """Save or overwrite a user prompt in the library."""
+    prompt_name = str(name or "").strip()
+    if not prompt_name:
+        return "⚠️ Prompt name cannot be empty."
+
+    prompts = _ensure_prompt_library()
+    for prompt in prompts:
+        if str(prompt.get("name", "")).strip() == prompt_name and bool(prompt.get("built_in")):
+            return f"⚠️ Cannot overwrite built-in prompt '{prompt_name}'. Choose a different name."
+
+    prompts = [prompt for prompt in prompts if str(prompt.get("name", "")).strip() != prompt_name]
+    prompts.append(
+        {
+            "name": prompt_name,
+            "system_prompt": str(system_prompt or ""),
+            "description": str(description or ""),
+            "scope": "synthesis",
+            "built_in": False,
+            "created_at": datetime.now().isoformat(),
+        }
+    )
+    try:
+        _save_prompt_library(prompts)
+    except Exception:
+        return f"⚠️ Failed to save prompt '{prompt_name}'. Check logs for details."
+    return f"✅ Prompt '{prompt_name}' saved to library."
+
+
+def delete_prompt_from_library(name: str) -> str:
+    """Delete a user-created prompt from the library."""
+    prompt_name = str(name or "").strip()
+    prompts = _ensure_prompt_library()
+    for prompt in prompts:
+        if str(prompt.get("name", "")).strip() != prompt_name:
+            continue
+        if bool(prompt.get("built_in")):
+            return (
+                f"⚠️ Cannot delete built-in prompt '{prompt_name}'. Use 'Restore Built-ins' instead."
+            )
+
+        remaining_prompts = [
+            candidate
+            for candidate in prompts
+            if str(candidate.get("name", "")).strip() != prompt_name
+        ]
+        try:
+            _save_prompt_library(remaining_prompts)
+        except Exception:
+            return f"⚠️ Failed to delete prompt '{prompt_name}'. Check logs for details."
+        return f"🗑️ Prompt '{prompt_name}' deleted."
+    return f"⚠️ Prompt '{prompt_name}' not found."
+
+
+def restore_builtin_prompts() -> str:
+    """Re-add any missing built-in prompts without touching user-created ones."""
+    prompts = _ensure_prompt_library()
+    existing_names = {str(prompt.get("name", "")).strip() for prompt in prompts}
+    defaults = _build_default_prompts()
+    restored_names: list[str] = []
+    for default_prompt in defaults:
+        default_name = str(default_prompt.get("name", "")).strip()
+        if default_name and default_name not in existing_names:
+            prompts.append(default_prompt)
+            restored_names.append(default_name)
+
+    if not restored_names:
+        return "ℹ️ All built-in prompts already present."
+
+    try:
+        _save_prompt_library(prompts)
+    except Exception:
+        return "⚠️ Failed to restore built-in prompts. Check logs for details."
+    return f"✅ Restored built-in prompts: {', '.join(restored_names)}"
 
 
 def get_content_type_preset_names() -> list[str]:
-    return list(CONTENT_TYPE_PRESETS.keys())
+    return get_prompt_library_names()
 
 
 def get_content_type_system_prompt(preset_name: str) -> str:
-    preset = CONTENT_TYPE_PRESETS.get(preset_name)
+    preset = get_prompt_by_name(preset_name)
     system_prompt = preset.get("system_prompt") if preset else None
     if isinstance(system_prompt, str) and system_prompt.strip():
         return system_prompt.strip()
