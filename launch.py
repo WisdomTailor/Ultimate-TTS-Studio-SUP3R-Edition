@@ -9900,12 +9900,12 @@ def create_gradio_interface():
                                         info="Controls word choice diversity. Lower values make output more focused. Usually best left at 0.9.",
                                     )
                                     llm_max_tokens = gr.Slider(
-                                        128,
-                                        4096,
+                                        0,
+                                        32768,
                                         step=64,
                                         value=current_llm_settings["max_tokens"],
                                         label="LLM max tokens",
-                                        info="Maximum length of the AI's response. Increase for longer texts to avoid truncation.",
+                                        info="Maximum length of the AI's response. Adjustable from 0 to 32768 depending on the task.",
                                     )
 
                             llm_system_prompt = gr.Textbox(
@@ -11548,10 +11548,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     assistant_llm_max_tokens = gr.Number(
                                         value=assistant_llm_settings.get("max_tokens", 4096),
                                         label="📏 Max Tokens",
-                                        minimum=256,
-                                        maximum=65536,
+                                        minimum=0,
+                                        maximum=32768,
                                         step=256,
-                                        info="Maximum response length. Set 32000+ for full stories. Default: 4096",
+                                        info="Maximum response length. Adjustable from 0 to 32768 depending on the task. Default: 4096",
                                         elem_classes=["fade-in"],
                                     )
 
