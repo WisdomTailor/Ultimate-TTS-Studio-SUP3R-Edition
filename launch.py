@@ -2163,6 +2163,9 @@ DEFAULT_AUTOSAVE_SETTINGS = {
     "assistant_llm_api_key": "",
     "assistant_llm_model_id": "",
     "assistant_llm_system_prompt": "",
+    "assistant_llm_temperature": 0.7,
+    "assistant_llm_top_p": 0.9,
+    "assistant_llm_max_tokens": 4096,
 }
 
 LEGACY_LLM_SETTINGS_KEY_MAP = {
@@ -2378,6 +2381,18 @@ def _get_initial_namespaced_llm_settings(
 
     preset_name = normalize_llm_outcome_preset(settings.get(preset_key))
     temperature, top_p, max_tokens = get_llm_outcome_preset_values(preset_name)
+
+    # For assistant namespace, prefer directly-persisted parameter values over preset defaults
+    if namespace == "assistant":
+        direct_temp = settings.get(_get_llm_settings_key(namespace, "temperature"))
+        direct_top_p = settings.get(_get_llm_settings_key(namespace, "top_p"))
+        direct_max_tokens = settings.get(_get_llm_settings_key(namespace, "max_tokens"))
+        if direct_temp is not None:
+            temperature = float(direct_temp)
+        if direct_top_p is not None:
+            top_p = float(direct_top_p)
+        if direct_max_tokens is not None:
+            max_tokens = int(direct_max_tokens)
 
     provider_config = _get_provider_config(provider_name)
     base_url = str(settings.get(base_url_key, "") or "").strip() or provider_config["base_url"]
@@ -11443,6 +11458,36 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 elem_classes=["fade-in"],
                             )
 
+                            with gr.Accordion("🎛️ Generation Parameters", open=True):
+                                with gr.Row():
+                                    assistant_llm_temperature = gr.Slider(
+                                        0.0,
+                                        2.0,
+                                        step=0.05,
+                                        value=assistant_llm_settings.get("temperature", 0.7),
+                                        label="🌡️ Temperature",
+                                        info="Controls creativity. 0 = deterministic. 1.5+ = highly creative. Default: 0.7",
+                                        elem_classes=["fade-in"],
+                                    )
+                                    assistant_llm_top_p = gr.Slider(
+                                        0.0,
+                                        1.0,
+                                        step=0.05,
+                                        value=assistant_llm_settings.get("top_p", 0.9),
+                                        label="🎯 Top P",
+                                        info="Controls word choice diversity. Lower = more focused. Default: 0.9",
+                                        elem_classes=["fade-in"],
+                                    )
+                                    assistant_llm_max_tokens = gr.Number(
+                                        value=assistant_llm_settings.get("max_tokens", 4096),
+                                        label="📏 Max Tokens",
+                                        minimum=256,
+                                        maximum=65536,
+                                        step=256,
+                                        info="Maximum response length. Set 32000+ for full stories. Default: 4096",
+                                        elem_classes=["fade-in"],
+                                    )
+
                             with gr.Row():
                                 assistant_llm_test_btn = gr.Button(
                                     "🔗 Test Connection",
@@ -13477,6 +13522,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
             api_key,
             model_id,
             system_prompt,
+            temperature_val,
+            top_p_val,
+            max_tokens_val,
         ):
             """Send a message to the assistant and update the chatbot."""
             if not user_message or not str(user_message).strip():
@@ -13484,10 +13532,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             from assistant_service import AssistantRequest, ChatMessage, chat as assistant_chat
 
-            assistant_settings = get_initial_assistant_llm_settings()
-            assistant_temperature = float(assistant_settings.get("temperature", 0.7))
-            assistant_top_p = float(assistant_settings.get("top_p", 0.9))
-            assistant_max_tokens = int(assistant_settings.get("max_tokens", 4096))
+            assistant_temperature = float(temperature_val if temperature_val is not None else 0.7)
+            assistant_top_p = float(top_p_val if top_p_val is not None else 0.9)
+            assistant_max_tokens = int(max_tokens_val if max_tokens_val is not None else 4096)
             assistant_timeout = max(60, (assistant_max_tokens // 1024) * 15)
 
             history_messages = []
@@ -13553,7 +13600,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 indicator = f"🤖 Assistant: Connection failed ({provider})"
             return result, indicator
 
-        def handle_assistant_save_settings(provider, base_url, model_id, api_key, system_prompt):
+        def handle_assistant_save_settings(
+            provider,
+            base_url,
+            model_id,
+            api_key,
+            system_prompt,
+            temperature_val,
+            top_p_val,
+            max_tokens_val,
+        ):
             """Save assistant LLM settings."""
             save_assistant_llm_settings(
                 provider_name=provider,
@@ -13562,7 +13618,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 api_key=api_key,
                 system_prompt=system_prompt,
             )
-            return "✅ Assistant settings saved. The assistant API key is stored in app/app_state/settings.json."
+            save_app_state_settings(
+                {
+                    "assistant_llm_temperature": float(
+                        temperature_val if temperature_val is not None else 0.7
+                    ),
+                    "assistant_llm_top_p": float(top_p_val if top_p_val is not None else 0.9),
+                    "assistant_llm_max_tokens": int(
+                        max_tokens_val if max_tokens_val is not None else 4096
+                    ),
+                }
+            )
+            return "✅ Assistant settings saved (including generation parameters)."
 
         def handle_assistant_provider_change(provider_name):
             """Handle assistant LLM provider change using the shared provider defaults."""
@@ -14869,6 +14936,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 assistant_llm_api_key,
                 assistant_llm_model_id,
                 assistant_llm_system_prompt,
+                assistant_llm_temperature,
+                assistant_llm_top_p,
+                assistant_llm_max_tokens,
             ],
             outputs=[assistant_chatbot, assistant_msg_input, assistant_llm_status],
         )
@@ -14883,6 +14953,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 assistant_llm_api_key,
                 assistant_llm_model_id,
                 assistant_llm_system_prompt,
+                assistant_llm_temperature,
+                assistant_llm_top_p,
+                assistant_llm_max_tokens,
             ],
             outputs=[assistant_chatbot, assistant_msg_input, assistant_llm_status],
         )
@@ -14912,6 +14985,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 assistant_llm_model_id,
                 assistant_llm_api_key,
                 assistant_llm_system_prompt,
+                assistant_llm_temperature,
+                assistant_llm_top_p,
+                assistant_llm_max_tokens,
             ],
             outputs=[assistant_llm_status],
         )
@@ -14958,6 +15034,21 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 assistant_llm_api_key,
                 assistant_llm_system_prompt,
             ],
+        )
+
+        assistant_llm_temperature.change(
+            fn=lambda v: save_app_state_settings({"assistant_llm_temperature": float(v)}),
+            inputs=[assistant_llm_temperature],
+        )
+
+        assistant_llm_top_p.change(
+            fn=lambda v: save_app_state_settings({"assistant_llm_top_p": float(v)}),
+            inputs=[assistant_llm_top_p],
+        )
+
+        assistant_llm_max_tokens.change(
+            fn=lambda v: save_app_state_settings({"assistant_llm_max_tokens": int(v)}),
+            inputs=[assistant_llm_max_tokens],
         )
 
         assistant_llm_provider.change(
