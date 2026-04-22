@@ -5277,6 +5277,10 @@ def _normalize_speaker_profile_name(profile_name: str) -> str:
     return str(profile_name or "").strip()
 
 
+def _normalize_speaker_profile_match_key(speaker_name: str) -> str:
+    return " ".join(str(speaker_name or "").split()).casefold()
+
+
 def _speaker_profile_status_update(message: str):
     return gr.update(value=message, visible=True)
 
@@ -5286,7 +5290,9 @@ def _normalize_saved_speaker_profile_settings(
     speaker_settings: dict[str, Any],
     fallback_audio_path: str = "",
 ) -> dict[str, Any]:
-    normalized_settings = copy.deepcopy(speaker_settings) if isinstance(speaker_settings, dict) else {}
+    normalized_settings = (
+        copy.deepcopy(speaker_settings) if isinstance(speaker_settings, dict) else {}
+    )
 
     ref_audio = str(normalized_settings.get("ref_audio", "") or "").strip()
     if ref_audio:
@@ -5380,6 +5386,18 @@ def _clone_conversation_speaker_settings(
             merged_settings.update(existing_settings)
         updated_state[speaker_name] = merged_settings
     return updated_state
+
+
+def _build_unassigned_conversation_speaker_settings(
+    speaker_name: str,
+    existing_settings: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    reset_settings = create_default_speaker_settings([speaker_name]).get(speaker_name, {})
+    if isinstance(existing_settings, dict):
+        existing_engine = str(existing_settings.get("tts_engine", "") or "").strip()
+        if existing_engine:
+            reset_settings["tts_engine"] = existing_engine
+    return reset_settings
 
 
 def update_conversation_speaker_setting(
@@ -5761,7 +5779,9 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
             saved_settings["selected_profile"] = normalized_name
 
             saved_speakers[normalized_speaker_name] = saved_settings
-            current_state.setdefault(normalized_speaker_name, {}).update(copy.deepcopy(saved_settings))
+            current_state.setdefault(normalized_speaker_name, {}).update(
+                copy.deepcopy(saved_settings)
+            )
 
         if not saved_speakers:
             return (
@@ -5852,12 +5872,31 @@ def on_load_speaker_profile(
         saved_speakers = {}
 
     missing_audio_count = 0
+    matched_speakers = 0
+    unmatched_speakers: list[str] = []
     if normalized_speakers:
-        matched_speakers = 0
+        saved_speaker_lookup = {
+            _normalize_speaker_profile_match_key(saved_speaker_name): saved_settings
+            for saved_speaker_name, saved_settings in saved_speakers.items()
+            if isinstance(saved_speaker_name, str) and isinstance(saved_settings, dict)
+        }
+
         for speaker_name in normalized_speakers:
-            updated_state.setdefault(speaker_name, {})["selected_profile"] = normalized_name
+            existing_settings = updated_state.get(speaker_name, {})
             saved_settings = saved_speakers.get(speaker_name)
             if not isinstance(saved_settings, dict):
+                saved_settings = saved_speaker_lookup.get(
+                    _normalize_speaker_profile_match_key(speaker_name)
+                )
+
+            if not isinstance(saved_settings, dict):
+                reset_settings = _build_unassigned_conversation_speaker_settings(
+                    speaker_name,
+                    existing_settings if isinstance(existing_settings, dict) else None,
+                )
+                reset_settings["selected_profile"] = ""
+                updated_state[speaker_name] = reset_settings
+                unmatched_speakers.append(speaker_name)
                 continue
 
             matched_speakers += 1
@@ -5868,24 +5907,28 @@ def on_load_speaker_profile(
                 normalized_settings["ref_audio"] = ""
                 missing_audio_count += 1
 
-            normalized_settings["selected_profile"] = normalized_name
-            updated_state.setdefault(speaker_name, {}).update(normalized_settings)
+            merged_settings = _build_unassigned_conversation_speaker_settings(
+                speaker_name,
+                existing_settings if isinstance(existing_settings, dict) else None,
+            )
+            merged_settings.update(normalized_settings)
+            merged_settings["selected_profile"] = normalized_name
+            updated_state[speaker_name] = merged_settings
 
         if matched_speakers == 0:
-            for speaker_name, (_, saved_settings) in zip(normalized_speakers, saved_speakers.items()):
-                if not isinstance(saved_settings, dict):
-                    continue
+            return (
+                _clone_conversation_speaker_settings(current_settings_state, normalized_speakers),
+                *[gr.update() for _ in range(10)],
+                gr.update(value=""),
+                _speaker_profile_status_update(
+                    f"⚠️ Speaker profile '{normalized_name}' was not applied because no roster names matched"
+                ),
+            )
 
-                normalized_settings = copy.deepcopy(saved_settings)
-                saved_audio = str(normalized_settings.get("ref_audio", "") or "").strip()
-                if saved_audio and not os.path.exists(saved_audio):
-                    normalized_settings["ref_audio"] = ""
-                    missing_audio_count += 1
-
-                normalized_settings["selected_profile"] = normalized_name
-                updated_state.setdefault(speaker_name, {}).update(normalized_settings)
     else:
-        updated_state = _clone_conversation_speaker_settings(saved_speakers, list(saved_speakers.keys()))
+        updated_state = _clone_conversation_speaker_settings(
+            saved_speakers, list(saved_speakers.keys())
+        )
         for speaker_name, speaker_settings in updated_state.items():
             if not isinstance(speaker_settings, dict):
                 continue
@@ -5897,11 +5940,15 @@ def on_load_speaker_profile(
 
     if normalized_index is not None and 0 <= normalized_index < len(normalized_speakers):
         selected_speaker_name = normalized_speakers[normalized_index]
-        updated_state.setdefault(selected_speaker_name, {})["selected_profile"] = normalized_name
+        selected_speaker_settings = updated_state.setdefault(selected_speaker_name, {})
+        if isinstance(selected_speaker_settings, dict) and selected_speaker_name not in unmatched_speakers:
+            selected_speaker_settings["selected_profile"] = normalized_name
 
     audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
 
     status_message = f"✅ Loaded speaker profile '{normalized_name}'"
+    if unmatched_speakers:
+        status_message += f" ({len(unmatched_speakers)} roster name(s) left unassigned)"
     if missing_audio_count:
         status_message += f" ({missing_audio_count} missing audio file(s) skipped)"
 
@@ -5977,7 +6024,10 @@ def on_delete_speaker_profile(profile_name: str, current_settings_state: dict | 
     for speaker_settings in current_state.values():
         if not isinstance(speaker_settings, dict):
             continue
-        if _normalize_speaker_profile_name(speaker_settings.get("selected_profile", "")) == normalized_name:
+        if (
+            _normalize_speaker_profile_name(speaker_settings.get("selected_profile", ""))
+            == normalized_name
+        ):
             speaker_settings["selected_profile"] = ""
 
     return (
@@ -10453,6 +10503,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         speaker_profile_name_input = gr.Textbox(
                                             label="Profile Name",
                                             placeholder="Enter a name for this speaker profile...",
+                                            info="Save Profile stores the entire current character roster. Voice sample and reference text edits apply immediately to the selected roster entry.",
                                             elem_classes=["fade-in"],
                                         )
 
@@ -10484,8 +10535,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 <strong>💡 Guided flow:</strong><br/>
                                                 1. Analyze or AI-format the script<br/>
                                                 2. Pick a character in the roster<br/>
-                                                3. Configure the voice for that character<br/>
-                                                4. Select a script line below to edit it in context
+                                                3. Upload a sample or edit reference text for that selected character. Changes apply immediately.<br/>
+                                                4. Use Save Profile to store the full roster-to-voice mapping for reuse, then edit lines below in context
                                             </p>
                                         </div>
                                         """
@@ -15865,18 +15916,21 @@ Alice: I went to Japan. It was absolutely incredible!""",
             if engine_family == "kokoro":
                 return (
                     f"Configure the built-in Kokoro voice for **{speaker_name}**. "
-                    "No uploaded sample is required."
+                    "Changes apply to this selected roster character immediately. Save Profile stores the full roster mapping."
                 )
             if engine_family == "kitten":
                 return (
                     f"Choose the KittenTTS preset voice for **{speaker_name}**. "
-                    "No uploaded sample is required."
+                    "Changes apply to this selected roster character immediately. Save Profile stores the full roster mapping."
                 )
             if engine_family == "indextts2":
-                return f"Upload a voice sample for **{speaker_name}** and set the active emotion control mode."
+                return (
+                    f"Upload a voice sample for **{speaker_name}** and set the active emotion control mode. "
+                    "Changes apply to this selected roster character immediately. Save Profile stores the full roster mapping."
+                )
             return (
                 f"Upload or record a voice sample for **{speaker_name}**. "
-                "Reference text helps engines that support guided cloning."
+                "Reference text helps engines that support guided cloning. Changes apply to this selected roster character immediately, and Save Profile stores the full roster mapping."
             )
 
         def _build_conversation_summary(
