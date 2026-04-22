@@ -5,10 +5,12 @@ from importlib import metadata as importlib_metadata
 from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from mcp.server.fastmcp import Context, FastMCP
+from starlette.types import ASGIApp, Receive, Scope, Send
 import uvicorn
 
 from conversation_logic import get_speaker_names_from_script, parse_conversation_script
@@ -31,6 +33,52 @@ from tts_service import (
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_MCP_MOUNT_PATH = "/gradio_api/mcp"
+
+
+class _McpAuthASGIWrapper:
+    """ASGI auth wrapper for MCP mount paths without BaseHTTPMiddleware."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers: dict[str, str] = {}
+        for key, value in scope.get("headers", []):
+            try:
+                headers[key.decode("latin-1").lower()] = value.decode("latin-1")
+            except Exception:
+                continue
+
+        token = _extract_bearer_token(headers.get("authorization"))
+        if not token:
+            try:
+                query = parse_qs(scope.get("query_string", b"").decode("latin-1"))
+            except Exception:
+                query = {}
+            query_token = ""
+            if query.get("token"):
+                query_token = str(query["token"][0]).strip()
+            elif query.get("access_token"):
+                query_token = str(query["access_token"][0]).strip()
+            token = query_token
+
+        if not get_security().tokens.validate(token):
+            response = JSONResponse(
+                status_code=401,
+                content={
+                    "error": "unauthorized",
+                    "message": "Missing or invalid bearer token.",
+                    "token_file": str(get_security().tokens.token_path),
+                },
+            )
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
 
 
 def _extract_bearer_token(authorization_header: str | None) -> str:
@@ -363,21 +411,6 @@ def create_http_app(mcp_server: FastMCP) -> FastAPI:
     """Create HTTP host app with root/status pages and mounted MCP SSE endpoint."""
     app = FastAPI(title="Ultimate TTS Studio MCP Sidecar", version="2.0")
 
-    @app.middleware("http")
-    async def mcp_auth_middleware(request: Request, call_next):
-        if request.url.path.startswith(DEFAULT_MCP_MOUNT_PATH):
-            token = _extract_request_token(request)
-            if not get_security().tokens.validate(token):
-                return JSONResponse(
-                    status_code=401,
-                    content={
-                        "error": "unauthorized",
-                        "message": "Missing or invalid bearer token.",
-                        "token_file": str(get_security().tokens.token_path),
-                    },
-                )
-        return await call_next(request)
-
     @app.get("/", response_class=HTMLResponse)
     async def root() -> str:
         return (
@@ -400,7 +433,7 @@ def create_http_app(mcp_server: FastMCP) -> FastAPI:
             "version": _app_version_payload(),
         }
 
-    app.mount(DEFAULT_MCP_MOUNT_PATH, mcp_server.sse_app())
+    app.mount(DEFAULT_MCP_MOUNT_PATH, _McpAuthASGIWrapper(mcp_server.sse_app()))
     return app
 
 
