@@ -2577,10 +2577,17 @@ def save_assistant_llm_settings(
         print(f"⚠️ Failed to save assistant LLM settings: {error}")
 
 
-def _build_voice_preset_entry(audio_path: str, created: str | None = None) -> dict[str, str]:
+def _build_voice_preset_entry(
+    audio_path: str,
+    created: str | None = None,
+    reference_text: str = "",
+    speaker_name: str = "",
+) -> dict[str, str]:
     return {
         "audio_path": os.path.abspath(str(audio_path or "").strip()),
         "created": created or datetime.now().isoformat(),
+        "reference_text": str(reference_text or "").strip(),
+        "speaker_name": str(speaker_name or "").strip(),
     }
 
 
@@ -2588,6 +2595,8 @@ def upsert_voice_preset_entry(
     preset_name: str,
     audio_path: str,
     created: str | None = None,
+    reference_text: str = "",
+    speaker_name: str = "",
 ) -> bool:
     normalized_name = _normalize_preset_name(preset_name)
     normalized_audio_path = str(audio_path or "").strip()
@@ -2599,8 +2608,71 @@ def upsert_voice_preset_entry(
     store["presets"][normalized_name] = _build_voice_preset_entry(
         normalized_audio_path,
         created=created,
+        reference_text=reference_text,
+        speaker_name=speaker_name,
     )
     return save_voice_preset_store(store)
+
+
+def get_voice_preset_entry(preset_name: str) -> dict[str, Any]:
+    normalized_name = _normalize_preset_name(preset_name)
+    if not normalized_name:
+        return {}
+
+    preset_entry = load_voice_preset_store().get("presets", {}).get(normalized_name, {})
+    return preset_entry if isinstance(preset_entry, dict) else {}
+
+
+def get_preset_reference_text(preset_name: str) -> str:
+    preset_entry = get_voice_preset_entry(preset_name)
+    reference_text = preset_entry.get("reference_text", "")
+    return str(reference_text or "").strip() if isinstance(reference_text, str) else ""
+
+
+def get_preset_speaker_name(preset_name: str) -> str:
+    preset_entry = get_voice_preset_entry(preset_name)
+    speaker_name = preset_entry.get("speaker_name", "")
+    return str(speaker_name or "").strip() if isinstance(speaker_name, str) else ""
+
+
+def build_character_preset_preview_text(selected_preset: str) -> str:
+    normalized_preset = _normalize_preset_name(selected_preset)
+    if not normalized_preset:
+        return ""
+
+    reference_text = get_preset_reference_text(normalized_preset)
+    if reference_text:
+        return reference_text
+    return "No transcript stored for this preset yet."
+
+
+def delete_voice_preset_entry(preset_name: str) -> tuple[bool, str, bool]:
+    normalized_name = _normalize_preset_name(preset_name)
+    if not normalized_name:
+        return False, "ℹ️ Select a preset to delete", False
+
+    store = load_voice_preset_store()
+    presets = store.get("presets", {})
+    if normalized_name not in presets:
+        return False, f"⚠️ Preset **{normalized_name}** not found", False
+
+    preset_entry = presets.pop(normalized_name)
+    deleted_audio = False
+    audio_path = preset_entry.get("audio_path", "") if isinstance(preset_entry, dict) else ""
+    try:
+        if isinstance(audio_path, str) and audio_path:
+            abs_audio = os.path.abspath(audio_path)
+            abs_voices_dir = os.path.abspath(APP_STATE_VOICES_DIR)
+            if abs_audio.startswith(abs_voices_dir) and os.path.exists(abs_audio):
+                os.remove(abs_audio)
+                deleted_audio = True
+    except Exception as error:
+        print(f"⚠️ Failed to remove preset audio file: {error}")
+
+    save_voice_preset_store(store)
+    if deleted_audio:
+        return True, f"✅ Preset **{normalized_name}** deleted (audio file removed)", True
+    return True, f"✅ Preset **{normalized_name}** deleted", False
 
 
 def build_assistant_provider_help_markdown(provider_name: str) -> str:
@@ -5161,6 +5233,8 @@ def migrate_legacy_presets_if_needed() -> bool:
                 migrated["presets"][normalized] = {
                     "audio_path": audio_path,
                     "created": datetime.now().isoformat(),
+                    "reference_text": "",
+                    "speaker_name": "",
                 }
 
         save_voice_preset_store(migrated)
@@ -5183,6 +5257,10 @@ def load_voice_preset_store() -> dict:
                     data.setdefault("version", 1)
                     data.setdefault("presets", {})
                     if isinstance(data["presets"], dict):
+                        for preset_entry in data["presets"].values():
+                            if isinstance(preset_entry, dict):
+                                preset_entry.setdefault("reference_text", "")
+                                preset_entry.setdefault("speaker_name", "")
                         return data
     except Exception as error:
         print(f"⚠️ Error loading app_state presets: {error}")
@@ -5384,6 +5462,7 @@ def _clone_conversation_speaker_settings(
         existing_settings = existing_state.get(speaker_name, {})
         if isinstance(existing_settings, dict):
             merged_settings.update(existing_settings)
+        merged_settings.setdefault("assigned_preset", "")
         updated_state[speaker_name] = merged_settings
     return updated_state
 
@@ -5393,6 +5472,7 @@ def _build_unassigned_conversation_speaker_settings(
     existing_settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     reset_settings = create_default_speaker_settings([speaker_name]).get(speaker_name, {})
+    reset_settings["assigned_preset"] = ""
     if isinstance(existing_settings, dict):
         existing_engine = str(existing_settings.get("tts_engine", "") or "").strip()
         if existing_engine:
@@ -5421,6 +5501,8 @@ def update_conversation_speaker_setting(
 
     speaker_name = normalized_speakers[speaker_slot_index]
     updated_state.setdefault(speaker_name, {})[key] = value
+    if key in {"ref_audio", "fish_ref_text"}:
+        updated_state[speaker_name]["assigned_preset"] = ""
     return updated_state
 
 
@@ -5624,7 +5706,9 @@ def on_select_preset(selected_name: str):
         return "", "ℹ️ No preset selected", "Speakers Name", *clear_audio_values
 
     audio_path = get_preset_audio_path(normalized)
-    speaker_name_guess = normalized.split("_", 1)[0] if "_" in normalized else normalized
+    speaker_name_guess = get_preset_speaker_name(normalized)
+    if not speaker_name_guess:
+        speaker_name_guess = normalized.split("_", 1)[0] if "_" in normalized else normalized
     speaker_name_guess = speaker_name_guess.strip() or "Speakers Name"
 
     if audio_path:
@@ -5638,7 +5722,13 @@ def on_select_preset(selected_name: str):
     )
 
 
-def on_save_preset(preset_name: str, audio_path: str, copy_into_app: bool):
+def on_save_preset(
+    preset_name: str,
+    audio_path: str,
+    copy_into_app: bool,
+    reference_text: str = "",
+    speaker_name: str = "",
+):
     normalized_name = _normalize_preset_name(preset_name)
     if not normalized_name:
         return gr.update(), "❌ Please enter a preset name", gr.update(value="")
@@ -5655,7 +5745,12 @@ def on_save_preset(preset_name: str, audio_path: str, copy_into_app: bool):
         if copy_into_app:
             final_audio_path = _copy_preset_audio_into_app_state(normalized_name, audio_path)
 
-        if not upsert_voice_preset_entry(normalized_name, final_audio_path):
+        if not upsert_voice_preset_entry(
+            normalized_name,
+            final_audio_path,
+            reference_text=reference_text,
+            speaker_name=speaker_name,
+        ):
             return gr.update(), "❌ Failed to save preset", gr.update(value=normalized_name)
 
         choices = get_voice_preset_choices()
@@ -5673,36 +5768,218 @@ def on_delete_preset(selected_name: str):
     if not normalized_name:
         return gr.update(), "ℹ️ Select a preset to delete", gr.update(value="")
 
-    store = load_voice_preset_store()
-    presets = store.get("presets", {})
-    if normalized_name not in presets:
-        choices = get_voice_preset_choices()
+    deleted, message, _ = delete_voice_preset_entry(normalized_name)
+    choices = get_voice_preset_choices()
+    return gr.update(choices=choices, value=""), message, gr.update(value="")
+
+
+def _get_conversation_speaker_name_by_index(
+    selected_speaker_index: int | None,
+    speakers: list[str] | None,
+) -> str:
+    normalized_speakers = [
+        str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
+    ]
+    try:
+        normalized_index = (
+            int(selected_speaker_index) if selected_speaker_index not in (None, "") else None
+        )
+    except (TypeError, ValueError):
+        normalized_index = None
+
+    if normalized_index is None or not (0 <= normalized_index < len(normalized_speakers)):
+        return ""
+    return normalized_speakers[normalized_index]
+
+
+def apply_preset_to_selected_conversation_character(
+    preset_name: str,
+    selected_speaker_index: int | None,
+    speakers: list[str] | None,
+    speaker_settings_state: dict | None,
+):
+    normalized_speakers = [
+        str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
+    ]
+    updated_state = _clone_conversation_speaker_settings(speaker_settings_state, normalized_speakers)
+    selected_speaker_name = _get_conversation_speaker_name_by_index(
+        selected_speaker_index,
+        normalized_speakers,
+    )
+    normalized_preset = _normalize_preset_name(preset_name)
+
+    if not selected_speaker_name:
+        audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
         return (
-            gr.update(choices=choices, value=""),
-            f"⚠️ Preset **{normalized_name}** not found",
+            updated_state,
+            *audio_values,
+            *ref_text_values,
+            gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
+            gr.update(value=build_character_preset_preview_text(normalized_preset)),
+            gr.update(value="❌ Select a character before applying a preset."),
+        )
+
+    if not normalized_preset:
+        audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
+        return (
+            updated_state,
+            *audio_values,
+            *ref_text_values,
+            gr.update(choices=get_voice_preset_choices(), value=""),
+            gr.update(value=""),
+            gr.update(value="❌ Select a preset voice before applying it."),
+        )
+
+    preset_entry = get_voice_preset_entry(normalized_preset)
+    preset_audio_path = str(preset_entry.get("audio_path", "") or "").strip()
+    if not preset_audio_path or not os.path.exists(preset_audio_path):
+        audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
+        return (
+            updated_state,
+            *audio_values,
+            *ref_text_values,
+            gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
+            gr.update(value=build_character_preset_preview_text(normalized_preset)),
+            gr.update(value=f"❌ Preset '{normalized_preset}' is missing its audio file."),
+        )
+
+    selected_settings = updated_state.setdefault(selected_speaker_name, {})
+    if not isinstance(selected_settings, dict):
+        selected_settings = {}
+        updated_state[selected_speaker_name] = selected_settings
+
+    selected_settings["ref_audio"] = os.path.abspath(preset_audio_path)
+    preset_reference_text = get_preset_reference_text(normalized_preset)
+    if preset_reference_text:
+        selected_settings["fish_ref_text"] = preset_reference_text
+    selected_settings["assigned_preset"] = normalized_preset
+
+    audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
+    return (
+        updated_state,
+        *audio_values,
+        *ref_text_values,
+        gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
+        gr.update(value=build_character_preset_preview_text(normalized_preset)),
+        gr.update(
+            value=(
+                f"✅ Applied preset **{normalized_preset}** to **{selected_speaker_name}**."
+            )
+        ),
+    )
+
+
+def save_selected_conversation_character_as_preset(
+    preset_name: str,
+    selected_speaker_index: int | None,
+    speakers: list[str] | None,
+    speaker_settings_state: dict | None,
+):
+    normalized_speakers = [
+        str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
+    ]
+    current_state = _clone_conversation_speaker_settings(speaker_settings_state, normalized_speakers)
+    selected_speaker_name = _get_conversation_speaker_name_by_index(
+        selected_speaker_index,
+        normalized_speakers,
+    )
+    normalized_preset = _normalize_preset_name(preset_name)
+
+    if not selected_speaker_name:
+        return (
+            gr.update(choices=get_voice_preset_choices()),
+            gr.update(value=""),
+            gr.update(value="❌ Select a character before saving a preset."),
+            gr.update(value=normalized_preset),
+        )
+
+    if not normalized_preset:
+        return (
+            gr.update(choices=get_voice_preset_choices()),
+            gr.update(value=""),
+            gr.update(value="❌ Enter a preset name before saving."),
             gr.update(value=""),
         )
 
-    preset_entry = presets.pop(normalized_name)
-    deleted_audio = False
-    audio_path = preset_entry.get("audio_path", "") if isinstance(preset_entry, dict) else ""
-    try:
-        if isinstance(audio_path, str) and audio_path:
-            abs_audio = os.path.abspath(audio_path)
-            abs_voices_dir = os.path.abspath(APP_STATE_VOICES_DIR)
-            if abs_audio.startswith(abs_voices_dir) and os.path.exists(abs_audio):
-                os.remove(abs_audio)
-                deleted_audio = True
-    except Exception as error:
-        print(f"⚠️ Failed to remove preset audio file: {error}")
+    selected_settings = current_state.get(selected_speaker_name, {})
+    if not isinstance(selected_settings, dict):
+        selected_settings = {}
 
-    save_voice_preset_store(store)
-    choices = get_voice_preset_choices()
-    if deleted_audio:
-        message = f"✅ Preset **{normalized_name}** deleted (audio file removed)"
-    else:
-        message = f"✅ Preset **{normalized_name}** deleted"
-    return gr.update(choices=choices, value=""), message, gr.update(value="")
+    ref_audio = str(selected_settings.get("ref_audio", "") or "").strip()
+    if not ref_audio or not os.path.exists(ref_audio):
+        return (
+            gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
+            gr.update(value=""),
+            gr.update(
+                value=(
+                    f"❌ {selected_speaker_name} needs a valid reference audio sample before it can be saved as a preset."
+                )
+            ),
+            gr.update(value=normalized_preset),
+        )
+
+    managed_audio_path = (
+        ref_audio if _is_app_state_voice_path(ref_audio) else _copy_preset_audio_into_app_state(normalized_preset, ref_audio)
+    )
+
+    if not upsert_voice_preset_entry(
+        normalized_preset,
+        managed_audio_path,
+        reference_text=str(selected_settings.get("fish_ref_text", "") or ""),
+        speaker_name=selected_speaker_name,
+    ):
+        return (
+            gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
+            gr.update(value=""),
+            gr.update(value=f"❌ Failed to save preset **{normalized_preset}**."),
+            gr.update(value=normalized_preset),
+        )
+
+    return (
+        gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
+        gr.update(value=str(selected_settings.get("fish_ref_text", "") or "")),
+        gr.update(
+            value=(
+                f"✅ Saved **{selected_speaker_name}** as preset **{normalized_preset}**."
+            )
+        ),
+        gr.update(value=""),
+    )
+
+
+def delete_conversation_preset_from_bank(
+    preset_name: str,
+    speaker_settings_state: dict | None,
+    speakers: list[str] | None,
+):
+    normalized_speakers = [
+        str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
+    ]
+    updated_state = _clone_conversation_speaker_settings(speaker_settings_state, normalized_speakers)
+    normalized_preset = _normalize_preset_name(preset_name)
+
+    if not normalized_preset:
+        return (
+            updated_state,
+            gr.update(choices=get_voice_preset_choices(), value=""),
+            gr.update(value=""),
+            gr.update(value="ℹ️ Select a preset to delete from the bank."),
+        )
+
+    deleted, message, _ = delete_voice_preset_entry(normalized_preset)
+    if deleted:
+        for speaker_name, settings in updated_state.items():
+            if not isinstance(settings, dict):
+                continue
+            if _normalize_preset_name(settings.get("assigned_preset", "")) == normalized_preset:
+                settings["assigned_preset"] = ""
+
+    return (
+        updated_state,
+        gr.update(choices=get_voice_preset_choices(), value=""),
+        gr.update(value=""),
+        gr.update(value=message),
+    )
 
 
 def save_current_preset(preset_name, tts_engine, **settings):
@@ -5941,7 +6218,10 @@ def on_load_speaker_profile(
     if normalized_index is not None and 0 <= normalized_index < len(normalized_speakers):
         selected_speaker_name = normalized_speakers[normalized_index]
         selected_speaker_settings = updated_state.setdefault(selected_speaker_name, {})
-        if isinstance(selected_speaker_settings, dict) and selected_speaker_name not in unmatched_speakers:
+        if (
+            isinstance(selected_speaker_settings, dict)
+            and selected_speaker_name not in unmatched_speakers
+        ):
             selected_speaker_settings["selected_profile"] = normalized_name
 
     audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
@@ -10479,18 +10759,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     with gr.Column(scale=1):
                                         with gr.Row():
                                             speaker_profile_selector = gr.Dropdown(
-                                                label="Speaker Profile",
+                                                label="Conversation Voice Bank",
                                                 choices=get_speaker_profile_choices(),
                                                 value=None,
                                                 interactive=True,
                                                 scale=3,
                                             )
                                             save_speaker_profile_btn = gr.Button(
-                                                "💾 Save Profile",
+                                                "💾 Save Bank",
                                                 scale=1,
                                             )
                                             delete_speaker_profile_btn = gr.Button(
-                                                "🗑️ Delete",
+                                                "🗑️ Delete Bank",
                                                 scale=1,
                                             )
                                             cast_characters_btn = gr.Button(
@@ -10501,14 +10781,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         speaker_profile_name_input = gr.Textbox(
-                                            label="Profile Name",
-                                            placeholder="Enter a name for this speaker profile...",
-                                            info="Save Profile stores the entire current character roster. Voice sample and reference text edits apply immediately to the selected roster entry.",
+                                            label="Bank Name",
+                                            placeholder="Enter a name for this conversation voice bank...",
+                                            info="Save Bank stores the entire current character roster mapping. This is separate from the preset voice bank used to save or reuse individual voices.",
                                             elem_classes=["fade-in"],
                                         )
 
                                         speaker_profile_status = gr.Textbox(
-                                            label="Profile Status",
+                                            label="Conversation Voice Bank Status",
                                             interactive=False,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -10535,8 +10815,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 <strong>💡 Guided flow:</strong><br/>
                                                 1. Analyze or AI-format the script<br/>
                                                 2. Pick a character in the roster<br/>
-                                                3. Upload a sample or edit reference text for that selected character. Changes apply immediately.<br/>
-                                                4. Use Save Profile to store the full roster-to-voice mapping for reuse, then edit lines below in context
+                                                3. Apply a saved preset voice to that character, or upload a custom sample and transcript directly<br/>
+                                                4. Save Character As Preset only when you want to add that voice to the preset bank for future reuse<br/>
+                                                5. Save Bank stores the full roster-to-voice mapping for this multi-speaker setup
                                             </p>
                                         </div>
                                         """
@@ -10555,6 +10836,60 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             "",
                                             elem_classes=["fade-in"],
                                         )
+                                        selected_character_assignment = gr.Markdown(
+                                            "Select a character to see its current voice assignment.",
+                                            elem_classes=["fade-in"],
+                                        )
+
+                                        with gr.Group(elem_classes=["fade-in"]):
+                                            gr.Markdown("**🎙️ Preset Voice Bank**")
+                                            with gr.Row():
+                                                character_preset_selector = gr.Dropdown(
+                                                    label="Preset Voice",
+                                                    choices=get_voice_preset_choices(),
+                                                    value="",
+                                                    allow_custom_value=True,
+                                                    info="Selecting a preset only previews it. Use Apply Preset To Character to assign it to the selected character.",
+                                                    scale=3,
+                                                )
+                                                apply_character_preset_btn = gr.Button(
+                                                    "↪️ Apply Preset To Character",
+                                                    variant="secondary",
+                                                    scale=2,
+                                                )
+
+                                            character_preset_reference_preview = gr.Textbox(
+                                                label="Preset Transcript Preview",
+                                                lines=3,
+                                                interactive=False,
+                                                placeholder="Stored preset transcript will appear here.",
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                            with gr.Row():
+                                                character_preset_name_input = gr.Textbox(
+                                                    label="Save Character As Preset",
+                                                    placeholder="Enter a new preset name",
+                                                    scale=3,
+                                                )
+                                                save_character_as_preset_btn = gr.Button(
+                                                    "💾 Save Character As Preset",
+                                                    variant="secondary",
+                                                    scale=2,
+                                                )
+                                                delete_character_preset_btn = gr.Button(
+                                                    "🗑️ Delete Preset From Bank",
+                                                    variant="stop",
+                                                    scale=2,
+                                                )
+
+                                            character_preset_status = gr.Markdown(
+                                                value=(
+                                                    "ℹ️ Preset bank actions are separate from character assignment. "
+                                                    "Applying a preset affects only the selected character."
+                                                ),
+                                                elem_classes=["fade-in"],
+                                            )
 
                                         with gr.Group(
                                             visible=False, elem_classes=["fade-in"]
@@ -12064,6 +12399,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
             selected_character_header,
             selected_character_hint,
             selected_character_capabilities,
+            selected_character_assignment,
+            character_preset_selector,
+            character_preset_reference_preview,
+            character_preset_status,
             conversation_lines_df,
             line_editor_group,
             line_editor_status,
@@ -15815,6 +16154,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
         ) -> str:
             engine_family = _conversation_engine_family(selected_engine)
             default_settings = speaker_settings.get(speaker_name, {}) if speaker_settings else {}
+            assigned_preset = _normalize_preset_name(default_settings.get("assigned_preset", ""))
+
+            if assigned_preset:
+                return f"Preset: {assigned_preset}"
 
             if engine_family == "kokoro":
                 voice_value = (
@@ -15911,26 +16254,66 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 "The guided editor keeps the backend generation flow unchanged."
             )
 
+        def _get_selected_character_settings(
+            speaker_settings: dict[str, dict[str, Any]] | None,
+            speaker_name: str,
+        ) -> dict[str, Any]:
+            if not isinstance(speaker_settings, dict):
+                return {}
+            selected_settings = speaker_settings.get(speaker_name, {})
+            return selected_settings if isinstance(selected_settings, dict) else {}
+
+        def _build_selected_character_assignment(
+            speaker_name: str,
+            speaker_settings: dict[str, dict[str, Any]] | None,
+        ) -> str:
+            settings = _get_selected_character_settings(speaker_settings, speaker_name)
+            assigned_preset = _normalize_preset_name(settings.get("assigned_preset", ""))
+            selected_profile = _normalize_speaker_profile_name(
+                settings.get("selected_profile", "")
+            )
+            has_sample = bool(str(settings.get("ref_audio", "") or "").strip())
+            has_ref_text = bool(str(settings.get("fish_ref_text", "") or "").strip())
+
+            assignment_parts: list[str] = []
+            if assigned_preset:
+                assignment_parts.append(f"Preset bank assignment: **{assigned_preset}**")
+            elif has_sample:
+                assignment_parts.append("Character voice source: custom sample")
+            else:
+                assignment_parts.append("Character voice source: unassigned")
+
+            assignment_parts.append(
+                "Transcript: ready" if has_ref_text else "Transcript: not saved"
+            )
+            if selected_profile:
+                assignment_parts.append(f"Conversation voice bank: **{selected_profile}**")
+
+            return f"**Current assignment for {speaker_name}:** " + " | ".join(assignment_parts)
+
+        def _build_character_preset_preview(selected_preset: str) -> str:
+            return build_character_preset_preview_text(selected_preset)
+
         def _build_selected_character_hint(selected_engine: str, speaker_name: str) -> str:
             engine_family = _conversation_engine_family(selected_engine)
             if engine_family == "kokoro":
                 return (
                     f"Configure the built-in Kokoro voice for **{speaker_name}**. "
-                    "Changes apply to this selected roster character immediately. Save Profile stores the full roster mapping."
+                    "Apply a preset voice only when you want this character to reuse a saved bank entry. Save Bank stores the full roster mapping."
                 )
             if engine_family == "kitten":
                 return (
                     f"Choose the KittenTTS preset voice for **{speaker_name}**. "
-                    "Changes apply to this selected roster character immediately. Save Profile stores the full roster mapping."
+                    "Apply a preset voice only when you want this character to reuse a saved bank entry. Save Bank stores the full roster mapping."
                 )
             if engine_family == "indextts2":
                 return (
                     f"Upload a voice sample for **{speaker_name}** and set the active emotion control mode. "
-                    "Changes apply to this selected roster character immediately. Save Profile stores the full roster mapping."
+                    "You can also apply a preset voice first, then adjust emotion controls. Save Bank stores the full roster mapping."
                 )
             return (
                 f"Upload or record a voice sample for **{speaker_name}**. "
-                "Reference text helps engines that support guided cloning. Changes apply to this selected roster character immediately, and Save Profile stores the full roster mapping."
+                "Reference text helps engines that support guided cloning. Use Save Character As Preset only for reusable bank entries, and Save Bank for the full roster mapping."
             )
 
         def _build_conversation_summary(
@@ -16021,6 +16404,15 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     value="Analyze a script to populate the roster, then choose a speaker to edit."
                 ),
                 gr.update(value=""),
+                gr.update(value="Select a character to see its current voice assignment."),
+                gr.update(choices=get_voice_preset_choices(), value=""),
+                gr.update(value=""),
+                gr.update(
+                    value=(
+                        "ℹ️ Preset bank actions are separate from character assignment. "
+                        "Applying a preset affects only the selected character."
+                    )
+                ),
                 gr.update(value=[], visible=False),
                 gr.update(visible=False),
                 gr.update(value="Select a line from the table to begin editing."),
@@ -16102,6 +16494,20 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     value=_build_selected_character_hint(selected_engine, selected_speaker_name)
                 ),
                 gr.update(value=_build_conversation_capabilities(selected_engine)),
+                gr.update(
+                    value=_build_selected_character_assignment(
+                        selected_speaker_name,
+                        speaker_settings,
+                    )
+                ),
+                gr.update(choices=get_voice_preset_choices(), value=""),
+                gr.update(value=""),
+                gr.update(
+                    value=(
+                        "ℹ️ Select a preset voice to preview it, then apply it to the selected "
+                        "character if needed."
+                    )
+                ),
                 gr.update(value=conversation_table, visible=True),
                 gr.update(visible=False),
                 gr.update(value="Select a line from the table to begin editing."),
@@ -16185,9 +16591,18 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                         value="Analyze a script to populate the roster, then choose a speaker to edit."
                     ),
                     gr.update(value=""),
+                    gr.update(value="Select a character to see its current voice assignment."),
                     None,
                     gr.update(value=None),
                     gr.update(value=""),
+                    gr.update(choices=get_voice_preset_choices(), value=""),
+                    gr.update(value=""),
+                    gr.update(
+                        value=(
+                            "ℹ️ Preset bank actions are separate from character assignment. "
+                            "Applying a preset affects only the selected character."
+                        )
+                    ),
                     *hidden_updates,
                 )
 
@@ -16200,6 +16615,13 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_settings,
                 speakers,
                 selected_speaker_name=selected_speaker_name,
+            )
+            selected_character_settings = _get_selected_character_settings(
+                speaker_settings,
+                selected_speaker_name,
+            )
+            assigned_preset_name = _normalize_preset_name(
+                selected_character_settings.get("assigned_preset", "")
             )
             roster_choices = _build_conversation_roster_choices(
                 speakers,
@@ -16219,9 +16641,31 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     value=_build_selected_character_hint(selected_engine, selected_speaker_name)
                 ),
                 gr.update(value=_build_conversation_capabilities(selected_engine)),
+                gr.update(
+                    value=_build_selected_character_assignment(
+                        selected_speaker_name,
+                        speaker_settings,
+                    )
+                ),
                 normalized_index,
                 (gr.update(value=selected_profile_name) if selected_profile_name else gr.update()),
                 gr.update(value=selected_profile_name),
+                gr.update(
+                    choices=get_voice_preset_choices(),
+                    value=assigned_preset_name,
+                ),
+                gr.update(value=_build_character_preset_preview(assigned_preset_name)),
+                gr.update(
+                    value=(
+                        f"ℹ️ {selected_speaker_name} is currently using preset "
+                        f"**{assigned_preset_name}**."
+                        if assigned_preset_name
+                        else (
+                            "ℹ️ Select a preset voice to preview it, then apply it to the selected "
+                            "character if needed."
+                        )
+                    )
+                ),
                 *_build_conversation_panel_updates(speakers, selected_engine, normalized_index),
             )
 
@@ -16658,6 +17102,29 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_profile_name_input,
                 speaker_profile_status,
             ],
+        ).then(
+            fn=handle_select_speaker,
+            inputs=[
+                character_roster,
+                conversation_speakers_state,
+                tts_engine,
+                *conversation_component_state_inputs,
+                conversation_speaker_settings_state,
+            ],
+            outputs=[
+                character_roster,
+                selected_character_header,
+                selected_character_hint,
+                selected_character_capabilities,
+                selected_character_assignment,
+                conversation_selected_speaker_state,
+                speaker_profile_selector,
+                speaker_profile_name_input,
+                character_preset_selector,
+                character_preset_reference_preview,
+                character_preset_status,
+                *conversation_panel_updates,
+            ],
         )
 
         save_speaker_profile_btn.click(
@@ -16724,9 +17191,135 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 selected_character_header,
                 selected_character_hint,
                 selected_character_capabilities,
+                selected_character_assignment,
                 conversation_selected_speaker_state,
                 speaker_profile_selector,
                 speaker_profile_name_input,
+                character_preset_selector,
+                character_preset_reference_preview,
+                character_preset_status,
+                *conversation_panel_updates,
+            ],
+        )
+
+        character_preset_selector.change(
+            fn=lambda preset_name: (
+                gr.update(value=_build_character_preset_preview(preset_name)),
+                gr.update(
+                    value=(
+                        f"ℹ️ Previewing preset **{_normalize_preset_name(preset_name)}**. "
+                        "Apply it to the selected character to use it in this conversation."
+                        if _normalize_preset_name(preset_name)
+                        else (
+                            "ℹ️ Select a preset voice to preview it, then apply it to the selected "
+                            "character if needed."
+                        )
+                    )
+                ),
+            ),
+            inputs=[character_preset_selector],
+            outputs=[character_preset_reference_preview, character_preset_status],
+        )
+
+        apply_character_preset_btn.click(
+            fn=apply_preset_to_selected_conversation_character,
+            inputs=[
+                character_preset_selector,
+                conversation_selected_speaker_state,
+                conversation_speakers_state,
+                conversation_speaker_settings_state,
+            ],
+            outputs=[
+                conversation_speaker_settings_state,
+                speaker_1_audio,
+                speaker_2_audio,
+                speaker_3_audio,
+                speaker_4_audio,
+                speaker_5_audio,
+                speaker_1_ref_text,
+                speaker_2_ref_text,
+                speaker_3_ref_text,
+                speaker_4_ref_text,
+                speaker_5_ref_text,
+                character_preset_selector,
+                character_preset_reference_preview,
+                character_preset_status,
+            ],
+        ).then(
+            fn=handle_select_speaker,
+            inputs=[
+                character_roster,
+                conversation_speakers_state,
+                tts_engine,
+                *conversation_component_state_inputs,
+                conversation_speaker_settings_state,
+            ],
+            outputs=[
+                character_roster,
+                selected_character_header,
+                selected_character_hint,
+                selected_character_capabilities,
+                selected_character_assignment,
+                conversation_selected_speaker_state,
+                speaker_profile_selector,
+                speaker_profile_name_input,
+                character_preset_selector,
+                character_preset_reference_preview,
+                character_preset_status,
+                *conversation_panel_updates,
+            ],
+        )
+
+        save_character_as_preset_btn.click(
+            fn=save_selected_conversation_character_as_preset,
+            inputs=[
+                character_preset_name_input,
+                conversation_selected_speaker_state,
+                conversation_speakers_state,
+                conversation_speaker_settings_state,
+            ],
+            outputs=[
+                character_preset_selector,
+                character_preset_reference_preview,
+                character_preset_status,
+                character_preset_name_input,
+            ],
+        )
+
+        delete_character_preset_btn.click(
+            fn=delete_conversation_preset_from_bank,
+            inputs=[
+                character_preset_selector,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[
+                conversation_speaker_settings_state,
+                character_preset_selector,
+                character_preset_reference_preview,
+                character_preset_status,
+            ],
+        ).then(
+            fn=handle_select_speaker,
+            inputs=[
+                character_roster,
+                conversation_speakers_state,
+                tts_engine,
+                *conversation_component_state_inputs,
+                conversation_speaker_settings_state,
+            ],
+            outputs=[
+                character_roster,
+                selected_character_header,
+                selected_character_hint,
+                selected_character_capabilities,
+                selected_character_assignment,
+                conversation_selected_speaker_state,
+                speaker_profile_selector,
+                speaker_profile_name_input,
+                character_preset_selector,
+                character_preset_reference_preview,
+                character_preset_status,
                 *conversation_panel_updates,
             ],
         )
@@ -16921,18 +17514,88 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         # Speaker transcribe button handlers for conversation mode
         speaker_1_transcribe_btn.click(
             fn=handle_qwen_transcribe, inputs=[speaker_1_audio], outputs=[speaker_1_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                0,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_1_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
         )
         speaker_2_transcribe_btn.click(
             fn=handle_qwen_transcribe, inputs=[speaker_2_audio], outputs=[speaker_2_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                1,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_2_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
         )
         speaker_3_transcribe_btn.click(
             fn=handle_qwen_transcribe, inputs=[speaker_3_audio], outputs=[speaker_3_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                2,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_3_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
         )
         speaker_4_transcribe_btn.click(
             fn=handle_qwen_transcribe, inputs=[speaker_4_audio], outputs=[speaker_4_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                3,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_4_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
         )
         speaker_5_transcribe_btn.click(
             fn=handle_qwen_transcribe, inputs=[speaker_5_audio], outputs=[speaker_5_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                4,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_5_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
         )
 
         speaker_1_audio.change(
