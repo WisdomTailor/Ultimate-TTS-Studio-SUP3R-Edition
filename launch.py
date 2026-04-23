@@ -2157,6 +2157,8 @@ DEFAULT_AUTOSAVE_SETTINGS = {
     "narration_llm_model_id": "",
     "narration_llm_content_type": DEFAULT_CONTENT_TYPE_PRESET,
     "narration_llm_system_prompt": "",
+    "conversation_llm_content_type": "Multi-Speaker Script Converter",
+    "conversation_llm_system_prompt": "",
     "assistant_llm_provider": "LM Studio OpenAI Server",
     "assistant_llm_preset": "Balanced",
     "assistant_llm_base_url": "",
@@ -2179,6 +2181,7 @@ LEGACY_LLM_SETTINGS_KEY_MAP = {
 LEGACY_DEFAULT_FILENAME_TEMPLATE = "{project}_{speaker}_{timestamp}"
 PREVIOUS_DEFAULT_FILENAME_TEMPLATE = "{preset}_{project}_{timestamp}"
 PRESET_ONLY_FILENAME_TEMPLATE = "{preset}_{timestamp}"
+DEFAULT_CONVERSATION_CONTENT_TYPE_PRESET = "Multi-Speaker Script Converter"
 
 
 DEPRECATED_PROVIDER_MODEL_ALIASES = {
@@ -2345,6 +2348,16 @@ def normalize_llm_content_type(content_type_name: str | None) -> str:
     return candidate
 
 
+def normalize_conversation_llm_content_type(content_type_name: str | None) -> str:
+    candidate = str(content_type_name or "").strip()
+    available_content_types = get_content_type_preset_names()
+    if candidate in available_content_types:
+        return candidate
+    if DEFAULT_CONVERSATION_CONTENT_TYPE_PRESET in available_content_types:
+        return DEFAULT_CONVERSATION_CONTENT_TYPE_PRESET
+    return DEFAULT_CONTENT_TYPE_PRESET
+
+
 def get_llm_outcome_preset_values(preset_name: str | None) -> tuple[float, float, int]:
     normalized_preset = normalize_llm_outcome_preset(preset_name)
     params = LLM_OUTCOME_PRESETS[normalized_preset]
@@ -2452,6 +2465,23 @@ def get_initial_assistant_llm_settings(settings: dict | None = None) -> dict:
     )
 
 
+def get_initial_conversation_llm_prompt_settings(settings: dict | None = None) -> dict:
+    if settings is None:
+        settings = load_app_state_settings()
+
+    content_type = normalize_conversation_llm_content_type(
+        settings.get("conversation_llm_content_type")
+    )
+    system_prompt = str(settings.get("conversation_llm_system_prompt", "") or "")
+    if not system_prompt:
+        system_prompt = get_content_type_system_prompt(content_type)
+
+    return {
+        "content_type": content_type,
+        "system_prompt": system_prompt,
+    }
+
+
 def get_assistant_status_indicator_text(
     provider_name: str | None = None,
     base_url: str | None = None,
@@ -2552,6 +2582,24 @@ def save_llm_panel_settings(
         )
     except Exception as error:
         print(f"⚠️ Failed to save LLM settings: {error}")
+
+
+def save_conversation_llm_prompt_settings(content_type_name: str, system_prompt: str) -> None:
+    try:
+        normalized_content_type = normalize_conversation_llm_content_type(content_type_name)
+        default_system_prompt = get_content_type_system_prompt(normalized_content_type)
+        save_app_state_settings(
+            {
+                "conversation_llm_content_type": normalized_content_type,
+                "conversation_llm_system_prompt": (
+                    ""
+                    if str(system_prompt or "") == default_system_prompt
+                    else str(system_prompt or "")
+                ),
+            }
+        )
+    except Exception as error:
+        print(f"⚠️ Failed to save conversation LLM prompt settings: {error}")
 
 
 def save_assistant_llm_settings(
@@ -7698,6 +7746,8 @@ def build_conversation_llm_summary(provider_name: str, model_id: str) -> str:
     return (
         "**Conversation AI:** AI Format and Cast Characters use "
         f"**{normalized_provider}** / **{normalized_model}**. "
+        "AI Format uses the visible conversation prompt below. "
+        "Cast Characters uses the same provider/model but keeps its built-in casting prompt. "
         "Generate Conversation uses the TTS engine directly and does not call the LLM."
     )
 
@@ -8625,8 +8675,11 @@ def create_gradio_interface():
     """Create the unified Gradio interface."""
     current_storage_settings = load_app_state_settings()
     current_llm_settings = get_initial_llm_panel_settings(current_storage_settings)
+    current_conversation_llm_prompt_settings = get_initial_conversation_llm_prompt_settings(
+        current_storage_settings
+    )
     llm_content_type_info = (
-        "Choose a saved prompt or built-in preset for narration transform. Built-ins: "
+        "Choose a saved prompt or built-in preset from the shared synthesis prompt library. Built-ins: "
         + " ".join(
             f"{name}: {preset['description']}" for name, preset in CONTENT_TYPE_PRESETS.items()
         )
@@ -10870,6 +10923,22 @@ def create_gradio_interface():
                                             type="password",
                                             placeholder="Optional in UI. Prefer environment variables for cloud providers.",
                                         )
+
+                                with gr.Row():
+                                    conversation_llm_content_type = gr.Dropdown(
+                                        label="Prompt Library",
+                                        choices=get_content_type_preset_names(),
+                                        value=current_conversation_llm_prompt_settings["content_type"],
+                                        info="AI Format uses this prompt. It shares the same library as Narration Transform, but keeps its own conversation default.",
+                                    )
+
+                                conversation_llm_system_prompt = gr.Textbox(
+                                    label="Conversation AI Prompt",
+                                    lines=8,
+                                    max_lines=18,
+                                    value=current_conversation_llm_prompt_settings["system_prompt"],
+                                    info="Visible instructions for AI Format. Edit here to tune multi-speaker conversion. Cast Characters still uses its own built-in casting prompt.",
+                                )
 
                                 conversation_llm_connection_status = gr.Textbox(
                                     label="Conversation AI Connection",
@@ -15686,22 +15755,60 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ],
         )
 
-        def handle_save_prompt(name: str, system_prompt: str):
-            status = save_prompt_to_library(name, system_prompt)
+        conversation_llm_content_type.change(
+            fn=get_content_type_system_prompt,
+            inputs=[conversation_llm_content_type],
+            outputs=[conversation_llm_system_prompt],
+        ).then(
+            fn=save_conversation_llm_prompt_settings,
+            inputs=[conversation_llm_content_type, conversation_llm_system_prompt],
+        )
+
+        def _resolve_prompt_selector_state(selected_name: str, default_name: str) -> tuple[list[str], str]:
             new_choices = get_prompt_library_names()
-            selected_name = name if name in new_choices else DEFAULT_CONTENT_TYPE_PRESET
-            if selected_name not in new_choices and new_choices:
-                selected_name = new_choices[0]
+            resolved_name = selected_name if selected_name in new_choices else default_name
+            if resolved_name not in new_choices and new_choices:
+                resolved_name = new_choices[0]
+            return new_choices, resolved_name
+
+        def handle_save_prompt(
+            name: str,
+            system_prompt: str,
+            conversation_selected_name: str,
+            conversation_system_prompt: str,
+        ):
+            status = save_prompt_to_library(name, system_prompt)
+            narration_choices, narration_selected_name = _resolve_prompt_selector_state(
+                name,
+                DEFAULT_CONTENT_TYPE_PRESET,
+            )
+            conversation_choices, conversation_selected_value = _resolve_prompt_selector_state(
+                conversation_selected_name,
+                DEFAULT_CONVERSATION_CONTENT_TYPE_PRESET,
+            )
             return (
-                gr.update(choices=new_choices, value=selected_name),
+                gr.update(choices=narration_choices, value=narration_selected_name),
+                gr.update(choices=conversation_choices, value=conversation_selected_value),
+                conversation_system_prompt,
                 status,
                 "",
             )
 
         prompt_save_btn.click(
             fn=handle_save_prompt,
-            inputs=[prompt_save_name, llm_system_prompt],
-            outputs=[llm_content_type, prompt_library_status, prompt_save_name],
+            inputs=[
+                prompt_save_name,
+                llm_system_prompt,
+                conversation_llm_content_type,
+                conversation_llm_system_prompt,
+            ],
+            outputs=[
+                llm_content_type,
+                conversation_llm_content_type,
+                conversation_llm_system_prompt,
+                prompt_library_status,
+                prompt_save_name,
+            ],
         ).then(
             fn=save_llm_panel_settings,
             inputs=[
@@ -15713,27 +15820,47 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_system_prompt,
                 llm_preset,
             ],
+        ).then(
+            fn=save_conversation_llm_prompt_settings,
+            inputs=[conversation_llm_content_type, conversation_llm_system_prompt],
         )
 
-        def handle_delete_prompt(selected_name: str):
+        def handle_delete_prompt(
+            selected_name: str,
+            conversation_selected_name: str,
+            conversation_system_prompt: str,
+        ):
             status = delete_prompt_from_library(selected_name)
-            new_choices = get_prompt_library_names()
-            new_value = (
-                selected_name if selected_name in new_choices else DEFAULT_CONTENT_TYPE_PRESET
+            narration_choices, narration_value = _resolve_prompt_selector_state(
+                selected_name,
+                DEFAULT_CONTENT_TYPE_PRESET,
             )
-            if new_value not in new_choices and new_choices:
-                new_value = new_choices[0]
-            new_prompt = get_content_type_system_prompt(new_value)
+            new_prompt = get_content_type_system_prompt(narration_value)
+            conversation_choices, conversation_value = _resolve_prompt_selector_state(
+                conversation_selected_name,
+                DEFAULT_CONVERSATION_CONTENT_TYPE_PRESET,
+            )
+            conversation_prompt = conversation_system_prompt
+            if conversation_value != conversation_selected_name:
+                conversation_prompt = get_content_type_system_prompt(conversation_value)
             return (
-                gr.update(choices=new_choices, value=new_value),
+                gr.update(choices=narration_choices, value=narration_value),
                 new_prompt,
+                gr.update(choices=conversation_choices, value=conversation_value),
+                conversation_prompt,
                 status,
             )
 
         prompt_delete_btn.click(
             fn=handle_delete_prompt,
-            inputs=[llm_content_type],
-            outputs=[llm_content_type, llm_system_prompt, prompt_library_status],
+            inputs=[llm_content_type, conversation_llm_content_type, conversation_llm_system_prompt],
+            outputs=[
+                llm_content_type,
+                llm_system_prompt,
+                conversation_llm_content_type,
+                conversation_llm_system_prompt,
+                prompt_library_status,
+            ],
         ).then(
             fn=save_llm_panel_settings,
             inputs=[
@@ -15745,24 +15872,44 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_system_prompt,
                 llm_preset,
             ],
+        ).then(
+            fn=save_conversation_llm_prompt_settings,
+            inputs=[conversation_llm_content_type, conversation_llm_system_prompt],
         )
 
-        def handle_restore_builtins(current_selection: str):
+        def handle_restore_builtins(
+            current_selection: str,
+            conversation_selected_name: str,
+            conversation_system_prompt: str,
+        ):
             status = restore_builtin_prompts()
-            new_choices = get_prompt_library_names()
-            selected_name = (
-                current_selection
-                if current_selection in new_choices
-                else DEFAULT_CONTENT_TYPE_PRESET
+            narration_choices, narration_selected_name = _resolve_prompt_selector_state(
+                current_selection,
+                DEFAULT_CONTENT_TYPE_PRESET,
             )
-            if selected_name not in new_choices and new_choices:
-                selected_name = new_choices[0]
-            return gr.update(choices=new_choices, value=selected_name), status
+            conversation_choices, conversation_selected_value = _resolve_prompt_selector_state(
+                conversation_selected_name,
+                DEFAULT_CONVERSATION_CONTENT_TYPE_PRESET,
+            )
+            conversation_prompt = conversation_system_prompt
+            if conversation_selected_value != conversation_selected_name:
+                conversation_prompt = get_content_type_system_prompt(conversation_selected_value)
+            return (
+                gr.update(choices=narration_choices, value=narration_selected_name),
+                gr.update(choices=conversation_choices, value=conversation_selected_value),
+                conversation_prompt,
+                status,
+            )
 
         prompt_restore_btn.click(
             fn=handle_restore_builtins,
-            inputs=[llm_content_type],
-            outputs=[llm_content_type, prompt_library_status],
+            inputs=[llm_content_type, conversation_llm_content_type, conversation_llm_system_prompt],
+            outputs=[
+                llm_content_type,
+                conversation_llm_content_type,
+                conversation_llm_system_prompt,
+                prompt_library_status,
+            ],
         ).then(
             fn=save_llm_panel_settings,
             inputs=[
@@ -15774,6 +15921,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_system_prompt,
                 llm_preset,
             ],
+        ).then(
+            fn=save_conversation_llm_prompt_settings,
+            inputs=[conversation_llm_content_type, conversation_llm_system_prompt],
         )
 
         llm_model_id.change(
@@ -15889,6 +16039,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_system_prompt,
                 llm_preset,
             ],
+        )
+
+        conversation_llm_system_prompt.change(
+            fn=save_conversation_llm_prompt_settings,
+            inputs=[conversation_llm_content_type, conversation_llm_system_prompt],
         )
 
         llm_preset.change(
@@ -17127,6 +17282,20 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 ),
             )
 
+        def _clean_conversation_ai_format_output(raw_text: str) -> str:
+            cleaned_text = _clean_llm_transform_output(raw_text)
+            if not cleaned_text:
+                return ""
+
+            cleaned_lines: list[str] = []
+            for raw_line in cleaned_text.splitlines():
+                stripped_line = raw_line.strip()
+                if stripped_line.lower().startswith("source confirmed:"):
+                    continue
+                cleaned_lines.append(raw_line.rstrip())
+
+            return "\n".join(cleaned_lines).strip()
+
         def handle_ai_format_script(
             script_text,
             provider_name,
@@ -17134,6 +17303,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             api_key,
             model_id,
             timeout_seconds,
+            content_type_name,
+            system_prompt,
         ):
             """Use the configured LLM provider to normalize free-form dialogue into Speaker: Text format."""
             if not isinstance(script_text, str) or not script_text.strip():
@@ -17141,27 +17312,62 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
             provider_config = _get_provider_config(provider_name)
             resolved_api_key, _api_key_source = resolve_llm_api_key(provider_name, api_key)
-            narration_script, error_message = format_conversation_with_llm(
-                text=script_text,
-                base_url=str(base_url or "").strip(),
-                api_key=resolved_api_key,
-                model_id=str(model_id or "").strip(),
-                timeout_seconds=int(timeout_seconds),
-                extra_headers=dict(provider_config.get("headers", {})),
-                auth_style=provider_config.get("auth_style", "bearer"),
+            selected_content_type = normalize_conversation_llm_content_type(content_type_name)
+            effective_system_prompt = (
+                str(system_prompt or "").strip()
+                or get_content_type_system_prompt(selected_content_type)
             )
-            if error_message:
-                return script_text, f"❌ {error_message}"
+            estimated_max_tokens = min(16384, max(4096, len(str(script_text)) // 2 + 1024))
 
-            formatted_rows = [
-                {"speaker": line.speaker, "text": line.text} for line in narration_script.lines
-            ]
+            try:
+                raw_response = call_openai_compatible_chat(
+                    base_url=str(base_url or "").strip(),
+                    api_key=resolved_api_key,
+                    model_id=str(model_id or "").strip(),
+                    system_prompt=effective_system_prompt,
+                    user_prompt=str(script_text or ""),
+                    timeout_seconds=int(timeout_seconds),
+                    temperature=0.2,
+                    top_p=0.9,
+                    max_tokens=estimated_max_tokens,
+                    extra_headers=dict(provider_config.get("headers", {})),
+                    auth_style=provider_config.get("auth_style", "bearer"),
+                )
+            except Exception as error:
+                logger.exception("Failed to AI-format conversation script")
+                return script_text, f"❌ Error formatting conversation with LLM: {error}"
+
+            cleaned_response = _clean_conversation_ai_format_output(raw_response)
+            if not cleaned_response:
+                return script_text, "❌ AI Format returned an empty response."
+
+            formatted_rows, parse_error = parse_conversation_script(cleaned_response)
+            if parse_error or not formatted_rows:
+                fallback_text = cleaned_response if cleaned_response != script_text else script_text
+                return (
+                    fallback_text,
+                    (
+                        f"⚠️ AI returned text using '{selected_content_type}', but it could not "
+                        "be fully parsed into speaker lines. Review and adjust manually."
+                    ),
+                )
+
             formatted_script = _serialize_conversation_rows(formatted_rows)
+            speaker_count = len({row["speaker"] for row in formatted_rows})
+            if formatted_script.strip() == str(script_text or "").strip():
+                return (
+                    formatted_script,
+                    (
+                        f"ℹ️ AI Format ran with '{selected_content_type}', but the script did not "
+                        "materially change. Try a different prompt or model if you expected a conversion."
+                    ),
+                )
+
             return (
                 formatted_script,
                 (
-                    f"✨ AI formatted {len(narration_script.lines)} lines across "
-                    f"{len(narration_script.speakers)} speakers."
+                    f"✨ AI formatted {len(formatted_rows)} lines across {speaker_count} speakers "
+                    f"using '{selected_content_type}'."
                 ),
             )
 
@@ -17477,6 +17683,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 conversation_llm_api_key,
                 conversation_llm_model_id,
                 llm_timeout_seconds,
+                conversation_llm_content_type,
+                conversation_llm_system_prompt,
             ],
             outputs=[conversation_script, conversation_info],
         ).then(
