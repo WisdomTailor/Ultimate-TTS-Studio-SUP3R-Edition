@@ -5801,7 +5801,9 @@ def apply_preset_to_selected_conversation_character(
     normalized_speakers = [
         str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
     ]
-    updated_state = _clone_conversation_speaker_settings(speaker_settings_state, normalized_speakers)
+    updated_state = _clone_conversation_speaker_settings(
+        speaker_settings_state, normalized_speakers
+    )
     selected_speaker_name = _get_conversation_speaker_name_by_index(
         selected_speaker_index,
         normalized_speakers,
@@ -5862,9 +5864,7 @@ def apply_preset_to_selected_conversation_character(
         gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
         gr.update(value=build_character_preset_preview_text(normalized_preset)),
         gr.update(
-            value=(
-                f"✅ Applied preset **{normalized_preset}** to **{selected_speaker_name}**."
-            )
+            value=(f"✅ Applied preset **{normalized_preset}** to **{selected_speaker_name}**.")
         ),
     )
 
@@ -5878,7 +5878,9 @@ def save_selected_conversation_character_as_preset(
     normalized_speakers = [
         str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
     ]
-    current_state = _clone_conversation_speaker_settings(speaker_settings_state, normalized_speakers)
+    current_state = _clone_conversation_speaker_settings(
+        speaker_settings_state, normalized_speakers
+    )
     selected_speaker_name = _get_conversation_speaker_name_by_index(
         selected_speaker_index,
         normalized_speakers,
@@ -5919,7 +5921,9 @@ def save_selected_conversation_character_as_preset(
         )
 
     managed_audio_path = (
-        ref_audio if _is_app_state_voice_path(ref_audio) else _copy_preset_audio_into_app_state(normalized_preset, ref_audio)
+        ref_audio
+        if _is_app_state_voice_path(ref_audio)
+        else _copy_preset_audio_into_app_state(normalized_preset, ref_audio)
     )
 
     if not upsert_voice_preset_entry(
@@ -5939,9 +5943,7 @@ def save_selected_conversation_character_as_preset(
         gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
         gr.update(value=str(selected_settings.get("fish_ref_text", "") or "")),
         gr.update(
-            value=(
-                f"✅ Saved **{selected_speaker_name}** as preset **{normalized_preset}**."
-            )
+            value=(f"✅ Saved **{selected_speaker_name}** as preset **{normalized_preset}**.")
         ),
         gr.update(value=""),
     )
@@ -5955,7 +5957,9 @@ def delete_conversation_preset_from_bank(
     normalized_speakers = [
         str(speaker).strip() for speaker in speakers or [] if str(speaker).strip()
     ]
-    updated_state = _clone_conversation_speaker_settings(speaker_settings_state, normalized_speakers)
+    updated_state = _clone_conversation_speaker_settings(
+        speaker_settings_state, normalized_speakers
+    )
     normalized_preset = _normalize_preset_name(preset_name)
 
     if not normalized_preset:
@@ -7686,6 +7690,75 @@ def refresh_llm_models(provider_name: str, base_url: str, api_key: str):
 
     value = models[0] if models else ""
     return gr.update(choices=models, value=value), status
+
+
+def build_conversation_llm_summary(provider_name: str, model_id: str) -> str:
+    normalized_provider = str(provider_name or "").strip() or "No provider selected"
+    normalized_model = str(model_id or "").strip() or "No model selected"
+    return (
+        "**Conversation AI:** AI Format and Cast Characters use "
+        f"**{normalized_provider}** / **{normalized_model}**. "
+        "Generate Conversation uses the TTS engine directly and does not call the LLM."
+    )
+
+
+def handle_synced_llm_provider_change(provider_name: str):
+    base_url, api_key, model_update, status = on_llm_provider_change(provider_name)
+    summary = build_conversation_llm_summary(provider_name, model_update.get("value", ""))
+    return (
+        gr.update(value=provider_name),
+        gr.update(value=base_url),
+        gr.update(value=api_key),
+        model_update,
+        gr.update(value=status),
+        gr.update(value=provider_name),
+        gr.update(value=base_url),
+        gr.update(value=api_key),
+        model_update,
+        gr.update(value=status),
+        gr.update(value=summary),
+    )
+
+
+def handle_synced_llm_model_refresh(provider_name: str, base_url: str, api_key: str):
+    model_update, status = refresh_llm_models(provider_name, base_url, api_key)
+    summary = build_conversation_llm_summary(provider_name, model_update.get("value", ""))
+    return (
+        model_update,
+        gr.update(value=status),
+        model_update,
+        gr.update(value=status),
+        gr.update(value=summary),
+    )
+
+
+def handle_synced_llm_test_connection(
+    provider_name: str,
+    base_url: str,
+    api_key: str,
+    model_id: str,
+    timeout_seconds: int | float,
+):
+    status = test_llm_connection(provider_name, base_url, api_key, model_id, timeout_seconds)
+    return gr.update(value=status), gr.update(value=status)
+
+
+def handle_synced_llm_model_change(provider_name: str, model_id: str):
+    normalized_model = normalize_provider_model_id(provider_name, model_id)
+    summary = build_conversation_llm_summary(provider_name, normalized_model)
+    return (
+        gr.update(value=normalized_model),
+        gr.update(value=normalized_model),
+        gr.update(value=summary),
+    )
+
+
+def handle_synced_llm_base_url_change(base_url: str):
+    return gr.update(value=base_url), gr.update(value=base_url)
+
+
+def handle_synced_llm_api_key_change(api_key: str):
+    return gr.update(value=api_key), gr.update(value=api_key)
 
 
 def on_transform_preview(
@@ -10716,6 +10789,69 @@ def create_gradio_interface():
                         ]
 
                         with gr.Column():
+                            with gr.Group(elem_classes=["fade-in"]):
+                                gr.Markdown("**🧠 Conversation AI Settings**")
+                                conversation_llm_summary = gr.Markdown(
+                                    value=build_conversation_llm_summary(
+                                        current_llm_settings["provider"],
+                                        current_llm_settings["model_id"],
+                                    ),
+                                    elem_classes=["fade-in"],
+                                )
+
+                                with gr.Row():
+                                    conversation_llm_provider = gr.Dropdown(
+                                        label="LLM Provider",
+                                        choices=list(LLM_PROVIDER_CONFIGS.keys()),
+                                        value=current_llm_settings["provider"],
+                                        info="Used by AI Format and Cast Characters in Conversation Mode.",
+                                        scale=2,
+                                    )
+                                    conversation_llm_model_id = gr.Dropdown(
+                                        label="Model ID",
+                                        choices=current_llm_settings["model_choices"],
+                                        value=current_llm_settings["model_id"],
+                                        allow_custom_value=True,
+                                        info="Refresh if your provider has new or newly loaded models.",
+                                        scale=3,
+                                    )
+
+                                with gr.Row():
+                                    conversation_llm_refresh_models_btn = gr.Button(
+                                        "🔄 Refresh Models",
+                                        variant="secondary",
+                                        scale=1,
+                                    )
+                                    conversation_llm_test_btn = gr.Button(
+                                        "🔌 Test Connection",
+                                        variant="secondary",
+                                        scale=1,
+                                    )
+
+                                with gr.Accordion("Advanced Connection", open=False):
+                                    with gr.Row():
+                                        conversation_llm_base_url = gr.Textbox(
+                                            label="Base URL",
+                                            value=current_llm_settings["base_url"],
+                                            placeholder="OpenAI-compatible base URL",
+                                        )
+                                        conversation_llm_api_key = gr.Textbox(
+                                            label="API Key",
+                                            value=current_llm_settings["api_key"],
+                                            type="password",
+                                            placeholder="Optional in UI. Prefer environment variables for cloud providers.",
+                                        )
+
+                                conversation_llm_connection_status = gr.Textbox(
+                                    label="Conversation AI Connection",
+                                    lines=2,
+                                    interactive=False,
+                                    value=(
+                                        "Select a provider and model, then test the connection before "
+                                        "using AI Format."
+                                    ),
+                                )
+
                             conversation_script = gr.Textbox(
                                 label="📝 Conversation Script",
                                 placeholder="""Enter conversation in this format:
@@ -15447,9 +15583,21 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
 
         llm_provider.change(
-            fn=on_llm_provider_change,
+            fn=handle_synced_llm_provider_change,
             inputs=[llm_provider],
-            outputs=[llm_base_url, llm_api_key, llm_model_id, llm_connection_status],
+            outputs=[
+                llm_provider,
+                llm_base_url,
+                llm_api_key,
+                llm_model_id,
+                llm_connection_status,
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_api_key,
+                conversation_llm_model_id,
+                conversation_llm_connection_status,
+                conversation_llm_summary,
+            ],
         ).then(
             fn=save_llm_panel_settings,
             inputs=[
@@ -15457,6 +15605,35 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
+        conversation_llm_provider.change(
+            fn=handle_synced_llm_provider_change,
+            inputs=[conversation_llm_provider],
+            outputs=[
+                llm_provider,
+                llm_base_url,
+                llm_api_key,
+                llm_model_id,
+                llm_connection_status,
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_api_key,
+                conversation_llm_model_id,
+                conversation_llm_connection_status,
+                conversation_llm_summary,
+            ],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_model_id,
+                conversation_llm_api_key,
                 llm_content_type,
                 llm_system_prompt,
                 llm_preset,
@@ -15571,12 +15748,33 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
 
         llm_model_id.change(
+            fn=handle_synced_llm_model_change,
+            inputs=[llm_provider, llm_model_id],
+            outputs=[llm_model_id, conversation_llm_model_id, conversation_llm_summary],
+        ).then(
             fn=save_llm_panel_settings,
             inputs=[
                 llm_provider,
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
+        conversation_llm_model_id.change(
+            fn=handle_synced_llm_model_change,
+            inputs=[conversation_llm_provider, conversation_llm_model_id],
+            outputs=[llm_model_id, conversation_llm_model_id, conversation_llm_summary],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_model_id,
+                conversation_llm_api_key,
                 llm_content_type,
                 llm_system_prompt,
                 llm_preset,
@@ -15584,6 +15782,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
 
         llm_base_url.change(
+            fn=handle_synced_llm_base_url_change,
+            inputs=[llm_base_url],
+            outputs=[llm_base_url, conversation_llm_base_url],
+        ).then(
             fn=save_llm_panel_settings,
             inputs=[
                 llm_provider,
@@ -15596,13 +15798,51 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ],
         )
 
+        conversation_llm_base_url.change(
+            fn=handle_synced_llm_base_url_change,
+            inputs=[conversation_llm_base_url],
+            outputs=[llm_base_url, conversation_llm_base_url],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_model_id,
+                conversation_llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
         llm_api_key.change(
+            fn=handle_synced_llm_api_key_change,
+            inputs=[llm_api_key],
+            outputs=[llm_api_key, conversation_llm_api_key],
+        ).then(
             fn=save_llm_panel_settings,
             inputs=[
                 llm_provider,
                 llm_base_url,
                 llm_model_id,
                 llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
+        conversation_llm_api_key.change(
+            fn=handle_synced_llm_api_key_change,
+            inputs=[conversation_llm_api_key],
+            outputs=[llm_api_key, conversation_llm_api_key],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_model_id,
+                conversation_llm_api_key,
                 llm_content_type,
                 llm_system_prompt,
                 llm_preset,
@@ -15640,9 +15880,15 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
 
         llm_refresh_models_btn.click(
-            fn=refresh_llm_models,
+            fn=handle_synced_llm_model_refresh,
             inputs=[llm_provider, llm_base_url, llm_api_key],
-            outputs=[llm_model_id, llm_connection_status],
+            outputs=[
+                llm_model_id,
+                llm_connection_status,
+                conversation_llm_model_id,
+                conversation_llm_connection_status,
+                conversation_llm_summary,
+            ],
         ).then(
             fn=save_llm_panel_settings,
             inputs=[
@@ -15656,10 +15902,45 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ],
         )
 
+        conversation_llm_refresh_models_btn.click(
+            fn=handle_synced_llm_model_refresh,
+            inputs=[conversation_llm_provider, conversation_llm_base_url, conversation_llm_api_key],
+            outputs=[
+                llm_model_id,
+                llm_connection_status,
+                conversation_llm_model_id,
+                conversation_llm_connection_status,
+                conversation_llm_summary,
+            ],
+        ).then(
+            fn=save_llm_panel_settings,
+            inputs=[
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_model_id,
+                conversation_llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+            ],
+        )
+
         llm_test_btn.click(
-            fn=test_llm_connection,
+            fn=handle_synced_llm_test_connection,
             inputs=[llm_provider, llm_base_url, llm_api_key, llm_model_id, llm_timeout_seconds],
-            outputs=[llm_connection_status],
+            outputs=[llm_connection_status, conversation_llm_connection_status],
+        )
+
+        conversation_llm_test_btn.click(
+            fn=handle_synced_llm_test_connection,
+            inputs=[
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_api_key,
+                conversation_llm_model_id,
+                llm_timeout_seconds,
+            ],
+            outputs=[llm_connection_status, conversation_llm_connection_status],
         )
 
         assistant_send_btn.click(
@@ -16269,9 +16550,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         ) -> str:
             settings = _get_selected_character_settings(speaker_settings, speaker_name)
             assigned_preset = _normalize_preset_name(settings.get("assigned_preset", ""))
-            selected_profile = _normalize_speaker_profile_name(
-                settings.get("selected_profile", "")
-            )
+            selected_profile = _normalize_speaker_profile_name(settings.get("selected_profile", ""))
             has_sample = bool(str(settings.get("ref_audio", "") or "").strip())
             has_ref_text = bool(str(settings.get("fish_ref_text", "") or "").strip())
 
@@ -17151,10 +17430,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=handle_cast_characters,
             inputs=[
                 conversation_speakers_state,
-                llm_provider,
-                llm_base_url,
-                llm_api_key,
-                llm_model_id,
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_api_key,
+                conversation_llm_model_id,
                 llm_timeout_seconds,
             ],
             outputs=[speaker_profile_status],
@@ -17164,10 +17443,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=handle_ai_format_script,
             inputs=[
                 conversation_script,
-                llm_provider,
-                llm_base_url,
-                llm_api_key,
-                llm_model_id,
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_api_key,
+                conversation_llm_model_id,
                 llm_timeout_seconds,
             ],
             outputs=[conversation_script, conversation_info],
