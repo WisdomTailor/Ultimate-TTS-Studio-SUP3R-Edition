@@ -431,6 +431,7 @@ from narration_transform import (
     _build_llm_transform_user_prompt,
     _clean_llm_transform_output,
     _apply_local_narration_transform,
+    chunk_text_for_transform,
     delete_prompt_from_library,
     get_content_type_preset_names,
     get_content_type_system_prompt,
@@ -10928,7 +10929,9 @@ def create_gradio_interface():
                                     conversation_llm_content_type = gr.Dropdown(
                                         label="Prompt Library",
                                         choices=get_content_type_preset_names(),
-                                        value=current_conversation_llm_prompt_settings["content_type"],
+                                        value=current_conversation_llm_prompt_settings[
+                                            "content_type"
+                                        ],
                                         info="AI Format uses this prompt. It shares the same library as Narration Transform, but keeps its own conversation default.",
                                     )
 
@@ -15764,7 +15767,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
             inputs=[conversation_llm_content_type, conversation_llm_system_prompt],
         )
 
-        def _resolve_prompt_selector_state(selected_name: str, default_name: str) -> tuple[list[str], str]:
+        def _resolve_prompt_selector_state(
+            selected_name: str, default_name: str
+        ) -> tuple[list[str], str]:
             new_choices = get_prompt_library_names()
             resolved_name = selected_name if selected_name in new_choices else default_name
             if resolved_name not in new_choices and new_choices:
@@ -15853,7 +15858,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         prompt_delete_btn.click(
             fn=handle_delete_prompt,
-            inputs=[llm_content_type, conversation_llm_content_type, conversation_llm_system_prompt],
+            inputs=[
+                llm_content_type,
+                conversation_llm_content_type,
+                conversation_llm_system_prompt,
+            ],
             outputs=[
                 llm_content_type,
                 llm_system_prompt,
@@ -15903,7 +15912,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         prompt_restore_btn.click(
             fn=handle_restore_builtins,
-            inputs=[llm_content_type, conversation_llm_content_type, conversation_llm_system_prompt],
+            inputs=[
+                llm_content_type,
+                conversation_llm_content_type,
+                conversation_llm_system_prompt,
+            ],
             outputs=[
                 llm_content_type,
                 conversation_llm_content_type,
@@ -17296,6 +17309,34 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
             return "\n".join(cleaned_lines).strip()
 
+        def _format_conversation_ai_chunk(
+            chunk_text: str,
+            provider_name: str,
+            base_url: str,
+            api_key: str,
+            model_id: str,
+            timeout_seconds: int,
+            system_prompt: str,
+        ) -> str:
+            provider_config = _get_provider_config(provider_name)
+            resolved_api_key, _api_key_source = resolve_llm_api_key(provider_name, api_key)
+            estimated_max_tokens = min(8192, max(2048, len(str(chunk_text)) // 2 + 1024))
+
+            raw_response = call_openai_compatible_chat(
+                base_url=str(base_url or "").strip(),
+                api_key=resolved_api_key,
+                model_id=str(model_id or "").strip(),
+                system_prompt=system_prompt,
+                user_prompt=str(chunk_text or ""),
+                timeout_seconds=int(timeout_seconds),
+                temperature=0.2,
+                top_p=0.9,
+                max_tokens=estimated_max_tokens,
+                extra_headers=dict(provider_config.get("headers", {})),
+                auth_style=provider_config.get("auth_style", "bearer"),
+            )
+            return _clean_conversation_ai_format_output(raw_response)
+
         def handle_ai_format_script(
             script_text,
             provider_name,
@@ -17313,48 +17354,60 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             provider_config = _get_provider_config(provider_name)
             resolved_api_key, _api_key_source = resolve_llm_api_key(provider_name, api_key)
             selected_content_type = normalize_conversation_llm_content_type(content_type_name)
-            effective_system_prompt = (
-                str(system_prompt or "").strip()
-                or get_content_type_system_prompt(selected_content_type)
-            )
-            estimated_max_tokens = min(16384, max(4096, len(str(script_text)) // 2 + 1024))
+            effective_system_prompt = str(
+                system_prompt or ""
+            ).strip() or get_content_type_system_prompt(selected_content_type)
+            script_text = str(script_text or "")
+            chunk_specs = chunk_text_for_transform(script_text, max_chunk_chars=2200)
+            if not chunk_specs:
+                chunk_specs = [type("ConversationChunk", (), {"text": script_text})()]
 
             try:
-                raw_response = call_openai_compatible_chat(
-                    base_url=str(base_url or "").strip(),
-                    api_key=resolved_api_key,
-                    model_id=str(model_id or "").strip(),
-                    system_prompt=effective_system_prompt,
-                    user_prompt=str(script_text or ""),
-                    timeout_seconds=int(timeout_seconds),
-                    temperature=0.2,
-                    top_p=0.9,
-                    max_tokens=estimated_max_tokens,
-                    extra_headers=dict(provider_config.get("headers", {})),
-                    auth_style=provider_config.get("auth_style", "bearer"),
-                )
+                cleaned_chunk_outputs: list[str] = []
+                formatted_rows: list[dict[str, str]] = []
+                parse_failures = 0
+
+                for chunk_spec in chunk_specs:
+                    cleaned_response = _format_conversation_ai_chunk(
+                        chunk_text=chunk_spec.text,
+                        provider_name=provider_name,
+                        base_url=base_url,
+                        api_key=api_key,
+                        model_id=model_id,
+                        timeout_seconds=int(timeout_seconds),
+                        system_prompt=effective_system_prompt,
+                    )
+                    if not cleaned_response:
+                        raise ValueError("AI Format returned an empty response for a chunk")
+
+                    cleaned_chunk_outputs.append(cleaned_response)
+                    parsed_rows, parse_error = parse_conversation_script(cleaned_response)
+                    if parse_error or not parsed_rows:
+                        parse_failures += 1
+                        continue
+                    formatted_rows.extend(parsed_rows)
             except Exception as error:
                 logger.exception("Failed to AI-format conversation script")
                 return script_text, f"❌ Error formatting conversation with LLM: {error}"
 
-            cleaned_response = _clean_conversation_ai_format_output(raw_response)
-            if not cleaned_response:
+            if not cleaned_chunk_outputs:
                 return script_text, "❌ AI Format returned an empty response."
 
-            formatted_rows, parse_error = parse_conversation_script(cleaned_response)
-            if parse_error or not formatted_rows:
-                fallback_text = cleaned_response if cleaned_response != script_text else script_text
+            chunk_count = len(chunk_specs)
+            fallback_text = "\n\n".join(cleaned_chunk_outputs).strip()
+            if parse_failures or not formatted_rows:
                 return (
-                    fallback_text,
+                    fallback_text if fallback_text != script_text else script_text,
                     (
-                        f"⚠️ AI returned text using '{selected_content_type}', but it could not "
-                        "be fully parsed into speaker lines. Review and adjust manually."
+                        f"⚠️ AI formatted {chunk_count} chunk(s) using '{selected_content_type}', "
+                        f"but {parse_failures or chunk_count} chunk(s) could not be fully parsed into "
+                        "speaker lines. Review and adjust manually."
                     ),
                 )
 
             formatted_script = _serialize_conversation_rows(formatted_rows)
             speaker_count = len({row["speaker"] for row in formatted_rows})
-            if formatted_script.strip() == str(script_text or "").strip():
+            if formatted_script.strip() == script_text.strip():
                 return (
                     formatted_script,
                     (
@@ -17367,7 +17420,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 formatted_script,
                 (
                     f"✨ AI formatted {len(formatted_rows)} lines across {speaker_count} speakers "
-                    f"using '{selected_content_type}'."
+                    f"using '{selected_content_type}'"
+                    + (f" across {chunk_count} chunk(s)." if chunk_count > 1 else ".")
                 ),
             )
 
