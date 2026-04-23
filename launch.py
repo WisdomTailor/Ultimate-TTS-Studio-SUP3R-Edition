@@ -9129,6 +9129,35 @@ def create_gradio_interface():
             will-change: auto !important;
         }
 
+        /* Conversation AI dropdowns use Gradio's ul.options popup in this build. */
+        .conversation-ai-panel .styler,
+        .conversation-ai-panel .block,
+        .conversation-ai-panel .form,
+        .conversation-ai-panel .wrap {
+            overflow: visible !important;
+        }
+
+        .conversation-ai-panel .wrap {
+            position: relative !important;
+        }
+
+        .conversation-ai-panel .wrap ul.options {
+            position: absolute !important;
+            top: calc(100% + 4px) !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: auto !important;
+            width: 100% !important;
+            max-height: min(260px, 34vh) !important;
+            overflow-y: auto !important;
+            overscroll-behavior: contain !important;
+            z-index: 2147483647 !important;
+        }
+
+        .conversation-ai-panel .wrap ul.options li {
+            white-space: normal !important;
+        }
+
         .gr-dropdown button:hover,
         .gr-dropdown .dropdown-toggle:hover {
             border-color: var(--accent-color) !important;
@@ -10789,7 +10818,7 @@ def create_gradio_interface():
                         ]
 
                         with gr.Column():
-                            with gr.Group(elem_classes=["fade-in"]):
+                            with gr.Group(elem_classes=["fade-in", "conversation-ai-panel"]):
                                 gr.Markdown("**🧠 Conversation AI Settings**")
                                 conversation_llm_summary = gr.Markdown(
                                     value=build_conversation_llm_summary(
