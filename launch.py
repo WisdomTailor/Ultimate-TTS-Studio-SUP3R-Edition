@@ -9212,6 +9212,36 @@ def create_gradio_interface():
             white-space: normal !important;
         }
 
+        /* Preset voice bank dropdowns need the same local popup anchoring as the AI panel. */
+        .conversation-preset-bank-panel,
+        .conversation-preset-bank-panel .styler,
+        .conversation-preset-bank-panel .block,
+        .conversation-preset-bank-panel .form,
+        .conversation-preset-bank-panel .wrap {
+            overflow: visible !important;
+        }
+
+        .conversation-preset-bank-panel .wrap {
+            position: relative !important;
+        }
+
+        .conversation-preset-bank-panel .wrap ul.options {
+            position: absolute !important;
+            top: calc(100% + 4px) !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: auto !important;
+            width: 100% !important;
+            max-height: min(260px, 34vh) !important;
+            overflow-y: auto !important;
+            overscroll-behavior: contain !important;
+            z-index: 2147483647 !important;
+        }
+
+        .conversation-preset-bank-panel .wrap ul.options li {
+            white-space: normal !important;
+        }
+
         .gr-dropdown button:hover,
         .gr-dropdown .dropdown-toggle:hover {
             border-color: var(--accent-color) !important;
@@ -11078,7 +11108,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             elem_classes=["fade-in"],
                                         )
 
-                                        with gr.Group(elem_classes=["fade-in"]):
+                                        with gr.Group(
+                                            elem_classes=[
+                                                "fade-in",
+                                                "conversation-preset-bank-panel",
+                                            ]
+                                        ):
                                             gr.Markdown("**🎙️ Preset Voice Bank**")
                                             with gr.Row():
                                                 character_preset_selector = gr.Dropdown(
