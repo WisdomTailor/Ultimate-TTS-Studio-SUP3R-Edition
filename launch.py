@@ -9846,6 +9846,200 @@ def create_gradio_interface():
         .fade-in {
             animation: fadeIn 0.5s ease-out;
         }
+
+        /* ===================================================================
+           UI IMPROVEMENT PLAN — Sprint A (2026-04-24)
+           See Docs/UI-Improvement-Plan.md §3 for rationale.
+           =================================================================== */
+
+        /* WI-A4: Global font enforcement. Stops Times New Roman leak from
+           browser defaults in nested elements that escape Gradio's cascade. */
+        body, button, input, textarea, select, label,
+        .gradio-container, .gradio-container * {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif !important;
+        }
+
+        /* WI-A8: Label chip suppression. Labels should read as passive text,
+           not as filled action chips. This is the single biggest contributor
+           to the 'every field looks like a button' noise. Keep labels legible
+           but de-emphasized so only real buttons draw the eye. */
+        .gradio-container label,
+        .gradio-container .label-wrap,
+        .gradio-container .label-wrap > span,
+        .gradio-container .block .label,
+        .gradio-container .gr-form label,
+        .gradio-container .gr-form .label-wrap {
+            background: transparent !important;
+            background-color: transparent !important;
+            color: var(--text-secondary) !important;
+            font-weight: 500 !important;
+            font-size: 0.86rem !important;
+            padding: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            letter-spacing: 0 !important;
+        }
+        /* Keep primary button labels bright and preserve tab labels. */
+        .gradio-container button.primary,
+        .gradio-container button[variant="primary"],
+        .gradio-container [role="tab"],
+        .gradio-container [role="tab"] *,
+        .gradio-container .tab-nav button,
+        .gradio-container .tab-nav button * {
+            color: inherit !important;
+            background: inherit;
+            font-size: inherit !important;
+        }
+
+        /* WI-A5: Button role system. Map the visual hierarchy onto Gradio's
+           existing emitted classes so the styling is deterministic even when
+           elem_classes land on wrappers instead of the button element itself.
+           - generate-btn: the only strong solid-purple primary action
+           - .secondary:   outlined purple
+           - .sm.primary:  tertiary/ghost utility actions (Load, Refresh)
+           - .stop:        destructive red */
+
+        /* Strong primary: only the main Generate buttons */
+        .gradio-container .generate-btn button,
+        .gradio-container button.generate-btn {
+            background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%) !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(196, 181, 253, 0.35) !important;
+            box-shadow: 0 8px 24px rgba(139, 92, 246, 0.35) !important;
+            font-weight: 700 !important;
+        }
+        .gradio-container .generate-btn button:hover,
+        .gradio-container button.generate-btn:hover {
+            background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%) !important;
+            box-shadow: 0 10px 28px rgba(139, 92, 246, 0.45) !important;
+        }
+        .gradio-container .generate-btn.hidden,
+        .gradio-container .generate-btn.hidden button,
+        .gradio-container button.generate-btn.hidden {
+            display: none !important;
+        }
+
+        /* Large non-generate primary buttons should not compete with Generate */
+        .gradio-container button.lg.primary:not(.generate-btn),
+        .gradio-container .lg.primary button {
+            background: transparent !important;
+            background-color: transparent !important;
+            color: var(--accent-color) !important;
+            border: 1px solid rgba(139, 92, 246, 0.55) !important;
+            box-shadow: none !important;
+            font-weight: 500 !important;
+        }
+        .gradio-container button.lg.primary:not(.generate-btn):hover,
+        .gradio-container .lg.primary button:hover {
+            background: rgba(139, 92, 246, 0.12) !important;
+            border-color: rgba(139, 92, 246, 0.9) !important;
+            color: #c4b5fd !important;
+        }
+
+        /* Secondary: outlined purple */
+        .gradio-container button.secondary,
+        .gradio-container .secondary button,
+        .gradio-container button.btn-secondary,
+        .gradio-container .btn-secondary button {
+            background: transparent !important;
+            background-color: transparent !important;
+            color: var(--accent-color) !important;
+            border: 1px solid rgba(139, 92, 246, 0.55) !important;
+            box-shadow: none !important;
+            font-weight: 500 !important;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+        }
+        .gradio-container button.btn-secondary:hover,
+        .gradio-container .btn-secondary button:hover {
+            background: rgba(139, 92, 246, 0.12) !important;
+            border-color: rgba(139, 92, 246, 0.9) !important;
+            color: #c4b5fd !important;
+        }
+
+        /* Tertiary: ghost (utility actions like Reset, Refresh, Load, Unload) */
+        .gradio-container button.sm.primary,
+        .gradio-container .sm.primary button,
+        .gradio-container button.btn-tertiary,
+        .gradio-container .btn-tertiary button {
+            background: transparent !important;
+            background-color: transparent !important;
+            color: var(--text-secondary) !important;
+            border: 1px solid transparent !important;
+            box-shadow: none !important;
+            font-weight: 400 !important;
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+            transition: background 0.15s ease, color 0.15s ease !important;
+        }
+        .gradio-container button.btn-tertiary:hover,
+        .gradio-container .btn-tertiary button:hover {
+            background: rgba(148, 163, 184, 0.08) !important;
+            color: var(--text-primary) !important;
+        }
+
+        /* Destructive: outlined red */
+        .gradio-container button.stop,
+        .gradio-container .stop button,
+        .gradio-container button.btn-destructive,
+        .gradio-container .btn-destructive button {
+            background: transparent !important;
+            background-color: transparent !important;
+            color: #f87171 !important;
+            border: 1px solid rgba(239, 68, 68, 0.55) !important;
+            box-shadow: none !important;
+            font-weight: 500 !important;
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+        }
+        .gradio-container button.btn-destructive:hover,
+        .gradio-container .btn-destructive button:hover {
+            background: rgba(239, 68, 68, 0.12) !important;
+            border-color: rgba(239, 68, 68, 0.9) !important;
+            color: #fca5a5 !important;
+        }
+
+        /* WI-A7: Compact slider rows. Reduce vertical footprint of the 100+
+           sliders by ~30%. Hide the inline description text unless the
+           slider is hovered or focused. */
+        .gradio-container .gr-slider,
+        .gradio-container .gradio-slider,
+        .gradio-container .wrap > .gr-slider {
+            padding-top: 4px !important;
+            padding-bottom: 4px !important;
+        }
+        .gradio-container .gr-slider .label-wrap,
+        .gradio-container .gradio-slider .label-wrap {
+            margin-bottom: 2px !important;
+        }
+        .gradio-container .gr-slider input[type="number"],
+        .gradio-container .gradio-slider input[type="number"] {
+            font-size: 0.8rem !important;
+            padding: 2px 6px !important;
+        }
+        /* Description text (gr.Slider info=) — hide until hover/focus */
+        .gradio-container .gr-slider .block-info,
+        .gradio-container .gradio-slider .block-info,
+        .gradio-container .gr-slider .tooltip-body,
+        .gradio-container .gradio-slider .tooltip-body {
+            opacity: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: opacity 0.15s ease, max-height 0.15s ease;
+        }
+        .gradio-container .gr-slider:hover .block-info,
+        .gradio-container .gr-slider:focus-within .block-info,
+        .gradio-container .gradio-slider:hover .block-info,
+        .gradio-container .gradio-slider:focus-within .block-info,
+        .gradio-container .gr-slider:hover .tooltip-body,
+        .gradio-container .gr-slider:focus-within .tooltip-body,
+        .gradio-container .gradio-slider:hover .tooltip-body,
+        .gradio-container .gradio-slider:focus-within .tooltip-body {
+            opacity: 0.85;
+            max-height: 4em;
+        }
+
+        /* END Sprint A additions
+           =================================================================== */
         """
         + """
         <script>
@@ -9947,9 +10141,112 @@ def create_gradio_interface():
             });
         }
 
+        function normalizeUiText(text) {
+            return (text || '')
+                .replace(/^[\\p{Emoji_Presentation}\\p{Extended_Pictographic}\\uFE0F\\u200D\\s]+/gu, '')
+                .replace(/\\s+/g, ' ')
+                .trim();
+        }
+
+        function stripLeadingEmoji(text) {
+            return (text || '').replace(/^[\\p{Emoji_Presentation}\\p{Extended_Pictographic}\\uFE0F\\u200D\\s]+/gu, '').trim();
+        }
+
+        function applyUiPolish() {
+            const root = document.querySelector('.gradio-container');
+            if (!root) return;
+
+            const tertiaryLabels = new Set([
+                'Reset',
+                'Refresh',
+                'Refresh Models',
+                'Clear Temp Files',
+                'Load',
+                'Unload',
+            ]);
+            const destructiveLabels = new Set([
+                'Delete Selected',
+                'Delete Preset',
+                'Unload Model',
+                'Reject',
+                'Delete Speaker Profile',
+                'Delete Character Preset',
+                'Cancel Selected Job',
+            ]);
+
+            root.querySelectorAll('button').forEach((button) => {
+                if (button.dataset.uiPolishBound === 'true') {
+                    return;
+                }
+
+                const parentTab = button.closest('[role="tab"], .tab-nav');
+                const rawText = button.textContent || '';
+                const normalized = normalizeUiText(rawText);
+
+                if (parentTab) {
+                    button.dataset.uiPolishBound = 'true';
+                    return;
+                }
+
+                if (normalized === 'Star on GitHub') {
+                    button.dataset.uiPolishBound = 'true';
+                    return;
+                }
+
+                if (!/Generate /i.test(normalized)) {
+                    const stripped = stripLeadingEmoji(rawText);
+                    if (stripped && stripped !== rawText.trim()) {
+                        button.textContent = stripped;
+                    }
+                }
+
+                button.classList.remove('btn-secondary', 'btn-tertiary', 'btn-destructive');
+
+                if (button.classList.contains('primary') || button.getAttribute('variant') === 'primary') {
+                    button.dataset.uiPolishBound = 'true';
+                    return;
+                }
+
+                if (destructiveLabels.has(normalized)) {
+                    button.classList.add('btn-destructive');
+                } else if (tertiaryLabels.has(normalized) || /^Load$/i.test(normalized) || /^Unload$/i.test(normalized)) {
+                    button.classList.add('btn-tertiary');
+                } else {
+                    button.classList.add('btn-secondary');
+                }
+
+                button.dataset.uiPolishBound = 'true';
+            });
+
+            root.querySelectorAll('.gr-accordion .label-wrap, .gr-accordion .label-wrap > span').forEach((node) => {
+                if (node.dataset.emojiStripped === 'true') {
+                    return;
+                }
+                const rawText = node.textContent || '';
+                const stripped = stripLeadingEmoji(rawText);
+                if (stripped && stripped !== rawText.trim()) {
+                    node.textContent = stripped;
+                }
+                node.dataset.emojiStripped = 'true';
+            });
+
+            root.querySelectorAll('.markdown h1, .markdown h2, .markdown h3, .markdown h4').forEach((node) => {
+                if (node.closest('.main-title') || node.dataset.emojiStripped === 'true') {
+                    return;
+                }
+                const rawText = node.textContent || '';
+                const stripped = stripLeadingEmoji(rawText);
+                if (stripped && stripped !== rawText.trim()) {
+                    node.textContent = stripped;
+                }
+                node.dataset.emojiStripped = 'true';
+            });
+        }
+
         // Run voice selection setup after DOM loads and when content changes
         document.addEventListener('DOMContentLoaded', setupVoiceSelection);
         document.addEventListener('DOMContentLoaded', setupExpandableTextPanels);
+        document.addEventListener('DOMContentLoaded', applyUiPolish);
 
         // Also run when new content is added (Gradio dynamic updates)
         const contentObserver = new MutationObserver(function(mutations) {
@@ -9959,6 +10256,7 @@ def create_gradio_interface():
                     setupExpandableTextPanels();
                     setupTabSwitching();
                     setupEbookPanelExpansion();
+                    applyUiPolish();
                 }
             });
         });
@@ -9970,46 +10268,90 @@ def create_gradio_interface():
 
         // Tab switching functionality
         function setupTabSwitching() {
-            const tabs = document.querySelectorAll('.gradio-tabs .tab-nav button');
-
             function findButtonByText(text) {
-                return Array.from(document.querySelectorAll('button')).find(btn => btn.textContent.includes(text));
+                return Array.from(document.querySelectorAll('button')).find((button) =>
+                    (button.textContent || '').includes(text)
+                );
             }
 
             function findTextboxByLabel(labelText) {
                 const labels = Array.from(document.querySelectorAll('label'));
-                const label = labels.find(l => l.textContent.includes(labelText));
-                if (label) {
-                    const textbox = label.parentElement.querySelector('textarea');
-                    return textbox;
-                }
-                return null;
+                const label = labels.find((item) => (item.textContent || '').includes(labelText));
+                if (!label) return null;
+                return label.parentElement?.querySelector('textarea') || null;
             }
 
-            tabs.forEach((tab, index) => {
-                tab.addEventListener('click', function() {
-                    setTimeout(() => {
-                        const generateSpeechBtn = findButtonByText('🚀 Generate Speech');
-                        const generateConversationBtn = findButtonByText('🎭 Generate Conversation');
-                        const statusOutput = findTextboxByLabel('📊 Status');
-                        const conversationInfo = findTextboxByLabel('📊 Conversation Summary');
+            function setElementVisible(element, visible) {
+                if (!element) return;
 
-                        if (tab.textContent.includes('TEXT TO SYNTHESIZE')) {
-                            // Single voice mode
-                            if (generateSpeechBtn) generateSpeechBtn.closest('.gradio-column').style.display = 'block';
-                            if (generateConversationBtn) generateConversationBtn.closest('.gradio-column').style.display = 'none';
-                            if (statusOutput) statusOutput.closest('.gradio-textbox').style.display = 'block';
-                            if (conversationInfo) conversationInfo.closest('.gradio-textbox').style.display = 'none';
-                        } else if (tab.textContent.includes('CONVERSATION MODE')) {
-                            // Conversation mode
-                            if (generateSpeechBtn) generateSpeechBtn.closest('.gradio-column').style.display = 'none';
-                            if (generateConversationBtn) generateConversationBtn.closest('.gradio-column').style.display = 'block';
-                            if (statusOutput) statusOutput.closest('.gradio-textbox').style.display = 'none';
-                            if (conversationInfo) conversationInfo.closest('.gradio-textbox').style.display = 'block';
-                        }
-                    }, 100);
+                const targets = [
+                    element,
+                    element.closest('[id^="component-"]'),
+                    element.closest('.column'),
+                    element.closest('.gradio-column'),
+                ].filter(Boolean);
+
+                targets.forEach((target) => {
+                    target.hidden = !visible;
+                    target.classList.toggle('hidden', !visible);
+                    target.setAttribute('aria-hidden', visible ? 'false' : 'true');
+
+                    if (visible) {
+                        target.style.removeProperty('display');
+                        target.style.removeProperty('visibility');
+                    } else {
+                        target.style.setProperty('display', 'none', 'important');
+                        target.style.setProperty('visibility', 'hidden', 'important');
+                    }
                 });
-            });
+            }
+
+            function applyMainModeVisibilityFromTabText(tabText) {
+                const normalized = (tabText || '').toUpperCase();
+                const isConversation = normalized.includes('CONVERSATION MODE');
+
+                setElementVisible(findButtonByText('Generate Speech'), !isConversation);
+                setElementVisible(findButtonByText('Generate Conversation'), isConversation);
+                setElementVisible(findTextboxByLabel('Status'), !isConversation);
+                setElementVisible(findTextboxByLabel('Conversation Summary'), isConversation);
+            }
+
+            function getSelectedTopTabText() {
+                const selected = Array.from(document.querySelectorAll('button[role="tab"]')).find(
+                    (tab) => tab.getAttribute('aria-selected') === 'true'
+                        && ((tab.textContent || '').includes('TEXT TO SYNTHESIZE')
+                            || (tab.textContent || '').includes('CONVERSATION MODE'))
+                );
+                return selected?.textContent || 'TEXT TO SYNTHESIZE';
+            }
+
+            function scheduleVisibilityUpdate(tabText) {
+                if (window.__mainModeVisibilityTimer) {
+                    clearTimeout(window.__mainModeVisibilityTimer);
+                }
+
+                window.__mainModeVisibilityTimer = window.setTimeout(() => {
+                    applyMainModeVisibilityFromTabText(tabText || getSelectedTopTabText());
+                }, 100);
+            }
+
+            if (document.body.dataset.topTabSwitchBound !== 'true') {
+                document.addEventListener('click', (event) => {
+                    const tab = event.target.closest('button[role="tab"]');
+                    if (!tab) return;
+
+                    const text = tab.textContent || '';
+                    if (!text.includes('TEXT TO SYNTHESIZE') && !text.includes('CONVERSATION MODE')) {
+                        return;
+                    }
+
+                    scheduleVisibilityUpdate(text);
+                }, true);
+
+                document.body.dataset.topTabSwitchBound = 'true';
+            }
+
+            scheduleVisibilityUpdate(getSelectedTopTabText());
         }
 
         function setupEbookPanelExpansion() {
@@ -10037,6 +10379,7 @@ def create_gradio_interface():
             setupTabSwitching();
             setupExpandableTextPanels();
             setupEbookPanelExpansion();
+            applyUiPolish();
         });
         </script>
         """,
@@ -10057,27 +10400,8 @@ def create_gradio_interface():
                 </a>
             </div>
             <div class="subtitle">
-            🎭 ChatterboxTTS + Kokoro TTS + Fish Speech + IndexTTS + F5-TTS + VoxCPM | SUP3R EDITION 🚀<br/>
-            <strong>Advanced Text-to-Speech with Multiple Engines, Voice Presets, Audio Effects & Export Options</strong>
-            </div>
-        </div>
-
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:10px; margin:12px 0;">
-            <div class="feature-card">
-                <h3 style="margin: 0 0 5px 0; padding: 0; font-size: 0.9em;">🎤 Voice Cloning</h3>
-                <p style="margin: 0; opacity: 0.8; font-size: 0.8em;">Clone any voice with ChatterboxTTS</p>
-            </div>
-            <div class="feature-card">
-                <h3 style="margin: 0 0 5px 0; padding: 0; font-size: 0.9em;">🗣️ Pre-trained Voices</h3>
-                <p style="margin: 0; opacity: 0.8; font-size: 0.8em;">30+ high-quality Kokoro voices</p>
-            </div>
-            <div class="feature-card">
-                <h3 style="margin: 0 0 5px 0; padding: 0; font-size: 0.9em;">📚 eBook Conversion</h3>
-                <p style="margin: 0; opacity: 0.8; font-size: 0.8em;">Convert books to audiobooks</p>
-            </div>
-            <div class="feature-card">
-                <h3 style="margin: 0 0 5px 0; padding: 0; font-size: 0.9em;">🎵 Audio Effects</h3>
-                <p style="margin: 0; opacity: 0.8; font-size: 0.8em;">Professional audio enhancement</p>
+            ChatterboxTTS + Kokoro TTS + Fish Speech + IndexTTS + F5-TTS + VoxCPM | SUP3R EDITION<br/>
+            <strong>Advanced text-to-speech with multiple engines, voice presets, audio effects, and export options</strong>
             </div>
         </div>
         """
@@ -10085,7 +10409,7 @@ def create_gradio_interface():
 
         # Model Management Section - Compact Version
         with gr.Accordion(
-            "🧩 Model Manager", open=False, elem_classes=["fade-in"], elem_id="model_manager_panel"
+            "Model Manager", open=False, elem_classes=["fade-in"], elem_id="model_manager_panel"
         ):
             gr.Markdown("*Load only the models you need to save memory.*", elem_classes=["fade-in"])
 
@@ -10097,7 +10421,7 @@ def create_gradio_interface():
             )
 
             # F5-TTS Management in collapsible accordion
-            with gr.Accordion("🎵 F5-TTS Model Management", open=False, elem_classes=["fade-in"]):
+            with gr.Accordion("F5-TTS Model Management", open=False, elem_classes=["fade-in"]):
                 if F5_TTS_AVAILABLE:
                     f5_model_status = gr.Markdown(
                         value="Loading model status...", elem_classes=["fade-in"]
@@ -10147,7 +10471,7 @@ def create_gradio_interface():
                     f5_download_status = gr.Textbox(visible=False, value="")
 
             # Qwen TTS Management in collapsible accordion
-            with gr.Accordion("🎙️ Qwen TTS Model Management", open=False, elem_classes=["fade-in"]):
+            with gr.Accordion("Qwen TTS Model Management", open=False, elem_classes=["fade-in"]):
                 if QWEN_TTS_AVAILABLE:
                     qwen_model_status = gr.Markdown(
                         value="Loading model status...", elem_classes=["fade-in"]
@@ -10495,7 +10819,7 @@ def create_gradio_interface():
                         )
                     with gr.Row():
                         clear_temp_btn = gr.Button(
-                            "🧹 Clear Temp Files",
+                            "Clear Temp Files",
                             variant="secondary",
                             size="sm",
                             elem_classes=["fade-in"],
@@ -10515,11 +10839,11 @@ def create_gradio_interface():
                 # Tabs for different input modes
                 with gr.Tabs(elem_classes=["fade-in"]) as input_tabs:
                     # Single Voice Tab
-                    with gr.TabItem("📝 TEXT TO SYNTHESIZE", id="single_voice"):
+                    with gr.TabItem("📝 TEXT TO SYNTHESIZE", id="single_voice") as single_voice_tab:
                         # Text input with enhanced styling
                         text = gr.Textbox(
                             value="Hello! This is a demonstration of the ultimate TTS studio. You can choose between Chatterbox TTS. Fish Speech, VoxCPM, Index TTS and Index TTS 2, Higgs audio TTS and F5 TTS for custom voice cloning or Kitten TTS and Kokoro TTS for high-quality pre-trained voices and VibeVoice for podcast.",
-                            label="📝 Text to synthesize",
+                            label="Text to synthesize",
                             lines=8,
                             max_lines=28,
                             placeholder="Enter your text here...",
@@ -10528,7 +10852,7 @@ def create_gradio_interface():
                         )
 
                         with gr.Accordion(
-                            "🧠 Narration Transform (LLM)", open=False, elem_classes=["fade-in"]
+                            "Narration Transform (LLM)", open=False, elem_classes=["fade-in"]
                         ):
                             llm_transform_enabled = gr.Checkbox(
                                 value=False,
@@ -10554,7 +10878,7 @@ def create_gradio_interface():
                                     scale=4,
                                 )
                                 llm_refresh_models_btn = gr.Button(
-                                    "🔄 Refresh Models",
+                                    "Refresh Models",
                                     variant="secondary",
                                     scale=1,
                                     elem_classes=["fade-in"],
@@ -10761,11 +11085,11 @@ def create_gradio_interface():
                             provenance_banner = gr.Markdown(visible=False)
 
                             with gr.Row(visible=False) as action_row:
-                                accept_btn = gr.Button("✓ Accept", variant="primary", size="sm")
-                                reject_btn = gr.Button("✗ Reject", variant="secondary", size="sm")
+                                accept_btn = gr.Button("Accept", variant="primary", size="sm")
+                                reject_btn = gr.Button("Reject", variant="secondary", size="sm")
 
                             with gr.Accordion(
-                                "📖 Pronunciation Glossary",
+                                "Pronunciation Glossary",
                                 open=False,
                                 elem_classes=["fade-in"],
                             ):
@@ -10800,12 +11124,12 @@ def create_gradio_interface():
 
                                 with gr.Row():
                                     add_protected_term_btn = gr.Button(
-                                        "➕ Add Term",
+                                        "Add Term",
                                         variant="secondary",
                                         elem_classes=["fade-in"],
                                     )
                                     remove_protected_term_btn = gr.Button(
-                                        "🗑️ Remove Selected",
+                                        "Remove Selected",
                                         variant="secondary",
                                         elem_classes=["fade-in"],
                                     )
@@ -10847,7 +11171,7 @@ def create_gradio_interface():
 
                                 with gr.Row():
                                     add_override_btn = gr.Button(
-                                        "➕ Add Override",
+                                        "Add Override",
                                         variant="secondary",
                                         elem_classes=["fade-in"],
                                     )
@@ -10883,7 +11207,9 @@ def create_gradio_interface():
                                 )
 
                     # Conversation Mode Tab
-                    with gr.TabItem("🎭 CONVERSATION MODE", id="conversation_mode"):
+                    with gr.TabItem(
+                        "🎭 CONVERSATION MODE", id="conversation_mode"
+                    ) as conversation_mode_tab:
                         conversation_speakers_state = gr.State(value=[])
                         conversation_rows_state = gr.State(value=[])
                         conversation_selected_speaker_state = gr.State(value=None)
@@ -11816,7 +12142,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         ]
 
                     # eBook to Audiobook Tab
-                    with gr.TabItem("📚 EBOOK TO AUDIOBOOK", id="ebook_mode"):
+                    with gr.TabItem("📚 EBOOK TO AUDIOBOOK", id="ebook_mode") as ebook_mode_tab:
                         if EBOOK_CONVERTER_AVAILABLE:
                             gr.Markdown(
                                 """
@@ -12047,7 +12373,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             ebook_chapter_gap = gr.Slider(visible=False, value=2.0)
 
                     # VibeVoice Tab
-                    with gr.TabItem("🎙️ VIBEVOICE", id="vibevoice_mode"):
+                    with gr.TabItem("🎙️ VIBEVOICE", id="vibevoice_mode") as vibevoice_mode_tab:
                         if VIBEVOICE_AVAILABLE:
                             gr.Markdown(
                                 """
@@ -12353,7 +12679,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             vibevoice_output = gr.Audio(visible=False)
                             vibevoice_status = gr.Textbox(visible=False)
 
-                    with gr.TabItem("🤖 ASSISTANT", id="assistant_mode"):
+                    with gr.TabItem("🤖 ASSISTANT", id="assistant_mode") as assistant_mode_tab:
                         gr.Markdown(
                             """
                         <div style='background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
@@ -12500,7 +12826,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                             assistant_llm_status = gr.Markdown(value="", elem_classes=["fade-in"])
 
-                    with gr.TabItem("📋 JOBS", id="jobs_mode"):
+                    with gr.TabItem("📋 JOBS", id="jobs_mode") as jobs_mode_tab:
                         gr.Markdown(
                             """
                         <div style='background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1));
@@ -12576,46 +12902,49 @@ Alice: I went to Japan. It was absolutely incredible!""",
             with gr.Column(scale=1, elem_classes=["right-rail"]):
                 # Audio output section with glow effect
                 audio_output = gr.Audio(
-                    label="🎵 Generated Audio",
+                    label="Generated Audio",
                     show_download_button=True,
                     elem_classes=["fade-in", "glow"],
                 )
 
                 # Status with custom styling
-                status_output = gr.Markdown(value="Ready.", elem_classes=["fade-in"])
+                status_output = gr.Markdown(
+                    value="Ready.", elem_classes=["fade-in"], elem_id="status_output_panel"
+                )
 
-                last_seed_out = gr.Markdown(value="🎲 Last Seed: N/A", elem_classes=["fade-in"])
+                last_seed_out = gr.Markdown(value="Last Seed: N/A", elem_classes=["fade-in"])
 
                 last_seed_state = gr.State(value=None)
 
                 # Conversation info output (visible for conversation mode)
                 conversation_info = gr.Textbox(
-                    label="📊 Conversation Summary",
+                    label="Conversation Summary",
                     lines=8,
                     interactive=False,
                     elem_classes=["fade-in"],
+                    elem_id="conversation_summary_panel",
                     visible=False,
                     value="Ready for conversation generation...",
                 )
 
                 with gr.Accordion(
-                    "📚 Audiobook Results",
+                    "Audiobook Results",
                     open=False,
                     elem_classes=["fade-in"],
                     elem_id="audiobook_results_panel",
                 ):
                     audiobook_output = gr.Audio(
-                        label="🎧 Generated Audiobook",
+                        label="Generated Audiobook",
                         show_download_button=True,
                         elem_classes=["fade-in", "glow"],
                     )
 
                     audiobook_download = gr.File(
-                        label="📥 Download Large Audiobook", visible=False, elem_classes=["fade-in"]
+                        label="Download Large Audiobook", visible=False, elem_classes=["fade-in"]
                     )
 
                     ebook_status = gr.Textbox(
-                        label="📊 eBook Conversion Status",
+                        label="eBook Conversion Status",
                         lines=6,
                         interactive=False,
                         elem_classes=["fade-in"],
@@ -12623,21 +12952,21 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         # Generate buttons - separate for single voice and conversation modes
         with gr.Row():
-            with gr.Column():
+            with gr.Column(elem_id="generate_speech_action", visible=True) as generate_btn_container:
                 generate_btn = gr.Button(
                     "🚀 Generate Speech",
                     variant="primary",
                     size="lg",
                     elem_classes=["generate-btn", "fade-in"],
-                    visible=True,
                 )
-            with gr.Column():
+            with gr.Column(
+                elem_id="generate_conversation_action", visible=False
+            ) as generate_conversation_btn_container:
                 generate_conversation_btn = gr.Button(
                     "🎭 Generate Conversation",
                     variant="primary",
                     size="lg",
                     elem_classes=["generate-btn", "fade-in"],
-                    visible=False,
                 )
 
         conversation_panel_updates = [
@@ -12691,7 +13020,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         ]
 
         with gr.Accordion(
-            "🧭 Workspace Controls",
+            "Workspace Controls",
             open=False,
             elem_classes=["fade-in"],
             elem_id="preset_autosave_panel",
@@ -12699,78 +13028,76 @@ Alice: I went to Japan. It was absolutely incredible!""",
             with gr.Row(elem_classes=["workspace-row"]):
                 with gr.Column(scale=2):
                     speaker_name_tb = gr.Textbox(
-                        value="Speakers Name", label="🗣️ Speaker Name", placeholder="Speakers Name"
+                        value="Speakers Name", label="Speaker Name", placeholder="Speakers Name"
                     )
 
                     with gr.Row():
                         voice_preset_dd = gr.Dropdown(
-                            label="🎙️ Voice Preset",
+                            label="Voice Preset",
                             choices=get_voice_preset_choices(),
                             value="",
                             allow_custom_value=True,
                             info="Select a preset to reuse reference audio for supported engines",
                         )
                         preset_name_tb = gr.Textbox(
-                            label="🏷️ Preset Name", placeholder="Speakers Name_Style"
+                            label="Preset Name", placeholder="Speakers Name_Style"
                         )
 
                     with gr.Row():
-                        preset_audio_file = gr.File(label="📎 Preset Audio File", type="filepath")
+                        preset_audio_file = gr.File(label="Preset Audio File", type="filepath")
                         copy_into_app_chk = gr.Checkbox(
-                            value=True, label="📁 Copy audio into app_state/voices"
+                            value=True, label="Copy audio into app_state/voices"
                         )
 
                     with gr.Row():
-                        save_preset_btn = gr.Button("💾 Save / Update Preset", variant="secondary")
-                        delete_preset_btn = gr.Button("🗑️ Delete Preset", variant="stop")
-                        refresh_presets_btn = gr.Button("🔄 Refresh", variant="secondary")
+                        save_preset_btn = gr.Button("Save / Update Preset", variant="secondary")
+                        delete_preset_btn = gr.Button("Delete Preset", variant="stop")
+                        refresh_presets_btn = gr.Button("Refresh", variant="secondary")
 
-                    preset_status_md = gr.Markdown(value="ℹ️ Preset manager ready")
+                    preset_status_md = gr.Markdown(value="Preset manager ready")
 
                 with gr.Column(scale=2):
                     with gr.Row():
-                        autosave_enabled = gr.Checkbox(
-                            value=True, label="💾 Autosave project files"
-                        )
+                        autosave_enabled = gr.Checkbox(value=True, label="Autosave project files")
                         autosave_project_name = gr.Textbox(
                             value="default",
-                            label="📚 Project Name",
+                            label="Project Name",
                             placeholder="book_title_or_project",
                         )
 
                     with gr.Row():
                         autosave_store_audio_copy = gr.Checkbox(
-                            value=True, label="🧬 Keep structured autosave audio copy"
+                            value=True, label="Keep structured autosave audio copy"
                         )
                         keep_legacy_output_copy = gr.Checkbox(
-                            value=True, label="📦 Keep legacy output copy"
+                            value=True, label="Keep legacy output copy"
                         )
 
                     output_storage_mode = gr.Dropdown(
-                        label="📦 Generated Output Storage",
+                        label="Generated Output Storage",
                         choices=["Project Folders (default)", "Custom Path"],
                         value=storage_mode_value,
                         info="Set where generated outputs/autosaves are stored; preset voices remain local",
                     )
                     output_storage_path = gr.Textbox(
-                        label="🛣️ Custom Output Base Path",
+                        label="Custom Output Base Path",
                         value=current_storage_path,
                         placeholder="D:/Ultimate-TTS-Outputs",
                     )
 
                     with gr.Row():
-                        save_storage_btn = gr.Button("💾 Apply Storage", variant="primary")
+                        save_storage_btn = gr.Button("Apply Storage", variant="primary")
                         open_output_folder_btn = gr.Button(
-                            "📂 Open Output Folder", variant="secondary"
+                            "Open Output Folder", variant="secondary"
                         )
                         open_autosave_folder_btn = gr.Button(
-                            "🗂️ Open Autosave Folder", variant="secondary"
+                            "Open Autosave Folder", variant="secondary"
                         )
 
                     storage_status_md = gr.Markdown(value=storage_status_default)
 
         with gr.Accordion(
-            "🎚️ Engine Selection",
+            "Engine Selection",
             open=False,
             elem_classes=["fade-in"],
             elem_id="engine_selector_panel",
@@ -12778,20 +13105,20 @@ Alice: I went to Japan. It was absolutely incredible!""",
             with gr.Row():
                 tts_engine = gr.Dropdown(
                     choices=[
-                        ("🎤 ChatterboxTTS - Voice Cloning", "ChatterboxTTS"),
-                        ("🌍 Chatterbox Multilingual - 23 Languages", "Chatterbox Multilingual"),
-                        ("🚀 Chatterbox Turbo - Fast Voice Cloning", "Chatterbox Turbo"),
-                        ("🗣️ Kokoro TTS - Pre-trained Voices", "Kokoro TTS"),
-                        ("🐟 Fish Speech - Natural TTS", "Fish Speech"),
-                        ("🎯 IndexTTS - Industrial Quality", "IndexTTS"),
-                        ("🎯 IndexTTS2 - Advanced Emotion Control", "IndexTTS2"),
-                        ("🎵 F5-TTS - Flow Matching TTS", "F5-TTS"),
-                        ("🎙️ Higgs Audio - Advanced Multimodal TTS", "Higgs Audio"),
-                        ("🎤 VoxCPM - Voice Cloning TTS", "VoxCPM"),
-                        ("🐱 KittenTTS - Mini Model TTS", "KittenTTS"),
-                        ("🎨 Qwen Voice Design - Create Voices", "Qwen Voice Design"),
-                        ("🎭 Qwen Voice Clone - Clone Voices", "Qwen Voice Clone"),
-                        ("🗣️ Qwen Custom Voice - Predefined Speakers", "Qwen Custom Voice"),
+                        ("ChatterboxTTS - Voice Cloning", "ChatterboxTTS"),
+                        ("Chatterbox Multilingual - 23 Languages", "Chatterbox Multilingual"),
+                        ("Chatterbox Turbo - Fast Voice Cloning", "Chatterbox Turbo"),
+                        ("Kokoro TTS - Pre-trained Voices", "Kokoro TTS"),
+                        ("Fish Speech - Natural TTS", "Fish Speech"),
+                        ("IndexTTS - Industrial Quality", "IndexTTS"),
+                        ("IndexTTS2 - Advanced Emotion Control", "IndexTTS2"),
+                        ("F5-TTS - Flow Matching TTS", "F5-TTS"),
+                        ("Higgs Audio - Advanced Multimodal TTS", "Higgs Audio"),
+                        ("VoxCPM - Voice Cloning TTS", "VoxCPM"),
+                        ("KittenTTS - Mini Model TTS", "KittenTTS"),
+                        ("Qwen Voice Design - Create Voices", "Qwen Voice Design"),
+                        ("Qwen Voice Clone - Clone Voices", "Qwen Voice Clone"),
+                        ("Qwen Custom Voice - Predefined Speakers", "Qwen Custom Voice"),
                     ],
                     value=(
                         "ChatterboxTTS"
@@ -16448,6 +16775,72 @@ Alice: I went to Japan. It was absolutely incredible!""",
         reject_btn.click(
             fn=on_reject_transform,
             outputs=[preview_row, provenance_banner, action_row],
+        )
+
+        def update_main_mode_visibility(mode: str):
+            is_single = mode == "single_voice"
+            is_conversation = mode == "conversation_mode"
+
+            return (
+                gr.update(visible=is_single),
+                gr.update(visible=is_conversation),
+                gr.update(visible=not is_conversation),
+                gr.update(visible=is_conversation),
+            )
+
+        single_voice_tab.select(
+            fn=lambda: update_main_mode_visibility("single_voice"),
+            outputs=[
+                generate_btn_container,
+                generate_conversation_btn_container,
+                status_output,
+                conversation_info,
+            ],
+        )
+        conversation_mode_tab.select(
+            fn=lambda: update_main_mode_visibility("conversation_mode"),
+            outputs=[
+                generate_btn_container,
+                generate_conversation_btn_container,
+                status_output,
+                conversation_info,
+            ],
+        )
+        ebook_mode_tab.select(
+            fn=lambda: update_main_mode_visibility("ebook_mode"),
+            outputs=[
+                generate_btn_container,
+                generate_conversation_btn_container,
+                status_output,
+                conversation_info,
+            ],
+        )
+        vibevoice_mode_tab.select(
+            fn=lambda: update_main_mode_visibility("vibevoice_mode"),
+            outputs=[
+                generate_btn_container,
+                generate_conversation_btn_container,
+                status_output,
+                conversation_info,
+            ],
+        )
+        assistant_mode_tab.select(
+            fn=lambda: update_main_mode_visibility("assistant_mode"),
+            outputs=[
+                generate_btn_container,
+                generate_conversation_btn_container,
+                status_output,
+                conversation_info,
+            ],
+        )
+        jobs_mode_tab.select(
+            fn=lambda: update_main_mode_visibility("jobs_mode"),
+            outputs=[
+                generate_btn_container,
+                generate_conversation_btn_container,
+                status_output,
+                conversation_info,
+            ],
         )
 
         # Main generation event handler
