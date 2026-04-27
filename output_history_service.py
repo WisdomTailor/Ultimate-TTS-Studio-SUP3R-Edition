@@ -21,6 +21,13 @@ from app.output_history_store import OutputHistoryRecord, OutputHistoryStore
 logger = logging.getLogger(__name__)
 
 TIMESTAMP_PATTERN = re.compile(r"(?P<timestamp>\d{8}_\d{6})$")
+MISSING_HISTORY_PRESET_NAMES = {"", "no_preset"}
+VOICE_NARRATOR_METADATA_KEYS = (
+    "speaker",
+    "speaker_profile",
+    "voice_preset",
+    "voice",
+)
 
 
 @dataclass(slots=True)
@@ -76,6 +83,33 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _clean_metadata_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def is_history_preset_missing(preset: str | None) -> bool:
+    normalized = _clean_metadata_text(preset)
+    if normalized is None:
+        return True
+    return normalized.lower() in MISSING_HISTORY_PRESET_NAMES
+
+
+def resolve_voice_narrator(
+    metadata: dict[str, Any] | None,
+    *,
+    fallback: str | None = None,
+) -> str | None:
+    if isinstance(metadata, dict):
+        for key in VOICE_NARRATOR_METADATA_KEYS:
+            resolved = _clean_metadata_text(metadata.get(key))
+            if resolved:
+                return resolved
+    return _clean_metadata_text(fallback)
 
 
 def _timestamp_to_iso(timestamp: str) -> str | None:
@@ -277,7 +311,7 @@ def build_record_from_meta(meta_path: str | Path) -> OutputHistoryRecord:
     autosave_root = project_root.parent.resolve(strict=False)
     project = str(metadata.get("project") or project_root.name)
     preset = str(metadata.get("preset") or _infer_preset(run_base, project, timestamp) or "")
-    speaker = str(metadata.get("speaker") or "") or None
+    speaker = resolve_voice_narrator(metadata)
     raw_llm_transform = metadata.get("llm_transform")
     llm_transform = raw_llm_transform if isinstance(raw_llm_transform, dict) else {}
     transform_status = str(llm_transform.get("status") or "") or None
@@ -356,6 +390,12 @@ def build_reload_payload(record: OutputHistoryRecord) -> dict[str, Any]:
     payload = json.loads(job_path.read_text(encoding="utf-8")) if job_path.exists() else {}
     paths_block = payload.get("paths", {}) if isinstance(payload.get("paths"), dict) else {}
     texts_block = payload.get("texts", {}) if isinstance(payload.get("texts"), dict) else {}
+    metadata_snapshot = (
+        payload.get("metadata_snapshot", {})
+        if isinstance(payload.get("metadata_snapshot"), dict)
+        else {}
+    )
+    voice_narrator = resolve_voice_narrator(metadata_snapshot, fallback=record.speaker)
 
     transformed_text = texts_block.get("transformed") or _read_text_if_exists(
         (paths_block.get("autosave_scripts") or [None, None, None])[2]
@@ -379,11 +419,13 @@ def build_reload_payload(record: OutputHistoryRecord) -> dict[str, Any]:
         "timestamp": record.timestamp,
         "engine": record.engine,
         "speaker": record.speaker,
+        "voice_narrator": voice_narrator,
         "seed": record.seed,
+        "audio_format": _clean_metadata_text(metadata_snapshot.get("audio_format")),
         "script_text": transformed_text or current_text or original_text or "",
         "original_text": original_text or "",
         "transformed_text": transformed_text or current_text or "",
-        "metadata_snapshot": payload.get("metadata_snapshot", {}),
+        "metadata_snapshot": metadata_snapshot,
         "job_json_path": record.job_json_path,
     }
 
@@ -395,9 +437,11 @@ __all__ = [
     "create_or_repair_job_json",
     "default_db_path_for_autosave_root",
     "feature_storage_root_from_autosave_root",
+    "is_history_preset_missing",
     "is_path_within_root",
     "normalize_path",
     "reindex_root",
+    "resolve_voice_narrator",
     "resolve_playback_path",
     "upsert_meta_file",
 ]

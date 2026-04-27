@@ -12926,7 +12926,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         history_query_input = gr.Textbox(
                             label="Search History",
                             value="",
-                            placeholder="Search project, preset, engine, speaker, transform, or timestamp",
+                            placeholder=(
+                                "Search project, preset, engine, voice/narrator, transform, or timestamp"
+                            ),
                             elem_classes=["fade-in"],
                         )
 
@@ -12937,7 +12939,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 "Preset",
                                 "Timestamp",
                                 "Engine",
-                                "Speaker",
+                                "Voice / Narrator",
                                 "Seed",
                                 "Reload",
                             ],
@@ -15390,6 +15392,33 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 return None
             return record_id if record_id > 0 else None
 
+        def _format_history_preset(preset):
+            normalized = str(preset or "").strip()
+            if not normalized or normalized.lower() == "no_preset":
+                return "—"
+            return normalized
+
+        def _build_history_settings_lines(metadata_snapshot):
+            if not isinstance(metadata_snapshot, dict):
+                return []
+
+            settings_lines = []
+            audio_format = str(metadata_snapshot.get("audio_format") or "").strip()
+            if audio_format:
+                settings_lines.append(f"- Audio format: `{audio_format}`")
+
+            for key, label in (
+                ("voice", "Built-in voice"),
+                ("voice_preset", "Engine voice preset"),
+                ("speaker_profile", "Speaker profile"),
+                ("language", "Language"),
+            ):
+                value = str(metadata_snapshot.get(key) or "").strip()
+                if value:
+                    settings_lines.append(f"- {label}: `{value}`")
+
+            return settings_lines
+
         def _format_history_rows(records):
             if not records:
                 return [["—", "No history yet", "—", "—", "—", "—", "—", "—"]]
@@ -15400,7 +15429,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     [
                         record.id,
                         record.project,
-                        record.preset or "—",
+                        _format_history_preset(record.preset),
                         record.timestamp,
                         record.engine or "—",
                         record.speaker or "—",
@@ -15411,7 +15440,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             return rows
 
         def handle_history_detail(record_id):
-            from output_history_service import resolve_playback_path
+            from output_history_service import build_reload_payload, resolve_playback_path
 
             parsed_id = _coerce_history_record_id(record_id)
             if parsed_id is None:
@@ -15426,17 +15455,48 @@ Alice: I went to Japan. It was absolutely incredible!""",
             if record is None:
                 return f"❌ History record not found: {record_id}", None
 
+            payload = {}
+            payload_error = None
+            try:
+                payload = build_reload_payload(record)
+            except Exception as error:
+                payload_error = str(error)
+
+            metadata_snapshot = payload.get("metadata_snapshot", {})
+            voice_narrator = payload.get("voice_narrator") or record.speaker
+            audio_format = payload.get("audio_format")
+
             lines = [f"### History Record {record.id}"]
             lines.append(f"**Project:** {record.project}")
-            lines.append(f"**Preset:** {record.preset or '—'}")
+            lines.append(f"**Preset:** {_format_history_preset(record.preset)}")
             lines.append(f"**Timestamp:** {record.timestamp}")
             lines.append(f"**Engine:** {record.engine or '—'}")
-            lines.append(f"**Speaker:** {record.speaker or '—'}")
+            lines.append(f"**Voice / Narrator:** {voice_narrator or '—'}")
             lines.append(f"**Seed:** {record.seed if record.seed is not None else '—'}")
+            lines.append(f"**Audio Format:** {audio_format or '—'}")
             lines.append(f"**Chunks:** {record.chunks if record.chunks is not None else '—'}")
             lines.append(f"**Transform:** {record.transform or '—'}")
             lines.append(f"**LLM Transform Applied:** {'Yes' if record.llm_enabled else 'No'}")
             lines.append(f"**Reload Ready:** {'Yes' if record.can_reload else 'No'}")
+            lines.append("")
+            lines.append("**Reload Into Text Tab**")
+            lines.append(
+                "- Restores: text, project name, engine, voice/narrator label, preset dropdown, and last seed."
+            )
+            lines.append(
+                "- Does not restore: audio format, engine-specific voice/reference controls, narration/LLM settings, audio effects, autosave options, or other tab state."
+            )
+
+            settings_lines = _build_history_settings_lines(metadata_snapshot)
+            if settings_lines:
+                lines.append("")
+                lines.append("**Stored Settings Context**")
+                lines.extend(settings_lines)
+
+            if payload_error:
+                lines.append("")
+                lines.append(f"⚠️ Stored reload metadata unavailable: {payload_error}")
+
             lines.append("")
             lines.append("**Paths**")
             lines.append(f"- Job JSON: `{record.job_json_path}`")

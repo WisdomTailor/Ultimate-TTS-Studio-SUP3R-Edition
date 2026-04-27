@@ -98,6 +98,21 @@ class TestOutputHistoryService:
         assert record.autosave_meta_path == meta_path.resolve().as_posix()
         assert all("/" in path for path in record.autosave_scripts)
         assert is_path_within_root(record.job_json_path, autosave_root)
+        assert record.speaker == "Confidence Narration"
+
+    def test_build_record_from_meta_falls_back_to_voice_metadata_when_speaker_missing(
+        self, tmp_path: Path
+    ) -> None:
+        _autosave_root, meta_path = _write_fixture_bundle(tmp_path)
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        payload.pop("speaker", None)
+        payload["engine"] = "Kokoro TTS"
+        payload["voice"] = "af_heart"
+        meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        record = build_record_from_meta(meta_path)
+
+        assert record.speaker == "af_heart"
 
     def test_reindex_root_upserts_fixture_bundle(self, tmp_path: Path) -> None:
         autosave_root, _meta_path = _write_fixture_bundle(tmp_path)
@@ -128,5 +143,7 @@ class TestOutputHistoryService:
         assert payload["project"] == "default"
         assert payload["preset"] == "no_preset"
         assert payload["engine"] == "Fish Speech"
+        assert payload["voice_narrator"] == "Confidence Narration"
+        assert payload["audio_format"] == "wav"
         assert payload["script_text"] == "Transformed text"
         assert payload["original_text"] == "Original text"
