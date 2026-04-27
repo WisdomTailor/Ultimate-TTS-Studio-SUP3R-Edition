@@ -8719,6 +8719,13 @@ def generate_unified_tts_wrapped(*all_args):
                     f"Autosave transformed script: {autosave_paths['transformed_script_path']}"
                 )
                 status_lines.append(f"Autosave meta: {autosave_paths['meta_path']}")
+                try:
+                    from output_history_service import upsert_meta_file
+
+                    history_record = upsert_meta_file(autosave_paths["meta_path"])
+                    status_lines.append(f"History index: {history_record.job_json_path}")
+                except Exception as history_error:
+                    status_lines.append(f"⚠️ History index update failed: {history_error}")
         except Exception as error:
             autosave_error = str(error)
 
@@ -13028,7 +13035,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         # Generate buttons - separate for single voice and conversation modes
         with gr.Row():
-            with gr.Column(elem_id="generate_speech_action", visible=True) as generate_btn_container:
+            with gr.Column(
+                elem_id="generate_speech_action", visible=True
+            ) as generate_btn_container:
                 generate_btn = gr.Button(
                     "🚀 Generate Speech",
                     variant="primary",
