@@ -12925,6 +12925,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                         history_query_input = gr.Textbox(
                             label="Search History",
+                            value="",
                             placeholder="Search project, preset, engine, speaker, transform, or timestamp",
                             elem_classes=["fade-in"],
                         )
@@ -12963,11 +12964,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             )
 
                         with gr.Row():
-                            history_record_id_input = gr.Number(
+                            history_record_id_input = gr.Textbox(
                                 label="History Record ID",
-                                value=None,
-                                precision=0,
-                                minimum=1,
+                                value="",
+                                placeholder="Optional: enter a numeric history record ID",
                                 scale=3,
                                 elem_classes=["fade-in"],
                             )
@@ -12980,7 +12980,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             )
 
                         history_detail_output = gr.Markdown(
-                            value="Select a history record to view details.",
+                            value=(
+                                "No indexed autosave history yet. Generate a clip with autosave enabled "
+                                "or click Reindex Autosaves."
+                            ),
                             elem_classes=["fade-in"],
                         )
                         history_audio_output = gr.Audio(
@@ -15412,7 +15415,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             parsed_id = _coerce_history_record_id(record_id)
             if parsed_id is None:
-                return "Select a history record to view details.", None
+                return (
+                    "No history record selected yet. Enter a numeric History Record ID after refreshing "
+                    "or reindexing.",
+                    None,
+                )
 
             store, autosave_root = _get_history_store_and_root()
             record = store.get_record(parsed_id)
@@ -15453,8 +15460,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_history_panel_refresh(query, record_id):
             store, _autosave_root = _get_history_store_and_root()
             normalized_query = str(query or "").strip() or None
-            rows = _format_history_rows(store.list_records(query=normalized_query, limit=50))
+            records = store.list_records(query=normalized_query, limit=50)
+            rows = _format_history_rows(records)
             detail, audio_value = handle_history_detail(record_id)
+            if not records and _coerce_history_record_id(record_id) is None:
+                detail = (
+                    "No indexed autosave history yet. Generate a clip with autosave enabled or click "
+                    "Reindex Autosaves to scan the current autosave root."
+                )
             return rows, detail, audio_value
 
         def handle_history_reindex(query, record_id):
@@ -15465,7 +15478,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 records = reindex_root(autosave_root, store=store)
                 rows, detail, audio_value = handle_history_panel_refresh(query, record_id)
                 prefix = f"✅ Reindexed {len(records)} autosave bundle(s)."
-                if detail.startswith("Select a history record"):
+                if detail.startswith("No indexed autosave history yet") or detail.startswith(
+                    "No history record selected yet"
+                ):
                     detail = prefix
                 else:
                     detail = f"{prefix}\n\n{detail}"
