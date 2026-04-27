@@ -8347,9 +8347,7 @@ def _build_generation_reload_snapshot(
 
         if param_name.endswith("_audio"):
             if value not in (None, ""):
-                excluded_controls.append(
-                    {"name": param_name, "reason": "transient_file_input"}
-                )
+                excluded_controls.append({"name": param_name, "reason": "transient_file_input"})
             continue
 
         if _is_reload_snapshot_value_supported(value):
@@ -15478,11 +15476,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ("autosave_project_name", autosave_project_name),
             ("tts_engine", tts_engine),
             ("audio_format", audio_format),
+            ("chatterbox_ref_audio", chatterbox_ref_audio),
             ("chatterbox_exaggeration", chatterbox_exaggeration),
             ("chatterbox_temperature", chatterbox_temperature),
             ("chatterbox_cfg_weight", chatterbox_cfg_weight),
             ("chatterbox_chunk_size", chatterbox_chunk_size),
             ("chatterbox_seed", chatterbox_seed),
+            ("chatterbox_mtl_ref_audio", chatterbox_mtl_ref_audio),
             ("chatterbox_mtl_language", chatterbox_mtl_language),
             ("chatterbox_mtl_exaggeration", chatterbox_mtl_exaggeration),
             ("chatterbox_mtl_temperature", chatterbox_mtl_temperature),
@@ -15500,16 +15500,20 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ("chatterbox_turbo_top_p", chatterbox_turbo_top_p),
             ("chatterbox_turbo_chunk_size", chatterbox_turbo_chunk_size),
             ("chatterbox_turbo_seed", chatterbox_turbo_seed),
+            ("chatterbox_turbo_ref_audio", chatterbox_turbo_ref_audio),
             ("kokoro_voice", kokoro_voice),
             ("kokoro_speed", kokoro_speed),
+            ("fish_ref_audio", fish_ref_audio),
             ("fish_ref_text", fish_ref_text),
             ("fish_temperature", fish_temperature),
             ("fish_top_p", fish_top_p),
             ("fish_repetition_penalty", fish_repetition_penalty),
             ("fish_max_tokens", fish_max_tokens),
             ("fish_seed", fish_seed),
+            ("indextts_ref_audio", indextts_ref_audio),
             ("indextts_temperature", indextts_temperature),
             ("indextts_seed", indextts_seed),
+            ("indextts2_ref_audio", indextts2_ref_audio),
             ("indextts2_emotion_mode", indextts2_emotion_mode),
             ("indextts2_emotion_description", indextts2_emotion_description),
             ("indextts2_emo_alpha", indextts2_emo_alpha),
@@ -15528,11 +15532,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ("indextts2_max_mel_tokens", indextts2_max_mel_tokens),
             ("indextts2_seed", indextts2_seed),
             ("indextts2_use_random", indextts2_use_random),
+            ("f5_ref_audio", f5_ref_audio),
             ("f5_ref_text", f5_ref_text),
             ("f5_speed", f5_speed),
             ("f5_cross_fade", f5_cross_fade),
             ("f5_remove_silence", f5_remove_silence),
             ("f5_seed", f5_seed),
+            ("higgs_ref_audio", higgs_ref_audio),
             ("higgs_ref_text", higgs_ref_text),
             ("higgs_voice_preset", higgs_voice_preset),
             ("higgs_system_prompt", higgs_system_prompt),
@@ -15543,6 +15549,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ("higgs_ras_win_len", higgs_ras_win_len),
             ("higgs_ras_win_max_num_repeat", higgs_ras_win_max_num_repeat),
             ("kitten_voice", kitten_voice),
+            ("voxcpm_ref_audio", voxcpm_ref_audio),
             ("voxcpm_ref_text", voxcpm_ref_text),
             ("voxcpm_cfg_value", voxcpm_cfg_value),
             ("voxcpm_inference_timesteps", voxcpm_inference_timesteps),
@@ -15557,6 +15564,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ("voxcpm_seed", voxcpm_seed),
             ("qwen_mode", qwen_mode),
             ("qwen_voice_description", qwen_voice_description),
+            ("qwen_ref_audio", qwen_ref_audio),
             ("qwen_ref_text", qwen_ref_text),
             ("qwen_xvector_only", qwen_xvector_only),
             ("qwen_clone_model_size", qwen_clone_model_size),
@@ -15602,6 +15610,22 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ("keep_legacy_output_copy", keep_legacy_output_copy),
             ("last_seed_state", last_seed_state),
         ]
+
+        history_reload_preset_audio_targets = {
+            "ChatterboxTTS": "chatterbox_ref_audio",
+            "Chatterbox Multilingual": "chatterbox_mtl_ref_audio",
+            "Chatterbox Turbo": "chatterbox_turbo_ref_audio",
+            "Fish Speech": "fish_ref_audio",
+            "IndexTTS": "indextts_ref_audio",
+            "IndexTTS2": "indextts2_ref_audio",
+            "F5-TTS": "f5_ref_audio",
+            "Higgs Audio": "higgs_ref_audio",
+            "VoxCPM": "voxcpm_ref_audio",
+            "Qwen Voice Clone": "qwen_ref_audio",
+        }
+        history_reload_preset_audio_control_names = set(
+            history_reload_preset_audio_targets.values()
+        )
 
         def _build_history_settings_lines(metadata_snapshot):
             if not isinstance(metadata_snapshot, dict):
@@ -15714,7 +15738,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     "- Restores: original source text, engine, audio format, saved controls for the production engine, narration transform settings except API key, audio effects, speaker label, preset, autosave options/project name, and last seed."
                 )
                 lines.append(
-                    "- Does not restore: API keys, uploaded/reference audio file inputs, emotion audio uploads, or unrelated tab state."
+                    "- Does not restore uploaded/reference audio temp files directly, but the active engine reference audio can be repopulated from the selected preset when that preset still points to a valid saved audio file. Emotion audio uploads, API keys, and unrelated tab state are not restored."
                 )
 
             if excluded_reasons:
@@ -15726,7 +15750,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     )
                 if "transient_file_input" in excluded_reasons:
                     lines.append(
-                        "- Uploaded reference/emotion audio file inputs are not restored directly because their original temp paths may no longer exist."
+                        "- Uploaded reference/emotion audio file inputs are not restored directly because their original temp paths may no longer exist. If the saved preset still has a valid reference audio file, reload can repopulate the active engine's standard reference-audio control from that preset."
                     )
 
             settings_lines = _build_history_settings_lines(metadata_snapshot)
@@ -15834,6 +15858,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 if isinstance(reload_snapshot, dict)
                 else {}
             )
+            active_engine = str(
+                control_values.get("tts_engine") or payload.get("engine") or ""
+            ).strip()
+            selected_preset = str(
+                control_values.get("voice_preset") or payload.get("preset") or ""
+            ).strip()
+            preset_audio_path = get_preset_audio_path(selected_preset) if selected_preset else ""
+            active_engine_audio_control = history_reload_preset_audio_targets.get(active_engine, "")
 
             updates = []
             for control_name, _component in history_reload_targets:
@@ -15859,6 +15891,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     continue
 
                 value = control_values.get(control_name, missing)
+                if control_name in history_reload_preset_audio_control_names:
+                    if value is not missing:
+                        saved_audio_path = str(value or "").strip()
+                        if saved_audio_path and os.path.exists(saved_audio_path):
+                            updates.append(gr.update(value=saved_audio_path))
+                            continue
+                    if control_name == active_engine_audio_control and preset_audio_path:
+                        updates.append(gr.update(value=preset_audio_path))
+                    else:
+                        updates.append(preserve)
+                    continue
+
                 if value is missing:
                     if control_name == "autosave_project_name":
                         value = payload.get("project", missing)
@@ -15884,9 +15928,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     "Older records may not include full engine/LLM/effects state."
                 )
             else:
-                status_message = (
-                    f"✅ Reloaded history record {record.id} from {record.project} / {record.timestamp}"
-                )
+                status_message = f"✅ Reloaded history record {record.id} from {record.project} / {record.timestamp}"
 
             return (*updates, status_message, seed_label)
 
