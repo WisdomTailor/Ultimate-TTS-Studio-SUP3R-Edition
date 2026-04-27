@@ -8315,6 +8315,69 @@ def _collect_engine_metadata_controls(tts_engine: str, base_args: list, param_id
     return controls
 
 
+def _is_reload_snapshot_value_supported(value: Any) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def _build_generation_reload_snapshot(
+    base_args: list,
+    param_idx: dict[str, int],
+    *,
+    resolved_project: str,
+    speaker_name: str,
+    resolved_speaker: str,
+    voice_preset: str,
+    autosave_enabled: bool,
+    autosave_store_audio_copy: bool,
+    keep_legacy_output_copy: bool,
+    used_seed: Any,
+) -> dict[str, Any]:
+    control_values: dict[str, Any] = {}
+    excluded_controls: list[dict[str, str]] = []
+
+    for param_name, index in param_idx.items():
+        if param_name == "text_input":
+            continue
+
+        value = base_args[index]
+        if param_name == "llm_api_key":
+            if value not in (None, ""):
+                excluded_controls.append({"name": param_name, "reason": "secret"})
+            continue
+
+        if param_name.endswith("_audio"):
+            if value not in (None, ""):
+                excluded_controls.append(
+                    {"name": param_name, "reason": "transient_file_input"}
+                )
+            continue
+
+        if _is_reload_snapshot_value_supported(value):
+            control_values[param_name] = value
+
+    control_values.update(
+        {
+            "speaker_name": speaker_name.strip() if isinstance(speaker_name, str) else "",
+            "voice_preset": voice_preset or "",
+            "autosave_enabled": bool(autosave_enabled),
+            "autosave_project_name": resolved_project,
+            "autosave_store_audio_copy": bool(autosave_store_audio_copy),
+            "keep_legacy_output_copy": bool(keep_legacy_output_copy),
+            "last_seed_state": used_seed,
+        }
+    )
+
+    if not control_values.get("speaker_name"):
+        control_values["speaker_name"] = resolved_speaker
+
+    return {
+        "schema_version": 1,
+        "active_engine": control_values.get("tts_engine"),
+        "control_values": control_values,
+        "excluded_controls": excluded_controls,
+    }
+
+
 INVALID_GENERATION_PROJECT_NAMES = {"default"}
 PROJECT_NAME_REQUIRED_MESSAGE = (
     "❌ Enter a real project name before generating. Blank names and 'default' are not allowed. "
@@ -8694,6 +8757,18 @@ def generate_unified_tts_wrapped(*all_args):
                 "status": llm_transform_status,
                 "applied": llm_transform_applied,
             },
+            "reload_snapshot": _build_generation_reload_snapshot(
+                base_args,
+                param_idx,
+                resolved_project=resolved_project,
+                speaker_name=speaker_name,
+                resolved_speaker=resolved_speaker,
+                voice_preset=voice_preset,
+                autosave_enabled=autosave_enabled,
+                autosave_store_audio_copy=autosave_store_audio_copy,
+                keep_legacy_output_copy=keep_legacy_output_copy,
+                used_seed=used_seed,
+            ),
             **engine_controls,
         }
         try:
@@ -15398,6 +15473,136 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 return "—"
             return normalized
 
+        history_reload_targets = [
+            ("text_input", text),
+            ("autosave_project_name", autosave_project_name),
+            ("tts_engine", tts_engine),
+            ("audio_format", audio_format),
+            ("chatterbox_exaggeration", chatterbox_exaggeration),
+            ("chatterbox_temperature", chatterbox_temperature),
+            ("chatterbox_cfg_weight", chatterbox_cfg_weight),
+            ("chatterbox_chunk_size", chatterbox_chunk_size),
+            ("chatterbox_seed", chatterbox_seed),
+            ("chatterbox_mtl_language", chatterbox_mtl_language),
+            ("chatterbox_mtl_exaggeration", chatterbox_mtl_exaggeration),
+            ("chatterbox_mtl_temperature", chatterbox_mtl_temperature),
+            ("chatterbox_mtl_cfg_weight", chatterbox_mtl_cfg_weight),
+            ("chatterbox_mtl_repetition_penalty", chatterbox_mtl_repetition_penalty),
+            ("chatterbox_mtl_min_p", chatterbox_mtl_min_p),
+            ("chatterbox_mtl_top_p", chatterbox_mtl_top_p),
+            ("chatterbox_mtl_chunk_size", chatterbox_mtl_chunk_size),
+            ("chatterbox_mtl_seed", chatterbox_mtl_seed),
+            ("chatterbox_turbo_exaggeration", chatterbox_turbo_exaggeration),
+            ("chatterbox_turbo_temperature", chatterbox_turbo_temperature),
+            ("chatterbox_turbo_cfg_weight", chatterbox_turbo_cfg_weight),
+            ("chatterbox_turbo_repetition_penalty", chatterbox_turbo_repetition_penalty),
+            ("chatterbox_turbo_min_p", chatterbox_turbo_min_p),
+            ("chatterbox_turbo_top_p", chatterbox_turbo_top_p),
+            ("chatterbox_turbo_chunk_size", chatterbox_turbo_chunk_size),
+            ("chatterbox_turbo_seed", chatterbox_turbo_seed),
+            ("kokoro_voice", kokoro_voice),
+            ("kokoro_speed", kokoro_speed),
+            ("fish_ref_text", fish_ref_text),
+            ("fish_temperature", fish_temperature),
+            ("fish_top_p", fish_top_p),
+            ("fish_repetition_penalty", fish_repetition_penalty),
+            ("fish_max_tokens", fish_max_tokens),
+            ("fish_seed", fish_seed),
+            ("indextts_temperature", indextts_temperature),
+            ("indextts_seed", indextts_seed),
+            ("indextts2_emotion_mode", indextts2_emotion_mode),
+            ("indextts2_emotion_description", indextts2_emotion_description),
+            ("indextts2_emo_alpha", indextts2_emo_alpha),
+            ("indextts2_happy", indextts2_happy),
+            ("indextts2_angry", indextts2_angry),
+            ("indextts2_sad", indextts2_sad),
+            ("indextts2_afraid", indextts2_afraid),
+            ("indextts2_disgusted", indextts2_disgusted),
+            ("indextts2_melancholic", indextts2_melancholic),
+            ("indextts2_surprised", indextts2_surprised),
+            ("indextts2_calm", indextts2_calm),
+            ("indextts2_temperature", indextts2_temperature),
+            ("indextts2_top_p", indextts2_top_p),
+            ("indextts2_top_k", indextts2_top_k),
+            ("indextts2_repetition_penalty", indextts2_repetition_penalty),
+            ("indextts2_max_mel_tokens", indextts2_max_mel_tokens),
+            ("indextts2_seed", indextts2_seed),
+            ("indextts2_use_random", indextts2_use_random),
+            ("f5_ref_text", f5_ref_text),
+            ("f5_speed", f5_speed),
+            ("f5_cross_fade", f5_cross_fade),
+            ("f5_remove_silence", f5_remove_silence),
+            ("f5_seed", f5_seed),
+            ("higgs_ref_text", higgs_ref_text),
+            ("higgs_voice_preset", higgs_voice_preset),
+            ("higgs_system_prompt", higgs_system_prompt),
+            ("higgs_temperature", higgs_temperature),
+            ("higgs_top_p", higgs_top_p),
+            ("higgs_top_k", higgs_top_k),
+            ("higgs_max_tokens", higgs_max_tokens),
+            ("higgs_ras_win_len", higgs_ras_win_len),
+            ("higgs_ras_win_max_num_repeat", higgs_ras_win_max_num_repeat),
+            ("kitten_voice", kitten_voice),
+            ("voxcpm_ref_text", voxcpm_ref_text),
+            ("voxcpm_cfg_value", voxcpm_cfg_value),
+            ("voxcpm_inference_timesteps", voxcpm_inference_timesteps),
+            ("voxcpm_normalize", voxcpm_normalize),
+            ("voxcpm_denoise", voxcpm_denoise),
+            ("voxcpm_retry_badcase", voxcpm_retry_badcase),
+            ("voxcpm_retry_badcase_max_times", voxcpm_retry_badcase_max_times),
+            (
+                "voxcpm_retry_badcase_ratio_threshold",
+                voxcpm_retry_badcase_ratio_threshold,
+            ),
+            ("voxcpm_seed", voxcpm_seed),
+            ("qwen_mode", qwen_mode),
+            ("qwen_voice_description", qwen_voice_description),
+            ("qwen_ref_text", qwen_ref_text),
+            ("qwen_xvector_only", qwen_xvector_only),
+            ("qwen_clone_model_size", qwen_clone_model_size),
+            ("qwen_chunk_size", qwen_chunk_size),
+            ("qwen_chunk_gap", qwen_chunk_gap),
+            ("qwen_speaker", qwen_speaker),
+            ("qwen_custom_model_size", qwen_custom_model_size),
+            ("qwen_style_instruct", qwen_style_instruct),
+            ("qwen_language", qwen_language),
+            ("qwen_seed", qwen_seed),
+            ("llm_transform_enabled", llm_transform_enabled),
+            ("llm_provider", llm_provider),
+            ("llm_base_url", llm_base_url),
+            ("llm_model_id", llm_model_id),
+            ("llm_mode", llm_mode),
+            ("llm_locale", llm_locale),
+            ("llm_style", llm_style),
+            ("llm_max_tag_density", llm_max_tag_density),
+            ("llm_system_prompt", llm_system_prompt),
+            ("llm_timeout_seconds", llm_timeout_seconds),
+            ("llm_temperature", llm_temperature),
+            ("llm_top_p", llm_top_p),
+            ("llm_max_tokens", llm_max_tokens),
+            ("llm_allow_local_fallback", llm_allow_local_fallback),
+            ("gain_db", gain_db),
+            ("enable_eq", enable_eq),
+            ("eq_bass", eq_bass),
+            ("eq_mid", eq_mid),
+            ("eq_treble", eq_treble),
+            ("enable_reverb", enable_reverb),
+            ("reverb_room", reverb_room),
+            ("reverb_damping", reverb_damping),
+            ("reverb_wet", reverb_wet),
+            ("enable_echo", enable_echo),
+            ("echo_delay", echo_delay),
+            ("echo_decay", echo_decay),
+            ("enable_pitch", enable_pitch),
+            ("pitch_semitones", pitch_semitones),
+            ("speaker_name", speaker_name_tb),
+            ("voice_preset", voice_preset_dd),
+            ("autosave_enabled", autosave_enabled),
+            ("autosave_store_audio_copy", autosave_store_audio_copy),
+            ("keep_legacy_output_copy", keep_legacy_output_copy),
+            ("last_seed_state", last_seed_state),
+        ]
+
         def _build_history_settings_lines(metadata_snapshot):
             if not isinstance(metadata_snapshot, dict):
                 return []
@@ -15463,8 +15668,25 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 payload_error = str(error)
 
             metadata_snapshot = payload.get("metadata_snapshot", {})
+            reload_snapshot = payload.get("reload_snapshot", {})
+            reload_control_values = (
+                reload_snapshot.get("control_values", {})
+                if isinstance(reload_snapshot, dict)
+                else {}
+            )
+            excluded_controls = (
+                reload_snapshot.get("excluded_controls", [])
+                if isinstance(reload_snapshot, dict)
+                else []
+            )
+            excluded_reasons = {
+                item.get("reason")
+                for item in excluded_controls
+                if isinstance(item, dict) and item.get("reason")
+            }
             voice_narrator = payload.get("voice_narrator") or record.speaker
             audio_format = payload.get("audio_format")
+            uses_legacy_reload = bool(payload.get("legacy_reload"))
 
             lines = [f"### History Record {record.id}"]
             lines.append(f"**Project:** {record.project}")
@@ -15480,18 +15702,44 @@ Alice: I went to Japan. It was absolutely incredible!""",
             lines.append(f"**Reload Ready:** {'Yes' if record.can_reload else 'No'}")
             lines.append("")
             lines.append("**Reload Into Text Tab**")
-            lines.append(
-                "- Restores: text, project name, engine, voice/narrator label, preset dropdown, and last seed."
-            )
-            lines.append(
-                "- Does not restore: audio format, engine-specific voice/reference controls, narration/LLM settings, audio effects, autosave options, or other tab state."
-            )
+            if uses_legacy_reload:
+                lines.append(
+                    "- Restores: original source text when available, project name, engine, audio format, voice/narrator label, preset dropdown, and last seed."
+                )
+                lines.append(
+                    "- This older record predates the richer production snapshot, so engine-specific controls, narration transform settings, audio effects, and autosave toggle details may be incomplete."
+                )
+            else:
+                lines.append(
+                    "- Restores: original source text, engine, audio format, saved controls for the production engine, narration transform settings except API key, audio effects, speaker label, preset, autosave options/project name, and last seed."
+                )
+                lines.append(
+                    "- Does not restore: API keys, uploaded/reference audio file inputs, emotion audio uploads, or unrelated tab state."
+                )
+
+            if excluded_reasons:
+                lines.append("")
+                lines.append("**Reload Limitations**")
+                if "secret" in excluded_reasons:
+                    lines.append(
+                        "- API keys are intentionally excluded from history snapshots for safety."
+                    )
+                if "transient_file_input" in excluded_reasons:
+                    lines.append(
+                        "- Uploaded reference/emotion audio file inputs are not restored directly because their original temp paths may no longer exist."
+                    )
 
             settings_lines = _build_history_settings_lines(metadata_snapshot)
             if settings_lines:
                 lines.append("")
                 lines.append("**Stored Settings Context**")
                 lines.extend(settings_lines)
+
+            if reload_control_values and not uses_legacy_reload:
+                lines.append("")
+                lines.append(
+                    f"**Reload Snapshot:** {len(reload_control_values)} sanitized control value(s) captured at generation time."
+                )
 
             if payload_error:
                 lines.append("")
@@ -15553,16 +15801,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
             from output_history_service import build_reload_payload
 
             preserve = gr.skip()
+            missing = object()
             parsed_id = _coerce_history_record_id(record_id)
             if parsed_id is None:
                 return (
-                    preserve,
-                    preserve,
-                    preserve,
-                    preserve,
-                    preserve,
+                    *[preserve for _name, _component in history_reload_targets],
                     "⚠️ Enter a history record ID to reload.",
-                    preserve,
                     preserve,
                 )
 
@@ -15570,13 +15814,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
             record = store.get_record(parsed_id)
             if record is None:
                 return (
-                    preserve,
-                    preserve,
-                    preserve,
-                    preserve,
-                    preserve,
+                    *[preserve for _name, _component in history_reload_targets],
                     f"❌ History record not found: {record_id}",
-                    preserve,
                     preserve,
                 )
 
@@ -15584,38 +15823,72 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 payload = build_reload_payload(record)
             except Exception as error:
                 return (
-                    preserve,
-                    preserve,
-                    preserve,
-                    preserve,
-                    preserve,
+                    *[preserve for _name, _component in history_reload_targets],
                     f"❌ Failed to build reload payload: {error}",
-                    preserve,
                     preserve,
                 )
 
-            engine_value = payload.get("engine") or gr.skip()
-            preset_value = payload.get("preset") or ""
-            preset_choices = get_voice_preset_choices()
-            if preset_value and preset_value not in preset_choices:
-                preset_choices = [preset_value, *preset_choices]
+            reload_snapshot = payload.get("reload_snapshot", {})
+            control_values = (
+                reload_snapshot.get("control_values", {})
+                if isinstance(reload_snapshot, dict)
+                else {}
+            )
 
-            seed_value = payload.get("seed")
+            updates = []
+            for control_name, _component in history_reload_targets:
+                if control_name == "text_input":
+                    updates.append(gr.update(value=payload.get("script_text") or ""))
+                    continue
+
+                if control_name == "voice_preset":
+                    preset_value = control_values.get(control_name, missing)
+                    if preset_value is missing:
+                        preset_value = payload.get("preset", "")
+                    preset_choices = get_voice_preset_choices()
+                    if preset_value and preset_value not in preset_choices:
+                        preset_choices = [preset_value, *preset_choices]
+                    updates.append(gr.update(choices=preset_choices, value=preset_value))
+                    continue
+
+                if control_name == "last_seed_state":
+                    seed_value = control_values.get(control_name, missing)
+                    if seed_value is missing:
+                        seed_value = payload.get("seed")
+                    updates.append(seed_value)
+                    continue
+
+                value = control_values.get(control_name, missing)
+                if value is missing:
+                    if control_name == "autosave_project_name":
+                        value = payload.get("project", missing)
+                    elif control_name == "tts_engine":
+                        value = payload.get("engine", missing)
+                    elif control_name == "audio_format":
+                        value = payload.get("audio_format", missing)
+                    elif control_name == "speaker_name":
+                        value = payload.get("voice_narrator", payload.get("speaker", missing))
+
+                if value is missing:
+                    updates.append(preserve)
+                else:
+                    updates.append(gr.update(value=value))
+
+            seed_value = control_values.get("last_seed_state")
+            if seed_value is None:
+                seed_value = payload.get("seed")
             seed_label = f"🎲 Last Seed: {seed_value if seed_value is not None else 'N/A'}"
-            status_message = (
-                f"✅ Reloaded history record {record.id} from {record.project} / {record.timestamp}"
-            )
+            if payload.get("legacy_reload"):
+                status_message = (
+                    f"✅ Reloaded history record {record.id} with legacy fallback fields. "
+                    "Older records may not include full engine/LLM/effects state."
+                )
+            else:
+                status_message = (
+                    f"✅ Reloaded history record {record.id} from {record.project} / {record.timestamp}"
+                )
 
-            return (
-                gr.update(value=payload.get("script_text") or ""),
-                gr.update(value=payload.get("project") or ""),
-                gr.update(value=engine_value),
-                gr.update(value=payload.get("speaker") or ""),
-                gr.update(choices=preset_choices, value=preset_value),
-                status_message,
-                seed_label,
-                seed_value,
-            )
+            return (*updates, status_message, seed_label)
 
         def handle_clear_temp_files():
             """Handle clearing Gradio temporary files and reset audio components."""
@@ -17103,14 +17376,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
             fn=handle_history_reload,
             inputs=[history_record_id_input],
             outputs=[
-                text,
-                autosave_project_name,
-                tts_engine,
-                speaker_name_tb,
-                voice_preset_dd,
+                *[component for _name, component in history_reload_targets],
                 status_output,
                 last_seed_out,
-                last_seed_state,
             ],
         )
 

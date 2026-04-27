@@ -395,6 +395,16 @@ def build_reload_payload(record: OutputHistoryRecord) -> dict[str, Any]:
         if isinstance(payload.get("metadata_snapshot"), dict)
         else {}
     )
+    raw_reload_snapshot = (
+        metadata_snapshot.get("reload_snapshot", {})
+        if isinstance(metadata_snapshot.get("reload_snapshot"), dict)
+        else {}
+    )
+    snapshot_control_values = (
+        raw_reload_snapshot.get("control_values", {})
+        if isinstance(raw_reload_snapshot.get("control_values"), dict)
+        else {}
+    )
     voice_narrator = resolve_voice_narrator(metadata_snapshot, fallback=record.speaker)
 
     transformed_text = texts_block.get("transformed") or _read_text_if_exists(
@@ -413,6 +423,28 @@ def build_reload_payload(record: OutputHistoryRecord) -> dict[str, Any]:
         else None
     )
 
+    fallback_control_values = {
+        "autosave_project_name": record.project,
+        "tts_engine": record.engine,
+        "audio_format": _clean_metadata_text(metadata_snapshot.get("audio_format")),
+        "speaker_name": voice_narrator,
+        "voice_preset": "" if is_history_preset_missing(record.preset) else record.preset,
+        "autosave_enabled": True,
+        "last_seed_state": record.seed,
+    }
+    reload_snapshot = {
+        "schema_version": raw_reload_snapshot.get("schema_version", 0),
+        "active_engine": raw_reload_snapshot.get("active_engine") or record.engine,
+        "control_values": {**fallback_control_values, **snapshot_control_values},
+        "excluded_controls": (
+            raw_reload_snapshot.get("excluded_controls", [])
+            if isinstance(raw_reload_snapshot.get("excluded_controls"), list)
+            else []
+        ),
+        "legacy_fallback": not bool(snapshot_control_values),
+    }
+    reload_text = original_text or current_text or transformed_text or ""
+
     return {
         "project": record.project,
         "preset": record.preset,
@@ -422,10 +454,12 @@ def build_reload_payload(record: OutputHistoryRecord) -> dict[str, Any]:
         "voice_narrator": voice_narrator,
         "seed": record.seed,
         "audio_format": _clean_metadata_text(metadata_snapshot.get("audio_format")),
-        "script_text": transformed_text or current_text or original_text or "",
+        "script_text": reload_text,
         "original_text": original_text or "",
         "transformed_text": transformed_text or current_text or "",
         "metadata_snapshot": metadata_snapshot,
+        "reload_snapshot": reload_snapshot,
+        "legacy_reload": reload_snapshot["legacy_fallback"],
         "job_json_path": record.job_json_path,
     }
 
