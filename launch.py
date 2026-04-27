@@ -653,10 +653,15 @@ def generate_conversation_audio_simple(
     speaker_transition_pause=0.3,
     effects_settings=None,
     audio_format="wav",
+    project_name=None,
 ):
     """Generate a complete conversation with multiple voices - Simplified version."""
     try:
         print("🎭 Starting conversation generation...")
+
+        resolved_project, project_error = _validate_required_project_name(project_name)
+        if project_error:
+            return None, project_error
 
         # Parse the conversation script
         conversation, parse_error = parse_conversation_script(conversation_script)
@@ -1082,8 +1087,14 @@ def generate_conversation_audio_simple(
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename_base = f"conversation_{selected_engine.lower().replace(' ', '_')}_{timestamp}"
+            project_output_dir = os.path.join(get_runtime_output_dir("outputs"), resolved_project)
+            os.makedirs(project_output_dir, exist_ok=True)
             filepath, filename = save_audio_with_format(
-                final_conversation_audio, sample_rate, audio_format, output_folder, filename_base
+                final_conversation_audio,
+                sample_rate,
+                audio_format,
+                project_output_dir,
+                filename_base,
             )
             print(f"💾 Conversation saved as: {filename}")
         except Exception as save_error:
@@ -1098,6 +1109,7 @@ def generate_conversation_audio_simple(
             {
                 "mode": "conversation",
                 "engine": selected_engine,
+                "project": resolved_project,
                 "total_lines": len(conversation),
                 "unique_speakers": unique_speakers,
                 "total_duration_seconds": float(total_duration),
@@ -1140,10 +1152,15 @@ def generate_conversation_audio_kokoro(
     speaker_transition_pause=0.3,
     effects_settings=None,
     audio_format="wav",
+    project_name=None,
 ):
     """Generate a complete conversation with Kokoro TTS using selected voices for each speaker."""
     try:
         print("🎭 Starting Kokoro conversation generation...")
+
+        resolved_project, project_error = _validate_required_project_name(project_name)
+        if project_error:
+            return None, project_error
 
         # Parse the conversation script
         conversation, parse_error = parse_conversation_script(conversation_script)
@@ -1343,8 +1360,14 @@ def generate_conversation_audio_kokoro(
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename_base = f"conversation_kokoro_{timestamp}"
+            project_output_dir = os.path.join(get_runtime_output_dir("outputs"), resolved_project)
+            os.makedirs(project_output_dir, exist_ok=True)
             filepath, filename = save_audio_with_format(
-                final_conversation_audio, sample_rate, audio_format, output_folder, filename_base
+                final_conversation_audio,
+                sample_rate,
+                audio_format,
+                project_output_dir,
+                filename_base,
             )
             print(f"💾 Conversation saved as: {filename}")
         except Exception as save_error:
@@ -1359,6 +1382,7 @@ def generate_conversation_audio_kokoro(
             {
                 "mode": "conversation",
                 "engine": selected_engine,
+                "project": resolved_project,
                 "total_lines": len(conversation),
                 "unique_speakers": unique_speakers,
                 "total_duration_seconds": float(total_duration),
@@ -1435,10 +1459,15 @@ def generate_conversation_audio_kitten(
     speaker_transition_pause=0.3,
     effects_settings=None,
     audio_format="wav",
+    project_name=None,
 ):
     """Generate a complete conversation with KittenTTS using selected voices for each speaker."""
     try:
         print("🐱 Starting KittenTTS conversation generation...")
+
+        resolved_project, project_error = _validate_required_project_name(project_name)
+        if project_error:
+            return None, project_error
 
         # Parse the conversation script
         conversation, parse_error = parse_conversation_script(conversation_script)
@@ -1566,8 +1595,14 @@ def generate_conversation_audio_kitten(
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename_base = f"conversation_kitten_tts_{timestamp}"
+            project_output_dir = os.path.join(get_runtime_output_dir("outputs"), resolved_project)
+            os.makedirs(project_output_dir, exist_ok=True)
             filepath, filename = save_audio_with_format(
-                final_conversation_audio, sample_rate, audio_format, output_folder, filename_base
+                final_conversation_audio,
+                sample_rate,
+                audio_format,
+                project_output_dir,
+                filename_base,
             )
             print(f"💾 KittenTTS conversation saved as: {filename}")
         except Exception as save_error:
@@ -1582,6 +1617,7 @@ def generate_conversation_audio_kitten(
             {
                 "mode": "conversation",
                 "engine": selected_engine,
+                "project": resolved_project,
                 "total_lines": len(conversation),
                 "unique_speakers": unique_speakers,
                 "total_duration_seconds": float(total_duration),
@@ -1628,10 +1664,15 @@ def generate_conversation_audio_indextts2(
     speaker_transition_pause=0.3,
     effects_settings=None,
     audio_format="wav",
+    project_name=None,
 ):
     """Generate a complete conversation with IndexTTS2 using emotion controls for each speaker."""
     try:
         print("🎯 Starting IndexTTS2 conversation generation...")
+
+        resolved_project, project_error = _validate_required_project_name(project_name)
+        if project_error:
+            return None, project_error
 
         # Parse the conversation script
         conversation, parse_error = parse_conversation_script(conversation_script)
@@ -1835,8 +1876,14 @@ def generate_conversation_audio_indextts2(
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename_base = f"conversation_{selected_engine.lower().replace(' ', '_')}_{timestamp}"
+            project_output_dir = os.path.join(get_runtime_output_dir("outputs"), resolved_project)
+            os.makedirs(project_output_dir, exist_ok=True)
             filepath, filename = save_audio_with_format(
-                final_conversation_audio, sample_rate, audio_format, output_folder, filename_base
+                final_conversation_audio,
+                sample_rate,
+                audio_format,
+                project_output_dir,
+                filename_base,
             )
             print(f"💾 Conversation saved as: {filename}")
         except Exception as save_error:
@@ -1851,6 +1898,7 @@ def generate_conversation_audio_indextts2(
             {
                 "mode": "conversation",
                 "engine": selected_engine,
+                "project": resolved_project,
                 "total_lines": len(conversation),
                 "unique_speakers": unique_speakers,
                 "total_duration_seconds": float(total_duration),
@@ -8267,11 +8315,32 @@ def _collect_engine_metadata_controls(tts_engine: str, base_args: list, param_id
     return controls
 
 
-def _safe_project_name(project_name: str) -> str:
+INVALID_GENERATION_PROJECT_NAMES = {"default"}
+PROJECT_NAME_REQUIRED_MESSAGE = (
+    "❌ Enter a real project name before generating. Blank names and 'default' are not allowed. "
+    "Use Workspace Controls -> Project Name."
+)
+
+
+def _normalize_project_name(project_name: str) -> str:
     if not isinstance(project_name, str):
-        return "default"
+        return ""
     cleaned = re.sub(r"[^\w\-. ]+", "_", project_name.strip())
-    return cleaned[:80].strip() or "default"
+    return cleaned[:80].strip()
+
+
+def _validate_required_project_name(project_name: str) -> tuple[str, str | None]:
+    cleaned = _normalize_project_name(project_name)
+    if not cleaned:
+        return "", PROJECT_NAME_REQUIRED_MESSAGE
+    if cleaned.lower() in INVALID_GENERATION_PROJECT_NAMES:
+        return "", PROJECT_NAME_REQUIRED_MESSAGE
+    return cleaned, None
+
+
+def _safe_project_name(project_name: str) -> str:
+    cleaned = _normalize_project_name(project_name)
+    return cleaned or "default"
 
 
 def _safe_speaker_name(speaker_name: str) -> str:
@@ -8352,7 +8421,10 @@ def autosave_generation_artifacts(
         return None, "No audio output available to save"
 
     sample_rate, audio_data = audio_output_data
-    project = _safe_project_name(project_name)
+    project, project_error = _validate_required_project_name(project_name)
+    if project_error:
+        return None, project_error
+
     autosave_root = get_runtime_output_dir("autosave")
     project_root = os.path.join(autosave_root, project)
     audio_dir = os.path.join(project_root, "audio")
@@ -8462,7 +8534,7 @@ def generate_unified_tts_wrapped(*all_args):
     speaker_name = ""
     voice_preset = ""
     autosave_enabled = False
-    autosave_project_name = "default"
+    autosave_project_name = ""
     autosave_store_audio_copy = True
     keep_legacy_output_copy = True
     last_seed_state = None
@@ -8498,12 +8570,16 @@ def generate_unified_tts_wrapped(*all_args):
         speaker_name = ""
         voice_preset = extra_args[0] if len(extra_args) > 0 else ""
         autosave_enabled = bool(extra_args[1]) if len(extra_args) > 1 else False
-        autosave_project_name = extra_args[2] if len(extra_args) > 2 else "default"
+        autosave_project_name = extra_args[2] if len(extra_args) > 2 else ""
         autosave_store_audio_copy = bool(extra_args[3]) if len(extra_args) > 3 else True
         keep_legacy_output_copy = bool(extra_args[4]) if len(extra_args) > 4 else True
         last_seed_state = extra_args[5] if len(extra_args) > 5 else None
 
-    resolved_project = _safe_project_name(autosave_project_name or "default")
+    resolved_project, project_error = _validate_required_project_name(autosave_project_name)
+    if project_error:
+        seed_label = f"🎲 Last Seed: {last_seed_state if last_seed_state is not None else 'N/A'}"
+        return None, project_error, seed_label, last_seed_state
+
     resolved_speaker = _safe_speaker_name(speaker_name or "speaker")
 
     param_idx = {name: index for index, name in enumerate(signature_params)}
@@ -13060,9 +13136,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     with gr.Row():
                         autosave_enabled = gr.Checkbox(value=True, label="Autosave project files")
                         autosave_project_name = gr.Textbox(
-                            value="default",
-                            label="Project Name",
-                            placeholder="book_title_or_project",
+                            value="",
+                            label="Project Name (required)",
+                            placeholder="Required: book_title_or_project",
+                            info="Required before Generate Speech or Generate Conversation can run.",
                         )
 
                     with gr.Row():
@@ -17929,6 +18006,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             kokoro_voices,
             kitten_voices,
             selected_engine,
+            project_name=None,
             emotion_modes=None,
             emotion_audios=None,
             emotion_descriptions=None,
@@ -17939,6 +18017,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
             if not script_text.strip():
                 return None, "❌ No conversation script provided"
+
+            resolved_project, project_error = _validate_required_project_name(project_name)
+            if project_error:
+                return None, project_error
 
             try:
                 # For Kokoro TTS, use the selected voices instead of voice samples
@@ -17951,6 +18033,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                         speaker_transition_pause=transition_pause,
                         effects_settings=None,
                         audio_format=audio_format,
+                        project_name=resolved_project,
                     )
                 elif selected_engine == "KittenTTS":
                     # For KittenTTS, use the selected voices
@@ -17962,6 +18045,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                         speaker_transition_pause=transition_pause,
                         effects_settings=None,
                         audio_format=audio_format,
+                        project_name=resolved_project,
                     )
                 elif selected_engine == "IndexTTS2":
                     # For IndexTTS2, use emotion controls
@@ -17977,6 +18061,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                         speaker_transition_pause=transition_pause,
                         effects_settings=None,
                         audio_format=audio_format,
+                        project_name=resolved_project,
                     )
                 else:
                     # Use the original function for other engines
@@ -17989,6 +18074,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                         speaker_transition_pause=transition_pause,
                         effects_settings=None,
                         audio_format=audio_format,
+                        project_name=resolved_project,
                     )
 
                 if result[0] is None:
@@ -18376,7 +18462,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         )
 
         generate_conversation_btn.click(
-            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, rt1, rt2, rt3, rt4, rt5, kv1, kv2, kv3, kv4, kv5, ktv1, ktv2, ktv3, ktv4, ktv5, engine, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5: handle_generate_conversation_advanced(
+            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, rt1, rt2, rt3, rt4, rt5, kv1, kv2, kv3, kv4, kv5, ktv1, ktv2, ktv3, ktv4, ktv5, engine, project_name, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5: handle_generate_conversation_advanced(
                 script,
                 pause,
                 trans_pause,
@@ -18386,6 +18472,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 [kv1, kv2, kv3, kv4, kv5],
                 [ktv1, ktv2, ktv3, ktv4, ktv5],
                 engine,
+                project_name,
                 # IndexTTS2 emotion parameters
                 [em1, em2, em3, em4, em5],  # emotion_modes
                 [ea1, ea2, ea3, ea4, ea5],  # emotion_audios
@@ -18459,6 +18546,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_4_kitten_voice,
                 speaker_5_kitten_voice,
                 tts_engine,  # Use the main TTS engine selector
+                autosave_project_name,
                 # IndexTTS2 emotion controls
                 speaker_1_emotion_mode,
                 speaker_1_emotion_audio,
