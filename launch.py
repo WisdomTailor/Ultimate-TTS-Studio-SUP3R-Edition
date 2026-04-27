@@ -12909,6 +12909,86 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                             assistant_llm_status = gr.Markdown(value="", elem_classes=["fade-in"])
 
+                    with gr.TabItem("🕘 HISTORY", id="history_mode") as history_mode_tab:
+                        gr.Markdown(
+                            """
+                        <div style='background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(59, 130, 246, 0.12));
+                                    padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
+                            <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>🕘 Output History</h3>
+                            <p style='margin: 0; opacity: 0.8; font-size: 0.9em;'>
+                                Browse persisted autosave bundles, preview validated local audio, and
+                                reload a prior generation back into the main text workflow.
+                            </p>
+                        </div>
+                        """
+                        )
+
+                        history_query_input = gr.Textbox(
+                            label="Search History",
+                            placeholder="Search project, preset, engine, speaker, transform, or timestamp",
+                            elem_classes=["fade-in"],
+                        )
+
+                        history_table = gr.Dataframe(
+                            headers=[
+                                "ID",
+                                "Project",
+                                "Preset",
+                                "Timestamp",
+                                "Engine",
+                                "Speaker",
+                                "Seed",
+                                "Reload",
+                            ],
+                            datatype=["number", "str", "str", "str", "str", "str", "str", "str"],
+                            value=[["—", "No history yet", "—", "—", "—", "—", "—", "—"]],
+                            label="Persisted Output Bundles",
+                            interactive=False,
+                            wrap=True,
+                            elem_classes=["fade-in"],
+                        )
+
+                        with gr.Row():
+                            history_refresh_btn = gr.Button(
+                                "🔄 Refresh",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+                            history_reindex_btn = gr.Button(
+                                "🧭 Reindex Autosaves",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+
+                        with gr.Row():
+                            history_record_id_input = gr.Number(
+                                label="History Record ID",
+                                value=None,
+                                precision=0,
+                                minimum=1,
+                                scale=3,
+                                elem_classes=["fade-in"],
+                            )
+                            history_reload_btn = gr.Button(
+                                "↩ Reload Into Text Tab",
+                                variant="secondary",
+                                size="sm",
+                                scale=1,
+                                elem_classes=["fade-in"],
+                            )
+
+                        history_detail_output = gr.Markdown(
+                            value="Select a history record to view details.",
+                            elem_classes=["fade-in"],
+                        )
+                        history_audio_output = gr.Audio(
+                            label="History Audio Preview",
+                            show_download_button=True,
+                            elem_classes=["fade-in", "glow"],
+                        )
+
                     with gr.TabItem("📋 JOBS", id="jobs_mode") as jobs_mode_tab:
                         gr.Markdown(
                             """
@@ -15289,6 +15369,179 @@ Alice: I went to Japan. It was absolutely incredible!""",
             """Toggle periodic timer polling for the Jobs tab."""
             return gr.Timer(active=bool(auto_enabled))
 
+        def _get_history_store_and_root():
+            from output_history_service import default_db_path_for_autosave_root
+            from output_history_store import OutputHistoryStore
+
+            settings = load_app_state_settings()
+            autosave_root = get_runtime_output_dir("autosave", settings)
+            db_path = default_db_path_for_autosave_root(autosave_root)
+            return OutputHistoryStore(db_path), autosave_root
+
+        def _coerce_history_record_id(raw_record_id):
+            if raw_record_id in {None, ""}:
+                return None
+            try:
+                record_id = int(raw_record_id)
+            except (TypeError, ValueError):
+                return None
+            return record_id if record_id > 0 else None
+
+        def _format_history_rows(records):
+            if not records:
+                return [["—", "No history yet", "—", "—", "—", "—", "—", "—"]]
+
+            rows = []
+            for record in records:
+                rows.append(
+                    [
+                        record.id,
+                        record.project,
+                        record.preset or "—",
+                        record.timestamp,
+                        record.engine or "—",
+                        record.speaker or "—",
+                        str(record.seed) if record.seed is not None else "—",
+                        "Yes" if record.can_reload else "No",
+                    ]
+                )
+            return rows
+
+        def handle_history_detail(record_id):
+            from output_history_service import resolve_playback_path
+
+            parsed_id = _coerce_history_record_id(record_id)
+            if parsed_id is None:
+                return "Select a history record to view details.", None
+
+            store, autosave_root = _get_history_store_and_root()
+            record = store.get_record(parsed_id)
+            if record is None:
+                return f"❌ History record not found: {record_id}", None
+
+            lines = [f"### History Record {record.id}"]
+            lines.append(f"**Project:** {record.project}")
+            lines.append(f"**Preset:** {record.preset or '—'}")
+            lines.append(f"**Timestamp:** {record.timestamp}")
+            lines.append(f"**Engine:** {record.engine or '—'}")
+            lines.append(f"**Speaker:** {record.speaker or '—'}")
+            lines.append(f"**Seed:** {record.seed if record.seed is not None else '—'}")
+            lines.append(f"**Chunks:** {record.chunks if record.chunks is not None else '—'}")
+            lines.append(f"**Transform:** {record.transform or '—'}")
+            lines.append(f"**LLM Transform Applied:** {'Yes' if record.llm_enabled else 'No'}")
+            lines.append(f"**Reload Ready:** {'Yes' if record.can_reload else 'No'}")
+            lines.append("")
+            lines.append("**Paths**")
+            lines.append(f"- Job JSON: `{record.job_json_path}`")
+            lines.append(f"- Metadata: `{record.autosave_meta_path or '—'}`")
+            lines.append(f"- Autosave audio: `{record.autosave_audio_path or '—'}`")
+            lines.append(f"- Manual audio: `{record.manual_audio_path or '—'}`")
+
+            if record.autosave_scripts:
+                lines.append("- Scripts:")
+                lines.extend(f"  - `{script_path}`" for script_path in record.autosave_scripts)
+
+            audio_value = None
+            try:
+                audio_value = resolve_playback_path(record, autosave_root)
+            except ValueError as error:
+                lines.append("")
+                lines.append(f"⚠️ Audio preview unavailable: {error}")
+
+            return "\n".join(lines), audio_value
+
+        def handle_history_panel_refresh(query, record_id):
+            store, _autosave_root = _get_history_store_and_root()
+            normalized_query = str(query or "").strip() or None
+            rows = _format_history_rows(store.list_records(query=normalized_query, limit=50))
+            detail, audio_value = handle_history_detail(record_id)
+            return rows, detail, audio_value
+
+        def handle_history_reindex(query, record_id):
+            from output_history_service import reindex_root
+
+            try:
+                store, autosave_root = _get_history_store_and_root()
+                records = reindex_root(autosave_root, store=store)
+                rows, detail, audio_value = handle_history_panel_refresh(query, record_id)
+                prefix = f"✅ Reindexed {len(records)} autosave bundle(s)."
+                if detail.startswith("Select a history record"):
+                    detail = prefix
+                else:
+                    detail = f"{prefix}\n\n{detail}"
+                return rows, detail, audio_value
+            except Exception as error:
+                rows, detail, audio_value = handle_history_panel_refresh(query, record_id)
+                return rows, f"❌ Reindex failed: {error}\n\n{detail}", audio_value
+
+        def handle_history_reload(record_id):
+            from output_history_service import build_reload_payload
+
+            preserve = gr.skip()
+            parsed_id = _coerce_history_record_id(record_id)
+            if parsed_id is None:
+                return (
+                    preserve,
+                    preserve,
+                    preserve,
+                    preserve,
+                    preserve,
+                    "⚠️ Enter a history record ID to reload.",
+                    preserve,
+                    preserve,
+                )
+
+            store, _autosave_root = _get_history_store_and_root()
+            record = store.get_record(parsed_id)
+            if record is None:
+                return (
+                    preserve,
+                    preserve,
+                    preserve,
+                    preserve,
+                    preserve,
+                    f"❌ History record not found: {record_id}",
+                    preserve,
+                    preserve,
+                )
+
+            try:
+                payload = build_reload_payload(record)
+            except Exception as error:
+                return (
+                    preserve,
+                    preserve,
+                    preserve,
+                    preserve,
+                    preserve,
+                    f"❌ Failed to build reload payload: {error}",
+                    preserve,
+                    preserve,
+                )
+
+            engine_value = payload.get("engine") or gr.skip()
+            preset_value = payload.get("preset") or ""
+            preset_choices = get_voice_preset_choices()
+            if preset_value and preset_value not in preset_choices:
+                preset_choices = [preset_value, *preset_choices]
+
+            seed_value = payload.get("seed")
+            seed_label = f"🎲 Last Seed: {seed_value if seed_value is not None else 'N/A'}"
+            status_message = (
+                f"✅ Reloaded history record {record.id} from {record.project} / {record.timestamp}"
+            )
+
+            return (
+                gr.update(value=payload.get("script_text") or ""),
+                gr.update(value=payload.get("project") or ""),
+                gr.update(value=engine_value),
+                gr.update(value=payload.get("speaker") or ""),
+                gr.update(choices=preset_choices, value=preset_value),
+                status_message,
+                seed_label,
+                seed_value,
+            )
+
         def handle_clear_temp_files():
             """Handle clearing Gradio temporary files and reset audio components."""
             result_message = clear_gradio_temp_files()
@@ -16741,6 +16994,51 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[job_queue_display, job_detail_output],
         )
 
+        demo.load(
+            fn=handle_history_panel_refresh,
+            inputs=[history_query_input, history_record_id_input],
+            outputs=[history_table, history_detail_output, history_audio_output],
+        )
+
+        history_refresh_btn.click(
+            fn=handle_history_panel_refresh,
+            inputs=[history_query_input, history_record_id_input],
+            outputs=[history_table, history_detail_output, history_audio_output],
+        )
+
+        history_query_input.submit(
+            fn=handle_history_panel_refresh,
+            inputs=[history_query_input, history_record_id_input],
+            outputs=[history_table, history_detail_output, history_audio_output],
+        )
+
+        history_reindex_btn.click(
+            fn=handle_history_reindex,
+            inputs=[history_query_input, history_record_id_input],
+            outputs=[history_table, history_detail_output, history_audio_output],
+        )
+
+        history_record_id_input.change(
+            fn=handle_history_detail,
+            inputs=[history_record_id_input],
+            outputs=[history_detail_output, history_audio_output],
+        )
+
+        history_reload_btn.click(
+            fn=handle_history_reload,
+            inputs=[history_record_id_input],
+            outputs=[
+                text,
+                autosave_project_name,
+                tts_engine,
+                speaker_name_tb,
+                voice_preset_dd,
+                status_output,
+                last_seed_out,
+                last_seed_state,
+            ],
+        )
+
         job_refresh_btn.click(
             fn=handle_job_panel_refresh,
             inputs=[job_id_input],
@@ -16912,6 +17210,15 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
         assistant_mode_tab.select(
             fn=lambda: update_main_mode_visibility("assistant_mode"),
+            outputs=[
+                generate_btn_container,
+                generate_conversation_btn_container,
+                status_output,
+                conversation_info,
+            ],
+        )
+        history_mode_tab.select(
+            fn=lambda: update_main_mode_visibility("history_mode"),
             outputs=[
                 generate_btn_container,
                 generate_conversation_btn_container,
