@@ -155,7 +155,9 @@ class TestOutputHistoryService:
 
         assert record.speaker == "af_heart"
 
-    def test_build_record_from_meta_sets_duration_none_when_unavailable(self, tmp_path: Path) -> None:
+    def test_build_record_from_meta_sets_duration_none_when_unavailable(
+        self, tmp_path: Path
+    ) -> None:
         _autosave_root, meta_path = _write_fixture_bundle(tmp_path)
         payload = json.loads(meta_path.read_text(encoding="utf-8"))
         payload.pop("duration_seconds", None)
