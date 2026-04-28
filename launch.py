@@ -28,6 +28,13 @@ from typing import Any, Optional
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+except Exception:
+    HTTPException = None
+    FileResponse = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -2402,6 +2409,69 @@ def compute_gradio_allowed_paths(settings: dict | None = None) -> list[str]:
         seen_paths.add(resolved_candidate)
         allowed_paths.append(resolved_candidate)
     return allowed_paths
+
+
+HISTORY_AUDIO_PROXY_PATH_TEMPLATE = "/api/history/audio/{record_id}"
+
+
+def build_history_audio_proxy_url(record_id: int | None) -> str | None:
+    if record_id is None:
+        return None
+    return HISTORY_AUDIO_PROXY_PATH_TEMPLATE.format(record_id=record_id)
+
+
+def register_history_audio_proxy_route(demo: gr.Blocks) -> None:
+    """Register a local validated playback proxy for History audio preview."""
+    if HTTPException is None or FileResponse is None:
+        print("⚠️ History audio proxy unavailable: FastAPI response dependencies not loaded")
+        return
+
+    app = getattr(demo, "app", None)
+    if app is None:
+        print("⚠️ History audio proxy unavailable: Gradio app instance not ready")
+        return
+
+    existing_paths = {getattr(route, "path", None) for route in getattr(app, "routes", [])}
+    if HISTORY_AUDIO_PROXY_PATH_TEMPLATE in existing_paths:
+        return
+
+    from output_history_service import default_db_path_for_autosave_root, resolve_playback_path
+    from output_history_store import OutputHistoryStore
+
+    async def handle_history_audio_proxy(record_id: int):
+        settings = load_app_state_settings()
+        autosave_root = get_runtime_output_dir("autosave", settings)
+        db_path = default_db_path_for_autosave_root(autosave_root)
+        store = OutputHistoryStore(db_path)
+        record = store.get_record(record_id)
+
+        if record is None:
+            raise HTTPException(status_code=404, detail="History record not found")
+
+        try:
+            playback_path = resolve_playback_path(record, autosave_root)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        playback_file = Path(playback_path).expanduser().resolve(strict=False)
+        if not playback_file.exists() or not playback_file.is_file():
+            raise HTTPException(status_code=404, detail="Audio file not found")
+
+        suffix = playback_file.suffix.lower()
+        media_type = "audio/mpeg" if suffix == ".mp3" else "audio/wav"
+
+        return FileResponse(
+            path=str(playback_file),
+            media_type=media_type,
+            filename=playback_file.name,
+        )
+
+    app.add_api_route(
+        HISTORY_AUDIO_PROXY_PATH_TEMPLATE,
+        handle_history_audio_proxy,
+        methods=["GET"],
+        include_in_schema=False,
+    )
 
 
 def save_app_state_settings(updates: dict) -> dict:
@@ -15841,7 +15911,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             audio_value = None
             try:
-                audio_value = resolve_playback_path(record, autosave_root)
+                resolve_playback_path(record, autosave_root)
+                audio_value = build_history_audio_proxy_url(record.id)
             except ValueError as error:
                 lines.append("")
                 lines.append(f"⚠️ Audio preview unavailable: {error}")
@@ -20979,6 +21050,7 @@ if __name__ == "__main__":
     # Create and launch the interface
     with suppress_specific_warnings():
         demo = create_gradio_interface()
+        register_history_audio_proxy_route(demo)
         from mcp_security import initialize_security
 
         _mcp_token = initialize_security(
