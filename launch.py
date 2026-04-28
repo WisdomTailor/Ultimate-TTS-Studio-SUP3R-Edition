@@ -2374,6 +2374,36 @@ def refresh_runtime_storage_paths(settings: dict | None = None):
     return output_folder, audiobooks_folder
 
 
+def compute_gradio_allowed_paths(settings: dict | None = None) -> list[str]:
+    resolved_settings = settings or load_app_state_settings()
+    mode, custom_base = resolve_output_storage_settings(resolved_settings)
+
+    candidate_paths = [
+        Path.cwd(),
+        Path(get_runtime_output_dir("outputs", resolved_settings)),
+        Path(get_runtime_output_dir("audiobooks", resolved_settings)),
+        Path(get_runtime_output_dir("autosave", resolved_settings)),
+        Path(os.getcwd()) / "outputs",
+        Path(os.getcwd()) / "audiobooks",
+        Path(APP_STATE_OUTPUTS_DIR),
+        Path(APP_STATE_DIR),
+        Path(APP_STATE_VOICES_DIR),
+        Path(custom_voices_folder),
+    ]
+    if mode == "custom" and custom_base:
+        candidate_paths.append(Path(custom_base))
+
+    allowed_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for candidate in candidate_paths:
+        resolved_candidate = str(candidate.expanduser().resolve(strict=False))
+        if resolved_candidate in seen_paths:
+            continue
+        seen_paths.add(resolved_candidate)
+        allowed_paths.append(resolved_candidate)
+    return allowed_paths
+
+
 def save_app_state_settings(updates: dict) -> dict:
     ensure_app_state_dirs()
     current = load_app_state_settings()
@@ -20944,4 +20974,5 @@ if __name__ == "__main__":
             share=False,
             show_error=True,
             mcp_server=mcp_server_enabled,
+            allowed_paths=compute_gradio_allowed_paths(),
         )
