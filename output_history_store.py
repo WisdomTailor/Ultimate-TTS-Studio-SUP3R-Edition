@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS output_history (
     seed INTEGER,
     speaker TEXT,
     chunks INTEGER,
+    duration_seconds REAL,
     transform TEXT,
     llm_enabled INTEGER NOT NULL DEFAULT 0,
     manual_audio_path TEXT,
@@ -53,6 +54,7 @@ class OutputHistoryRecord:
     seed: int | None = None
     speaker: str | None = None
     chunks: int | None = None
+    duration_seconds: float | None = None
     transform: str | None = None
     llm_enabled: bool = False
     manual_audio_path: str | None = None
@@ -79,6 +81,7 @@ class OutputHistoryRecord:
             seed=row["seed"],
             speaker=row["speaker"],
             chunks=row["chunks"],
+            duration_seconds=row["duration_seconds"],
             transform=row["transform"],
             llm_enabled=bool(row["llm_enabled"]),
             manual_audio_path=row["manual_audio_path"],
@@ -103,6 +106,7 @@ class OutputHistoryRecord:
             "seed": self.seed,
             "speaker": self.speaker,
             "chunks": self.chunks,
+            "duration_seconds": self.duration_seconds,
             "transform": self.transform,
             "llm_enabled": 1 if self.llm_enabled else 0,
             "manual_audio_path": self.manual_audio_path,
@@ -126,6 +130,11 @@ class OutputHistoryStore:
         """Create the schema and indexes if they do not exist."""
         with self._connect() as connection:
             connection.executescript(SCHEMA_SQL)
+            columns = {
+                str(row["name"]) for row in connection.execute("PRAGMA table_info(output_history)")
+            }
+            if "duration_seconds" not in columns:
+                connection.execute("ALTER TABLE output_history ADD COLUMN duration_seconds REAL")
 
     def upsert_record(self, record: OutputHistoryRecord) -> OutputHistoryRecord:
         """Insert or update a record keyed by canonical job bundle path."""
@@ -141,6 +150,7 @@ class OutputHistoryStore:
             seed,
             speaker,
             chunks,
+            duration_seconds,
             transform,
             llm_enabled,
             manual_audio_path,
@@ -159,6 +169,7 @@ class OutputHistoryStore:
             :seed,
             :speaker,
             :chunks,
+            :duration_seconds,
             :transform,
             :llm_enabled,
             :manual_audio_path,
@@ -177,6 +188,7 @@ class OutputHistoryStore:
             seed = excluded.seed,
             speaker = excluded.speaker,
             chunks = excluded.chunks,
+            duration_seconds = excluded.duration_seconds,
             transform = excluded.transform,
             llm_enabled = excluded.llm_enabled,
             manual_audio_path = excluded.manual_audio_path,

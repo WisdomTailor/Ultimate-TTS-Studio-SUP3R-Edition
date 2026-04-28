@@ -55,6 +55,7 @@ def _write_fixture_bundle(tmp_path: Path) -> tuple[Path, Path]:
                 "seed": 501928455,
                 "speaker": "Confidence Narration",
                 "chunks": 105,
+                "duration_seconds": 12.5,
                 "audio_format": "wav",
                 "llm_transform": {
                     "status": "deterministic normalisation",
@@ -138,6 +139,7 @@ class TestOutputHistoryService:
         assert all("/" in path for path in record.autosave_scripts)
         assert is_path_within_root(record.job_json_path, autosave_root)
         assert record.speaker == "Confidence Narration"
+        assert record.duration_seconds == 12.5
 
     def test_build_record_from_meta_falls_back_to_voice_metadata_when_speaker_missing(
         self, tmp_path: Path
@@ -152,6 +154,16 @@ class TestOutputHistoryService:
         record = build_record_from_meta(meta_path)
 
         assert record.speaker == "af_heart"
+
+    def test_build_record_from_meta_sets_duration_none_when_unavailable(self, tmp_path: Path) -> None:
+        _autosave_root, meta_path = _write_fixture_bundle(tmp_path)
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        payload.pop("duration_seconds", None)
+        meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        record = build_record_from_meta(meta_path)
+
+        assert record.duration_seconds is None
 
     def test_reindex_root_upserts_fixture_bundle(self, tmp_path: Path) -> None:
         autosave_root, _meta_path = _write_fixture_bundle(tmp_path)

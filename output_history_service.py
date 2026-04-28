@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import sys
+import wave
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -81,6 +82,15 @@ def _safe_int(value: Any) -> int | None:
         if value is None or value == "":
             return None
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
     except (TypeError, ValueError):
         return None
 
@@ -198,6 +208,55 @@ def _resolve_audio_paths(
 
     legacy_copy = bool(manual_audio and autosave_audio and manual_audio != autosave_audio)
     return manual_audio, autosave_audio, legacy_copy
+
+
+def _probe_wav_duration_seconds(audio_path: str | None) -> float | None:
+    if not audio_path:
+        return None
+    path_obj = Path(audio_path)
+    if path_obj.suffix.lower() != ".wav" or not path_obj.exists() or not path_obj.is_file():
+        return None
+
+    try:
+        with wave.open(str(path_obj), "rb") as wav_file:
+            frame_rate = wav_file.getframerate()
+            frame_count = wav_file.getnframes()
+            if frame_rate <= 0:
+                return None
+            return frame_count / frame_rate
+    except (OSError, wave.Error) as error:
+        logger.debug("Unable to read WAV duration from %s: %s", path_obj, error)
+        return None
+
+
+def _extract_duration_seconds(
+    metadata: dict[str, Any],
+    *,
+    autosave_audio_path: str | None,
+    manual_audio_path: str | None,
+) -> float | None:
+    duration_seconds = _safe_float(metadata.get("duration_seconds"))
+    if duration_seconds is not None and duration_seconds >= 0:
+        return duration_seconds
+
+    total_duration_seconds = _safe_float(metadata.get("total_duration_seconds"))
+    if total_duration_seconds is not None and total_duration_seconds >= 0:
+        return total_duration_seconds
+
+    duration_minutes = _safe_float(metadata.get("duration_minutes"))
+    if duration_minutes is not None and duration_minutes >= 0:
+        return duration_minutes * 60.0
+
+    duration = _safe_float(metadata.get("duration"))
+    if duration is not None and duration >= 0:
+        return duration
+
+    for candidate in (autosave_audio_path, manual_audio_path):
+        probed = _probe_wav_duration_seconds(candidate)
+        if probed is not None:
+            return probed
+
+    return None
 
 
 def _build_job_payload(
@@ -323,6 +382,11 @@ def build_record_from_meta(meta_path: str | Path) -> OutputHistoryRecord:
         autosave_root,
         run_base,
     )
+    duration_seconds = _extract_duration_seconds(
+        metadata,
+        autosave_audio_path=autosave_audio,
+        manual_audio_path=manual_audio,
+    )
     job_json_path = create_or_repair_job_json(meta_path_obj)
 
     return OutputHistoryRecord(
@@ -335,6 +399,7 @@ def build_record_from_meta(meta_path: str | Path) -> OutputHistoryRecord:
         seed=_safe_int(metadata.get("seed")),
         speaker=speaker,
         chunks=_safe_int(metadata.get("chunks")),
+        duration_seconds=duration_seconds,
         transform=transform_status,
         llm_enabled=llm_enabled,
         manual_audio_path=manual_audio,

@@ -13043,11 +13043,22 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 "Timestamp",
                                 "Engine",
                                 "Voice / Narrator",
+                                "Audio Length",
                                 "Seed",
                                 "Reload",
                             ],
-                            datatype=["number", "str", "str", "str", "str", "str", "str", "str"],
-                            value=[["—", "No history yet", "—", "—", "—", "—", "—", "—"]],
+                            datatype=[
+                                "number",
+                                "str",
+                                "str",
+                                "str",
+                                "str",
+                                "str",
+                                "str",
+                                "str",
+                                "str",
+                            ],
+                            value=[["—", "No history yet", "—", "—", "—", "—", "—", "—", "—"]],
                             label="Persisted Output Bundles",
                             interactive=False,
                             wrap=True,
@@ -13344,7 +13355,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             value=True, label="Keep structured autosave audio copy"
                         )
                         keep_legacy_output_copy = gr.Checkbox(
-                            value=True, label="Keep legacy output copy"
+                            value=True, label='Save backup copies to "outputs/" folder'
                         )
 
                     output_storage_mode = gr.Dropdown(
@@ -13354,9 +13365,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         info="Set where generated outputs/autosaves are stored; preset voices remain local",
                     )
                     output_storage_path = gr.Textbox(
-                        label="Custom Output Base Path",
+                        label='Path to "outputs/" folder',
                         value=current_storage_path,
-                        placeholder="D:/Ultimate-TTS-Outputs",
+                        placeholder='Add location path of "outputs" folder. Default is "C:\\pinokio\\api\\Ultimate-TTS-Studio.git\\outputs"',
+                        info='Add location path of "outputs" folder. Default is "C:\\pinokio\\api\\Ultimate-TTS-Studio.git\\outputs"',
                     )
 
                     with gr.Row():
@@ -15678,9 +15690,24 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             return settings_lines
 
+        def _format_history_duration(duration_seconds):
+            if duration_seconds is None:
+                return "—"
+            try:
+                total_seconds = float(duration_seconds)
+            except (TypeError, ValueError):
+                return "—"
+            if total_seconds < 0:
+                return "—"
+            if total_seconds >= 60:
+                minutes = int(total_seconds // 60)
+                seconds = int(total_seconds % 60)
+                return f"{minutes:02d}:{seconds:02d}"
+            return f"{total_seconds:.1f}s"
+
         def _format_history_rows(records):
             if not records:
-                return [["—", "No history yet", "—", "—", "—", "—", "—", "—"]]
+                return [["—", "No history yet", "—", "—", "—", "—", "—", "—", "—"]]
 
             rows = []
             for record in records:
@@ -15692,6 +15719,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         record.timestamp,
                         record.engine or "—",
                         record.speaker or "—",
+                        _format_history_duration(record.duration_seconds),
                         str(record.seed) if record.seed is not None else "—",
                         "Yes" if record.can_reload else "No",
                     ]
@@ -15748,6 +15776,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             lines.append(f"**Timestamp:** {record.timestamp}")
             lines.append(f"**Engine:** {record.engine or '—'}")
             lines.append(f"**Voice / Narrator:** {voice_narrator or '—'}")
+            lines.append(f"**Audio Length:** {_format_history_duration(record.duration_seconds)}")
             lines.append(f"**Seed:** {record.seed if record.seed is not None else '—'}")
             lines.append(f"**Audio Format:** {audio_format or '—'}")
             lines.append(f"**Chunks:** {record.chunks if record.chunks is not None else '—'}")

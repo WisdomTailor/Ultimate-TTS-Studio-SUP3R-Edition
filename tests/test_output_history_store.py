@@ -29,6 +29,7 @@ class TestOutputHistoryStore:
                 engine="Fish Speech",
                 seed=501928455,
                 speaker="Confidence Narration",
+                duration_seconds=12.5,
                 autosave_meta_path="F:/TTS Output Files/app_state_outputs/default/meta/run.json",
                 autosave_audio_path="F:/TTS Output Files/app_state_outputs/default/audio/run.wav",
                 autosave_scripts=[
@@ -40,6 +41,7 @@ class TestOutputHistoryStore:
 
         assert record.id is not None
         assert db_path.exists()
+        assert record.duration_seconds == 12.5
 
     def test_upsert_uses_job_json_path_identity_not_nullable_seed(self, tmp_path: Path) -> None:
         store = OutputHistoryStore(tmp_path / "outputs.db")
@@ -109,3 +111,44 @@ class TestOutputHistoryStore:
             }
 
         assert "idx_output_history_seed" in index_names
+
+    def test_initialize_adds_duration_column_for_existing_db(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "outputs.db"
+
+        with sqlite3.connect(str(db_path)) as connection:
+            connection.executescript(
+                """
+                CREATE TABLE output_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_json_path TEXT NOT NULL UNIQUE,
+                    project TEXT NOT NULL,
+                    preset TEXT NOT NULL DEFAULT '',
+                    timestamp TEXT NOT NULL,
+                    datetime_iso TEXT,
+                    engine TEXT,
+                    seed INTEGER,
+                    speaker TEXT,
+                    chunks INTEGER,
+                    transform TEXT,
+                    llm_enabled INTEGER NOT NULL DEFAULT 0,
+                    manual_audio_path TEXT,
+                    autosave_audio_path TEXT,
+                    autosave_meta_path TEXT,
+                    autosave_scripts_json TEXT NOT NULL DEFAULT '[]',
+                    legacy_copy INTEGER NOT NULL DEFAULT 0,
+                    can_reload INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+
+        OutputHistoryStore(db_path)
+
+        with sqlite3.connect(str(db_path)) as connection:
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info('output_history')").fetchall()
+            }
+
+        assert "duration_seconds" in columns
