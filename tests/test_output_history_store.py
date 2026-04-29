@@ -112,6 +112,72 @@ class TestOutputHistoryStore:
 
         assert "idx_output_history_seed" in index_names
 
+    def test_list_records_supports_combined_filters(self, tmp_path: Path) -> None:
+        store = OutputHistoryStore(tmp_path / "outputs.db")
+
+        store.upsert_record(
+            OutputHistoryRecord(
+                job_json_path="F:/root/jobs/alpha-a.job.json",
+                project="alpha",
+                preset="preset-a",
+                timestamp="20260425_042128",
+                seed=42,
+                speaker="Narrator A",
+                engine="Fish Speech",
+            )
+        )
+        store.upsert_record(
+            OutputHistoryRecord(
+                job_json_path="F:/root/jobs/alpha-b.job.json",
+                project="alpha",
+                preset="preset-b",
+                timestamp="20260425_042129",
+                seed=42,
+                speaker="Narrator B",
+                engine="Fish Speech",
+            )
+        )
+        store.upsert_record(
+            OutputHistoryRecord(
+                job_json_path="F:/root/jobs/beta-a.job.json",
+                project="beta",
+                preset="preset-a",
+                timestamp="20260425_042130",
+                seed=99,
+                speaker="Narrator A",
+                engine="Chatterbox",
+            )
+        )
+
+        rows = store.list_records(
+            project="alpha",
+            preset="preset-a",
+            seed=42,
+            speaker="Narrator A",
+            query="Narrator",
+            from_timestamp="20260425_042120",
+            to_timestamp="20260425_042128",
+            limit=10,
+        )
+
+        assert len(rows) == 1
+        assert rows[0].job_json_path == "F:/root/jobs/alpha-a.job.json"
+
+    def test_list_records_treats_timestamp_filters_as_plain_strings(self, tmp_path: Path) -> None:
+        store = OutputHistoryStore(tmp_path / "outputs.db")
+        store.upsert_record(
+            OutputHistoryRecord(
+                job_json_path="F:/root/jobs/example.job.json",
+                project="default",
+                preset="no_preset",
+                timestamp="20260425_042128",
+            )
+        )
+
+        rows = store.list_records(from_timestamp="not-a-timestamp", limit=10)
+
+        assert rows == []
+
     def test_initialize_adds_duration_column_for_existing_db(self, tmp_path: Path) -> None:
         db_path = tmp_path / "outputs.db"
 

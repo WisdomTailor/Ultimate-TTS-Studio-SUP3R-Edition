@@ -13105,6 +13105,46 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             elem_classes=["fade-in"],
                         )
 
+                        with gr.Row():
+                            history_project_filter_input = gr.Textbox(
+                                label="Project",
+                                value="",
+                                placeholder="Exact project name",
+                                elem_classes=["fade-in"],
+                            )
+                            history_preset_filter_input = gr.Textbox(
+                                label="Preset",
+                                value="",
+                                placeholder="Exact preset name",
+                                elem_classes=["fade-in"],
+                            )
+                            history_seed_filter_input = gr.Textbox(
+                                label="Seed",
+                                value="",
+                                placeholder="Exact numeric seed",
+                                elem_classes=["fade-in"],
+                            )
+
+                        with gr.Row():
+                            history_speaker_filter_input = gr.Textbox(
+                                label="Speaker",
+                                value="",
+                                placeholder="Exact speaker / narrator",
+                                elem_classes=["fade-in"],
+                            )
+                            history_from_timestamp_input = gr.Textbox(
+                                label="From Timestamp",
+                                value="",
+                                placeholder="YYYYMMDD_HHMMSS",
+                                elem_classes=["fade-in"],
+                            )
+                            history_to_timestamp_input = gr.Textbox(
+                                label="To Timestamp",
+                                value="",
+                                placeholder="YYYYMMDD_HHMMSS",
+                                elem_classes=["fade-in"],
+                            )
+
                         history_table = gr.Dataframe(
                             headers=[
                                 "ID",
@@ -15775,6 +15815,38 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 return f"{minutes:02d}:{seconds:02d}"
             return f"{total_seconds:.1f}s"
 
+        def _normalize_history_filter_text(raw_value):
+            normalized_value = str(raw_value or "").strip()
+            return normalized_value or None
+
+        def _normalize_history_seed_filter(raw_value):
+            normalized_seed = _normalize_history_filter_text(raw_value)
+            if normalized_seed is None:
+                return None
+            try:
+                return int(normalized_seed)
+            except (TypeError, ValueError):
+                return None
+
+        def _build_history_list_filters(
+            query,
+            project,
+            preset,
+            seed,
+            speaker,
+            from_timestamp,
+            to_timestamp,
+        ):
+            return {
+                "query": _normalize_history_filter_text(query),
+                "project": _normalize_history_filter_text(project),
+                "preset": _normalize_history_filter_text(preset),
+                "seed": _normalize_history_seed_filter(seed),
+                "speaker": _normalize_history_filter_text(speaker),
+                "from_timestamp": _normalize_history_filter_text(from_timestamp),
+                "to_timestamp": _normalize_history_filter_text(to_timestamp),
+            }
+
         def _format_history_rows(records):
             if not records:
                 return [["—", "No history yet", "—", "—", "—", "—", "—", "—", "—"]]
@@ -15919,10 +15991,27 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             return "\n".join(lines), audio_value
 
-        def handle_history_panel_refresh(query, record_id):
+        def handle_history_panel_refresh(
+            query,
+            project,
+            preset,
+            seed,
+            speaker,
+            from_timestamp,
+            to_timestamp,
+            record_id,
+        ):
             store, _autosave_root = _get_history_store_and_root()
-            normalized_query = str(query or "").strip() or None
-            records = store.list_records(query=normalized_query, limit=50)
+            history_filters = _build_history_list_filters(
+                query,
+                project,
+                preset,
+                seed,
+                speaker,
+                from_timestamp,
+                to_timestamp,
+            )
+            records = store.list_records(limit=50, **history_filters)
             rows = _format_history_rows(records)
             detail, audio_value = handle_history_detail(record_id)
             if not records and _coerce_history_record_id(record_id) is None:
@@ -15932,13 +16021,31 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 )
             return rows, detail, audio_value
 
-        def handle_history_reindex(query, record_id):
+        def handle_history_reindex(
+            query,
+            project,
+            preset,
+            seed,
+            speaker,
+            from_timestamp,
+            to_timestamp,
+            record_id,
+        ):
             from output_history_service import reindex_root
 
             try:
                 store, autosave_root = _get_history_store_and_root()
                 records = reindex_root(autosave_root, store=store)
-                rows, detail, audio_value = handle_history_panel_refresh(query, record_id)
+                rows, detail, audio_value = handle_history_panel_refresh(
+                    query,
+                    project,
+                    preset,
+                    seed,
+                    speaker,
+                    from_timestamp,
+                    to_timestamp,
+                    record_id,
+                )
                 prefix = f"✅ Reindexed {len(records)} autosave bundle(s)."
                 if detail.startswith("No indexed autosave history yet") or detail.startswith(
                     "No history record selected yet"
@@ -15948,7 +16055,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     detail = f"{prefix}\n\n{detail}"
                 return rows, detail, audio_value
             except Exception as error:
-                rows, detail, audio_value = handle_history_panel_refresh(query, record_id)
+                rows, detail, audio_value = handle_history_panel_refresh(
+                    query,
+                    project,
+                    preset,
+                    seed,
+                    speaker,
+                    from_timestamp,
+                    to_timestamp,
+                    record_id,
+                )
                 return rows, f"❌ Reindex failed: {error}\n\n{detail}", audio_value
 
         def handle_history_reload(record_id):
@@ -17516,25 +17632,70 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         demo.load(
             fn=handle_history_panel_refresh,
-            inputs=[history_query_input, history_record_id_input],
+            inputs=[
+                history_query_input,
+                history_project_filter_input,
+                history_preset_filter_input,
+                history_seed_filter_input,
+                history_speaker_filter_input,
+                history_from_timestamp_input,
+                history_to_timestamp_input,
+                history_record_id_input,
+            ],
             outputs=[history_table, history_detail_output, history_audio_output],
         )
 
         history_refresh_btn.click(
             fn=handle_history_panel_refresh,
-            inputs=[history_query_input, history_record_id_input],
+            inputs=[
+                history_query_input,
+                history_project_filter_input,
+                history_preset_filter_input,
+                history_seed_filter_input,
+                history_speaker_filter_input,
+                history_from_timestamp_input,
+                history_to_timestamp_input,
+                history_record_id_input,
+            ],
             outputs=[history_table, history_detail_output, history_audio_output],
         )
 
-        history_query_input.submit(
-            fn=handle_history_panel_refresh,
-            inputs=[history_query_input, history_record_id_input],
-            outputs=[history_table, history_detail_output, history_audio_output],
-        )
+        for history_submit_input in (
+            history_query_input,
+            history_project_filter_input,
+            history_preset_filter_input,
+            history_seed_filter_input,
+            history_speaker_filter_input,
+            history_from_timestamp_input,
+            history_to_timestamp_input,
+        ):
+            history_submit_input.submit(
+                fn=handle_history_panel_refresh,
+                inputs=[
+                    history_query_input,
+                    history_project_filter_input,
+                    history_preset_filter_input,
+                    history_seed_filter_input,
+                    history_speaker_filter_input,
+                    history_from_timestamp_input,
+                    history_to_timestamp_input,
+                    history_record_id_input,
+                ],
+                outputs=[history_table, history_detail_output, history_audio_output],
+            )
 
         history_reindex_btn.click(
             fn=handle_history_reindex,
-            inputs=[history_query_input, history_record_id_input],
+            inputs=[
+                history_query_input,
+                history_project_filter_input,
+                history_preset_filter_input,
+                history_seed_filter_input,
+                history_speaker_filter_input,
+                history_from_timestamp_input,
+                history_to_timestamp_input,
+                history_record_id_input,
+            ],
             outputs=[history_table, history_detail_output, history_audio_output],
         )
 
