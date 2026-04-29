@@ -10675,8 +10675,7 @@ def create_gradio_interface():
     ) as demo:
 
         # Header with enhanced styling
-        gr.Markdown(
-            """
+        gr.Markdown("""
         <div class="fade-in">
             <div style="display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; margin-bottom:2px;">
                 <div class="main-title" style="margin: 8px 0;">
@@ -10693,8 +10692,7 @@ def create_gradio_interface():
             <strong>Advanced text-to-speech with multiple engines, voice presets, audio effects, and export options</strong>
             </div>
         </div>
-        """
-        )
+        """)
 
         # Model Management Section - Compact Version
         with gr.Accordion(
@@ -10800,8 +10798,7 @@ def create_gradio_interface():
                         value="⭕ Not loaded", visible=False  # Hidden, used for internal state
                     )
 
-                    gr.Markdown(
-                        """
+                    gr.Markdown("""
                     <div style='margin-top: 10px; padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
                         <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
                             <strong>📋 Model Info:</strong><br/>
@@ -10810,8 +10807,7 @@ def create_gradio_interface():
                             • <strong>CustomVoice:</strong> 0.6B or 1.7B - Use predefined speakers (Aiden, Dylan, Eric, etc.)
                         </p>
                     </div>
-                    """
-                    )
+                    """)
                 else:
                     gr.Markdown(
                         "⚠️ Qwen TTS not available - check qwen_tts module and transformers version"
@@ -11690,8 +11686,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             info="Select a character to edit their voice settings.",
                                             elem_classes=["fade-in"],
                                         )
-                                        gr.Markdown(
-                                            """
+                                        gr.Markdown("""
                                         <div style='padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
                                             <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
                                                 <strong>💡 Guided flow:</strong><br/>
@@ -11702,8 +11697,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 5. Save Bank stores the full roster-to-voice mapping for this multi-speaker setup
                                             </p>
                                         </div>
-                                        """
-                                        )
+                                        """)
 
                                     with gr.Column(scale=2):
                                         selected_character_header = gr.Markdown(
@@ -12388,8 +12382,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         elem_classes=["fade-in"],
                                     )
 
-                                gr.Markdown(
-                                    """
+                                gr.Markdown("""
                                 <div style='margin-top: 10px; padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
                                     <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
                                         <strong>💡 Voice setup notes:</strong><br/>
@@ -12399,8 +12392,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         • The Generate Conversation button still uses the same backend dispatch as before
                                     </p>
                                 </div>
-                                """
-                                )
+                                """)
 
                         conversation_component_state_inputs = [
                             speaker_1_audio,
@@ -12433,8 +12425,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # eBook to Audiobook Tab
                     with gr.TabItem("📚 EBOOK TO AUDIOBOOK", id="ebook_mode") as ebook_mode_tab:
                         if EBOOK_CONVERTER_AVAILABLE:
-                            gr.Markdown(
-                                """
+                            gr.Markdown("""
                             <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                                         padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
                                 <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>📖 Convert eBooks to Audiobooks</h3>
@@ -12443,8 +12434,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     .html files work best for automatic chapter detection.
                                 </p>
                             </div>
-                            """
-                            )
+                            """)
 
                             with gr.Row():
                                 with gr.Column(scale=2):
@@ -12478,7 +12468,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             elem_id="convert_ebook_btn",
                                         )
                                         clear_ebook_btn = gr.Button(
-                                            "🗑️ Clear", variant="secondary", elem_classes=["fade-in"]
+                                            "🗑️ Clear",
+                                            variant="secondary",
+                                            elem_classes=["fade-in"],
                                         )
 
                                     # eBook information display
@@ -12582,16 +12574,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         open=True,
                                         elem_classes=["fade-in"],
                                     ):
-                                        gr.Markdown(
-                                            """
+                                        gr.Markdown("""
                                         <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                                                     padding: 10px; border-radius: 8px; margin-bottom: 10px;'>
                                             <p style='margin: 0; opacity: 0.8; font-size: 0.85em;'>
                                                 🔇 Control the silence duration between chunks and chapters in your audiobook
                                             </p>
                                         </div>
-                                        """
-                                        )
+                                        """)
 
                                         ebook_chunk_gap = gr.Slider(
                                             0.0,
@@ -12617,8 +12607,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             supported_formats = (
                                 get_supported_formats() if EBOOK_CONVERTER_AVAILABLE else {}
                             )
-                            gr.Markdown(
-                                f"""
+                            gr.Markdown(f"""
                             <div style='margin-top: 15px; padding: 12px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
                                 <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
                                     <strong>📋 Supported Formats:</strong> {', '.join(supported_formats.keys()) if supported_formats else 'N/A'}<br/>
@@ -12629,19 +12618,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     <strong>🐟 Fish Speech:</strong> Maintains consistent voice throughout the entire audiobook using smart seed management and reference cloning.
                                 </p>
                             </div>
-                            """
-                            )
+                            """)
                         else:
                             # Placeholder when eBook converter is not available
-                            gr.Markdown(
-                                """
+                            gr.Markdown("""
                             <div style='text-align: center; padding: 40px; opacity: 0.5;'>
                                 <h3>📚 eBook to Audiobook Converter</h3>
                                 <p>⚠️ Not available - please install required dependencies:</p>
                                 <code>pip install ebooklib PyPDF2 beautifulsoup4 chardet</code>
                             </div>
-                            """
-                            )
+                            """)
                             # Create dummy components to maintain interface consistency
                             ebook_file = gr.File(visible=False, value=None)
                             analyze_btn = gr.Button(visible=False)
@@ -12664,8 +12650,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # VibeVoice Tab
                     with gr.TabItem("🎙️ VIBEVOICE", id="vibevoice_mode") as vibevoice_mode_tab:
                         if VIBEVOICE_AVAILABLE:
-                            gr.Markdown(
-                                """
+                            gr.Markdown("""
                             <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                                         padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
                                 <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>🎙️ VibeVoice Podcast Generation</h3>
@@ -12674,8 +12659,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     Upload voice samples and create natural-sounding dialogues.
                                 </p>
                             </div>
-                            """
-                            )
+                            """)
 
                             with gr.Row():
                                 with gr.Column(scale=2):
@@ -12934,14 +12918,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                         else:
                             # Placeholder when VibeVoice is not available
-                            gr.Markdown(
-                                """
+                            gr.Markdown("""
                             <div style='text-align: center; padding: 40px; opacity: 0.5;'>
                                 <h3>🎙️ VibeVoice Podcast Generator</h3>
                                 <p>⚠️ Not available - please install VibeVoice dependencies</p>
                             </div>
-                            """
-                            )
+                            """)
                             # Create dummy components
                             vibevoice_script = gr.Textbox(visible=False)
                             vibevoice_num_speakers = gr.Slider(visible=False, value=2)
@@ -12969,8 +12951,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             vibevoice_status = gr.Textbox(visible=False)
 
                     with gr.TabItem("🤖 ASSISTANT", id="assistant_mode") as assistant_mode_tab:
-                        gr.Markdown(
-                            """
+                        gr.Markdown("""
                         <div style='background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
                                     padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
                             <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>🤖 TTS Studio Assistant</h3>
@@ -12979,8 +12960,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 and workflow guidance. Powered by your configured LLM provider.
                             </p>
                         </div>
-                        """
-                        )
+                        """)
 
                         assistant_chatbot = gr.Chatbot(
                             label="💬 Assistant Chat",
@@ -13116,8 +13096,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             assistant_llm_status = gr.Markdown(value="", elem_classes=["fade-in"])
 
                     with gr.TabItem("🕘 HISTORY", id="history_mode") as history_mode_tab:
-                        gr.Markdown(
-                            """
+                        gr.Markdown("""
                         <div style='background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(59, 130, 246, 0.12));
                                     padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
                             <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>🕘 Output History</h3>
@@ -13126,8 +13105,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 reload a prior generation back into the main text workflow.
                             </p>
                         </div>
-                        """
-                        )
+                        """)
 
                         history_query_input = gr.Textbox(
                             label="Search History",
@@ -13209,6 +13187,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         )
 
                         with gr.Row():
+                            history_search_btn = gr.Button(
+                                "🔎 Search",
+                                variant="primary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
                             history_refresh_btn = gr.Button(
                                 "🔄 Refresh",
                                 variant="secondary",
@@ -13233,7 +13217,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 label="History Record ID",
                                 value="",
                                 placeholder="Optional: enter a numeric history record ID",
-                                scale=3,
+                                scale=2,
+                                elem_classes=["fade-in"],
+                            )
+                            history_load_btn = gr.Button(
+                                "🔎 Search / Load Record",
+                                variant="primary",
+                                size="sm",
+                                scale=1,
                                 elem_classes=["fade-in"],
                             )
                             history_reload_btn = gr.Button(
@@ -13243,6 +13234,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 scale=1,
                                 elem_classes=["fade-in"],
                             )
+
+                        history_help_output = gr.Markdown(
+                            value=(
+                                "Use **Search** after changing filters. Click a table row to populate the "
+                                "record ID, then use **Search / Load Record** to load details and audio in "
+                                "this tab. **Reload Into Text Tab** restores the saved generation state so "
+                                "you can run it again with the current app version."
+                            ),
+                            elem_classes=["fade-in"],
+                        )
 
                         with gr.Row():
                             history_preview_script_btn = gr.Button(
@@ -13265,9 +13266,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             ),
                             elem_classes=["fade-in"],
                         )
-                        history_audio_output = gr.Audio(
-                            label="History Audio Preview",
-                            show_download_button=True,
+                        history_audio_output = gr.HTML(
+                            value=(
+                                "<div style='padding: 0.75rem 0.9rem; border: 1px dashed "
+                                "rgba(148, 163, 184, 0.6); border-radius: 0.75rem; background: "
+                                "rgba(15, 23, 42, 0.02);'><div style='font-weight: 600; margin-bottom: "
+                                "0.35rem;'>History Audio Preview</div><div style='opacity: 0.8;'>Select "
+                                "a history record to load validated playback in this tab.</div></div>"
+                            ),
                             elem_classes=["fade-in", "glow"],
                         )
                         history_preview_output = gr.Markdown(
@@ -13279,8 +13285,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         )
 
                     with gr.TabItem("📋 JOBS", id="jobs_mode") as jobs_mode_tab:
-                        gr.Markdown(
-                            """
+                        gr.Markdown("""
                         <div style='background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1));
                                     padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
                             <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>📋 Job Queue</h3>
@@ -13289,8 +13294,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 synthesis tasks without blocking the main UI.
                             </p>
                         </div>
-                        """
-                        )
+                        """)
 
                         job_queue_display = gr.Dataframe(
                             headers=[
@@ -14015,15 +14019,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         with gr.Accordion(
                             "👤 Custom Voice Upload", open=False, elem_classes=["fade-in"]
                         ):
-                            gr.Markdown(
-                                """
+                            gr.Markdown("""
                             <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                                         padding: 12px; border-radius: 12px; margin-bottom: 15px;'>
                                 <h3 style='margin: 0 0 5px 0; padding: 0; font-size: 1.0em;'>📁 Upload Your Custom Voices</h3>
                                 <p style='margin: 0; opacity: 0.8; font-size: 0.85em;'>Add your own .pt voice files to use with Kokoro TTS</p>
                             </div>
-                            """
-                            )
+                            """)
 
                             with gr.Row():
                                 with gr.Column(scale=2):
@@ -14071,8 +14073,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         elem_classes=["fade-in"],
                                     )
 
-                            gr.Markdown(
-                                """
+                            gr.Markdown("""
                             <div style='margin-top: 10px; padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
                                 <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
                                     <strong>💡 Tips:</strong> Upload .pt voice files compatible with Kokoro TTS.
@@ -14080,8 +14081,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     Use the refresh button to update the voice list after uploading.
                                 </p>
                             </div>
-                            """
-                            )
+                            """)
                 else:
                     # Placeholder when Kokoro is not available
                     with gr.Group():
@@ -14173,14 +14173,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 )
 
                             gr.Markdown("### 📝 Text Processing & Voice Consistency")
-                            gr.Markdown(
-                                """<p style='opacity: 0.7; margin-bottom: 10px;'>
+                            gr.Markdown("""<p style='opacity: 0.7; margin-bottom: 10px;'>
                             • Fish Speech automatically splits long texts into chunks for better quality<br/>
                             • Without reference audio: Uses consistent seed across chunks to maintain voice<br/>
                             • With reference audio: Voice cloning ensures consistency<br/>
                             • Tip: Set a specific seed value for reproducible results
-                            </p>"""
-                            )
+                            </p>""")
                 else:
                     # Placeholder when Fish Speech is not available
                     with gr.Group():
@@ -14946,15 +14944,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         # Audio Effects in a separate expandable section
         with gr.Accordion("🎵 Audio Effects Studio", open=False, elem_classes=["fade-in"]):
-            gr.Markdown(
-                """
+            gr.Markdown("""
             <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                         padding: 12px; border-radius: 12px; margin-bottom: 15px;'>
                 <h3 style='margin: 0 0 5px 0; padding: 0; font-size: 1.0em;'>🎚️ Professional Audio Processing</h3>
                 <p style='margin: 0; opacity: 0.8; font-size: 0.85em;'>Add studio-quality effects to enhance your generated speech</p>
             </div>
-            """
-            )
+            """)
 
             # Volume and EQ Section
             with gr.Row():
@@ -15064,8 +15060,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     )
 
         # Footer with credits - Compact
-        gr.Markdown(
-            """
+        gr.Markdown("""
         <div style='text-align: center; margin-top: 20px; padding: 15px;
                     background: linear-gradient(135deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
                     border-radius: 12px; border: 1px solid rgba(102, 126, 234, 0.1);'>
@@ -15075,8 +15070,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 <a href='https://discord.gg/mvDcrA57AQ' target='_blank' style='color: #667eea; text-decoration: none;'>Discord</a>
             </p>
         </div>
-        """
-        )
+        """)
 
         # Model management event handlers - Updated for compact interface with auto-selection
         def handle_load_chatterbox():
@@ -17723,6 +17717,26 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ],
         )
 
+        history_search_btn.click(
+            fn=handle_history_panel_refresh,
+            inputs=[
+                history_query_input,
+                history_project_filter_input,
+                history_preset_filter_input,
+                history_seed_filter_input,
+                history_speaker_filter_input,
+                history_from_timestamp_input,
+                history_to_timestamp_input,
+                history_record_id_input,
+            ],
+            outputs=[
+                history_table,
+                history_detail_output,
+                history_audio_output,
+                history_preview_output,
+            ],
+        )
+
         for history_submit_input in (
             history_query_input,
             history_project_filter_input,
@@ -17792,7 +17806,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ],
         )
 
-        history_record_id_input.change(
+        history_record_id_input.submit(
+            fn=handle_history_detail,
+            inputs=[history_record_id_input],
+            outputs=[history_detail_output, history_audio_output, history_preview_output],
+        )
+
+        history_load_btn.click(
             fn=handle_history_detail,
             inputs=[history_record_id_input],
             outputs=[history_detail_output, history_audio_output, history_preview_output],

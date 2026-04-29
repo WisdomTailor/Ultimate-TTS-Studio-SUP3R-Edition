@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from html import escape
 from typing import TypedDict
 
 from output_history_service import (
@@ -11,18 +12,27 @@ from output_history_service import (
 )
 from output_history_store import OutputHistoryRecord, OutputHistoryStore
 
-
 HISTORY_EMPTY_ROWS: list[list[object]] = [
     ["—", "No history yet", "—", "—", "—", "—", "—", "—", "—"]
 ]
 HISTORY_NO_SELECTION_MESSAGE = (
-    "No history record selected yet. Enter a numeric History Record ID after refreshing or reindexing."
+    "No history record selected yet. Select a table row or enter a numeric History Record ID, "
+    "then click Search / Load Record."
 )
 HISTORY_EMPTY_DETAIL_MESSAGE = (
-    "No indexed autosave history yet. Generate a clip with autosave enabled or click Reindex Autosaves to scan the current autosave root."
+    "No indexed autosave history yet. Generate a clip with autosave enabled or click Reindex "
+    "Autosaves to scan the current autosave root."
 )
 HISTORY_PREVIEW_EMPTY_MESSAGE = (
-    "Select a history record, then use Preview Script or Preview Metadata to inspect the saved bundle content."
+    "Select a history record, then use Preview Script or Preview Metadata to inspect the saved "
+    "bundle content."
+)
+HISTORY_AUDIO_EMPTY_HTML = (
+    "<div style='padding: 0.75rem 0.9rem; border: 1px dashed rgba(148, 163, 184, 0.6); "
+    "border-radius: 0.75rem; background: rgba(15, 23, 42, 0.02);'>"
+    "<div style='font-weight: 600; margin-bottom: 0.35rem;'>History Audio Preview</div>"
+    "<div style='opacity: 0.8;'>Select a history record to load validated playback in this tab.</div>"
+    "</div>"
 )
 
 
@@ -167,7 +177,28 @@ def build_history_preview_placeholder(record_id: object) -> str:
     if parsed_id is None:
         return HISTORY_PREVIEW_EMPTY_MESSAGE
     return (
-        f"History record {parsed_id} selected. Use Preview Script or Preview Metadata to inspect saved bundle files."
+        f"History record {parsed_id} selected. Use Preview Script or Preview Metadata to inspect "
+        "saved bundle files."
+    )
+
+
+def build_history_audio_preview_html(audio_url: str | None, record_id: object) -> str:
+    if not audio_url:
+        return HISTORY_AUDIO_EMPTY_HTML
+
+    parsed_id = coerce_history_record_id(record_id)
+    safe_audio_url = escape(audio_url, quote=True)
+    record_label = (
+        f"History record {parsed_id}" if parsed_id is not None else "Selected history record"
+    )
+    return (
+        "<div style='padding: 0.75rem 0.9rem; border: 1px solid rgba(59, 130, 246, 0.24); "
+        "border-radius: 0.75rem; background: rgba(59, 130, 246, 0.05);'>"
+        "<div style='font-weight: 600; margin-bottom: 0.5rem;'>History Audio Preview</div>"
+        f"<audio controls preload='metadata' style='width: 100%;' src='{safe_audio_url}'></audio>"
+        f"<div style='margin-top: 0.5rem; font-size: 0.92em; opacity: 0.86;'>Playing {record_label}. "
+        f"<a href='{safe_audio_url}' target='_blank' rel='noopener noreferrer'>Open audio in new tab</a></div>"
+        "</div>"
     )
 
 
@@ -187,14 +218,14 @@ def build_history_detail_response(
     store: OutputHistoryStore,
     autosave_root: str,
     audio_proxy_url_builder: Callable[[int | None], str | None],
-) -> tuple[str, str | None]:
+) -> tuple[str, str]:
     parsed_id = coerce_history_record_id(record_id)
     if parsed_id is None:
-        return HISTORY_NO_SELECTION_MESSAGE, None
+        return HISTORY_NO_SELECTION_MESSAGE, HISTORY_AUDIO_EMPTY_HTML
 
     record = store.get_record(parsed_id)
     if record is None:
-        return f"❌ History record not found: {record_id}", None
+        return f"❌ History record not found: {record_id}", HISTORY_AUDIO_EMPTY_HTML
 
     payload: dict[str, object] = {}
     payload_error: str | None = None
@@ -260,7 +291,9 @@ def build_history_detail_response(
                 "- Uploaded reference/emotion audio file inputs are not restored directly because their original temp paths may no longer exist. If the saved preset still has a valid reference audio file, reload can repopulate the active engine's standard reference-audio control from that preset."
             )
 
-    settings_lines = build_history_settings_lines(metadata_snapshot if isinstance(metadata_snapshot, dict) else None)
+    settings_lines = build_history_settings_lines(
+        metadata_snapshot if isinstance(metadata_snapshot, dict) else None
+    )
     if settings_lines:
         lines.append("")
         lines.append("**Stored Settings Context**")
@@ -286,10 +319,13 @@ def build_history_detail_response(
         lines.append("- Scripts:")
         lines.extend(f"  - `{script_path}`" for script_path in record.autosave_scripts)
 
-    audio_value = None
+    audio_value = HISTORY_AUDIO_EMPTY_HTML
     try:
         resolve_playback_path(record, autosave_root)
-        audio_value = audio_proxy_url_builder(record.id)
+        audio_value = build_history_audio_preview_html(
+            audio_proxy_url_builder(record.id),
+            record.id,
+        )
     except ValueError as error:
         lines.append("")
         lines.append(f"⚠️ Audio preview unavailable: {error}")
@@ -310,7 +346,7 @@ def build_history_panel_refresh_response(
     from_timestamp: object,
     to_timestamp: object,
     record_id: object,
-) -> tuple[list[list[object]], str, str | None, str]:
+) -> tuple[list[list[object]], str, str, str]:
     history_filters = build_history_list_filters(
         query,
         project,
@@ -372,7 +408,7 @@ def build_history_table_select_response(
     store: OutputHistoryStore,
     autosave_root: str,
     audio_proxy_url_builder: Callable[[int | None], str | None],
-) -> tuple[str, str, str | None, str]:
+) -> tuple[str, str, str, str]:
     record_id = select_history_record_id_from_rows(table_rows, selected_row_index)
     if record_id is None:
         detail, audio_value = build_history_detail_response(
@@ -393,11 +429,13 @@ def build_history_table_select_response(
 
 
 __all__ = [
+    "HISTORY_AUDIO_EMPTY_HTML",
     "HISTORY_EMPTY_DETAIL_MESSAGE",
     "HISTORY_EMPTY_ROWS",
     "HISTORY_NO_SELECTION_MESSAGE",
     "HISTORY_PREVIEW_EMPTY_MESSAGE",
     "HISTORY_PREVIEW_CURRENT_SCRIPT",
+    "build_history_audio_preview_html",
     "build_history_detail_response",
     "build_history_list_filters",
     "build_history_panel_refresh_response",

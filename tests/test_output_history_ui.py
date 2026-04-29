@@ -4,7 +4,6 @@ import json
 import sys
 from pathlib import Path
 
-
 APP_DIR = Path(__file__).resolve().parents[1]
 
 if str(APP_DIR) not in sys.path:
@@ -18,6 +17,7 @@ from output_history_service import (
 )
 from output_history_store import OutputHistoryStore
 from output_history_ui import (
+    HISTORY_AUDIO_EMPTY_HTML,
     HISTORY_EMPTY_DETAIL_MESSAGE,
     HISTORY_NO_SELECTION_MESSAGE,
     HISTORY_PREVIEW_EMPTY_MESSAGE,
@@ -115,7 +115,7 @@ class TestOutputHistoryUi:
 
         assert rows[0][0] == record.id
         assert detail == HISTORY_NO_SELECTION_MESSAGE
-        assert audio_value is None
+        assert audio_value == HISTORY_AUDIO_EMPTY_HTML
         assert preview == HISTORY_PREVIEW_EMPTY_MESSAGE
 
         empty_rows, empty_detail, empty_audio, empty_preview = build_history_panel_refresh_response(
@@ -134,14 +134,26 @@ class TestOutputHistoryUi:
 
         assert empty_rows[0][1] == "No history yet"
         assert empty_detail == HISTORY_EMPTY_DETAIL_MESSAGE
-        assert empty_audio is None
+        assert empty_audio == HISTORY_AUDIO_EMPTY_HTML
         assert empty_preview == HISTORY_PREVIEW_EMPTY_MESSAGE
 
     def test_table_select_response_updates_record_id_detail_and_audio(self, tmp_path: Path) -> None:
         autosave_root, meta_path = _write_history_bundle(tmp_path)
         store = OutputHistoryStore(tmp_path / "outputs.db")
         record = store.upsert_record(build_record_from_meta(meta_path))
-        rows = [[record.id, "default", "—", record.timestamp, "Fish Speech", "Narrator", "12.5s", "—", "Yes"]]
+        rows = [
+            [
+                record.id,
+                "default",
+                "—",
+                record.timestamp,
+                "Fish Speech",
+                "Narrator",
+                "12.5s",
+                "—",
+                "Yes",
+            ]
+        ]
 
         selected_id, detail, audio_value, preview = build_history_table_select_response(
             table_rows=rows,
@@ -153,7 +165,8 @@ class TestOutputHistoryUi:
 
         assert selected_id == str(record.id)
         assert f"### History Record {record.id}" in detail
-        assert audio_value == f"/api/history/audio/{record.id}"
+        assert "<audio controls" in audio_value
+        assert f"/api/history/audio/{record.id}" in audio_value
         assert f"History record {record.id} selected." in preview
 
     def test_preview_response_returns_script_and_metadata_markdown(self, tmp_path: Path) -> None:
