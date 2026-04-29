@@ -60,10 +60,14 @@ def _write_fixture_bundle(tmp_path: Path) -> tuple[Path, Path]:
         json.dumps(
             {
                 "project": "default",
+                "mode": "conversation",
                 "preset": "no_preset",
                 "engine": "Fish Speech",
                 "seed": 501928455,
                 "speaker": "Confidence Narration",
+                "speaker_count": 2,
+                "speakers": ["Alice", "Bob"],
+                "total_lines": 12,
                 "chunks": 105,
                 "duration_seconds": 12.5,
                 "audio_format": "wav",
@@ -158,6 +162,10 @@ class TestOutputHistoryService:
         assert all("/" in path for path in record.autosave_scripts)
         assert is_path_within_root(record.job_json_path, autosave_root)
         assert record.speaker == "Confidence Narration"
+        assert record.mode == "conversation"
+        assert record.speaker_count == 2
+        assert record.speakers == ["Alice", "Bob"]
+        assert record.total_lines == 12
         assert record.duration_seconds == 12.5
 
     def test_build_record_from_meta_falls_back_to_voice_metadata_when_speaker_missing(
@@ -245,9 +253,13 @@ class TestOutputHistoryService:
         payload = build_reload_payload(record)
 
         assert payload["project"] == "default"
+        assert payload["mode"] == "conversation"
         assert payload["preset"] == "no_preset"
         assert payload["engine"] == "Fish Speech"
         assert payload["voice_narrator"] == "Confidence Narration"
+        assert payload["speaker_count"] == 2
+        assert payload["speakers"] == ["Alice", "Bob"]
+        assert payload["total_lines"] == 12
         assert payload["audio_format"] == "wav"
         assert payload["script_text"] == "Original text"
         assert payload["original_text"] == "Original text"
@@ -417,7 +429,9 @@ class TestOutputHistoryService:
             Path(first_record.autosave_meta_path).read_text(encoding="utf-8") == first_meta_contents
         )
 
-    def test_import_legacy_outputs_avoids_same_second_bundle_overwrite(self, tmp_path: Path) -> None:
+    def test_import_legacy_outputs_avoids_same_second_bundle_overwrite(
+        self, tmp_path: Path
+    ) -> None:
         legacy_root = tmp_path / "outputs"
         autosave_root = tmp_path / "app_state_outputs"
         store = OutputHistoryStore(tmp_path / "outputs.db")
@@ -447,7 +461,9 @@ class TestOutputHistoryService:
         }
         records = store.list_records(limit=10)
         assert len(records) == 2
-        run_bases = sorted(Path(record.job_json_path).stem.replace(".job", "") for record in records)
+        run_bases = sorted(
+            Path(record.job_json_path).stem.replace(".job", "") for record in records
+        )
         assert run_bases == [
             "default_archived_voice_01_20260425_042128",
             "default_archived_voice_20260425_042128",

@@ -23,12 +23,16 @@ class TestOutputHistoryStore:
             OutputHistoryRecord(
                 job_json_path="F:/TTS Output Files/app_state_outputs/default/jobs/run.job.json",
                 project="default",
+                mode="conversation",
                 preset="no_preset",
                 timestamp="20260425_042128",
                 datetime_iso="2026-04-25T04:21:28",
                 engine="Fish Speech",
                 seed=501928455,
                 speaker="Confidence Narration",
+                speaker_count=2,
+                speakers=["Alice", "Bob"],
+                total_lines=12,
                 duration_seconds=12.5,
                 autosave_meta_path="F:/TTS Output Files/app_state_outputs/default/meta/run.json",
                 autosave_audio_path="F:/TTS Output Files/app_state_outputs/default/audio/run.wav",
@@ -42,6 +46,9 @@ class TestOutputHistoryStore:
         assert record.id is not None
         assert db_path.exists()
         assert record.duration_seconds == 12.5
+        assert record.mode == "conversation"
+        assert record.speakers == ["Alice", "Bob"]
+        assert record.total_lines == 12
 
     def test_upsert_uses_job_json_path_identity_not_nullable_seed(self, tmp_path: Path) -> None:
         store = OutputHistoryStore(tmp_path / "outputs.db")
@@ -218,3 +225,7 @@ class TestOutputHistoryStore:
             }
 
         assert "duration_seconds" in columns
+        assert "mode" in columns
+        assert "speaker_count" in columns
+        assert "speakers_json" in columns
+        assert "total_lines" in columns

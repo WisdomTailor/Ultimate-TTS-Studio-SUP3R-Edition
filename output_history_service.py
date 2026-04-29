@@ -166,7 +166,11 @@ def add_run_base_collision_suffix(run_base: str, collision_index: int) -> str:
         return run_base
 
     prefix, timestamp = _split_run_base_timestamp(run_base)
-    return f"{prefix}_{collision_index:02d}_{timestamp}" if prefix else f"{collision_index:02d}_{timestamp}"
+    return (
+        f"{prefix}_{collision_index:02d}_{timestamp}"
+        if prefix
+        else f"{collision_index:02d}_{timestamp}"
+    )
 
 
 def bundle_exists(project_root: str | Path, run_base: str) -> bool:
@@ -462,6 +466,57 @@ def _extract_duration_seconds(
     return None
 
 
+def _coerce_string_list(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        normalized.append(text)
+    return normalized
+
+
+def _extract_conversation_speakers(metadata: dict[str, Any]) -> list[str]:
+    speakers = _coerce_string_list(metadata.get("speakers"))
+    if speakers:
+        return speakers
+
+    conversation_info = metadata.get("conversation_info")
+    if not isinstance(conversation_info, list):
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in conversation_info:
+        if not isinstance(item, dict):
+            continue
+        speaker_name = str(item.get("speaker") or "").strip()
+        if not speaker_name:
+            continue
+        lowered = speaker_name.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        normalized.append(speaker_name)
+    return normalized
+
+
+def _summarize_speakers(speakers: list[str]) -> str | None:
+    if not speakers:
+        return None
+    if len(speakers) <= 2:
+        return ", ".join(speakers)
+    return f"{', '.join(speakers[:2])} +{len(speakers) - 2}"
+
+
 def _build_job_payload(
     *,
     project: str,
@@ -473,12 +528,18 @@ def _build_job_payload(
 ) -> dict[str, Any]:
     return {
         "project": project,
+        "mode": metadata.get("mode") or "single",
         "preset": preset,
         "timestamp": timestamp,
         "datetime_iso": datetime_iso,
         "engine": metadata.get("engine"),
         "seed": _safe_int(metadata.get("seed")),
         "speaker": metadata.get("speaker"),
+        "speaker_count": _safe_int(
+            metadata.get("speaker_count") or metadata.get("unique_speakers")
+        ),
+        "speakers": _coerce_string_list(metadata.get("speakers")),
+        "total_lines": _safe_int(metadata.get("total_lines")),
         "audio_format": metadata.get("audio_format"),
         "paths": {
             "manual_audio": paths.manual_audio_path,
@@ -572,12 +633,20 @@ def build_record_from_meta(meta_path: str | Path) -> OutputHistoryRecord:
     project_root = meta_path_obj.parent.parent
     autosave_root = project_root.parent.resolve(strict=False)
     project = str(metadata.get("project") or project_root.name)
+    mode = str(metadata.get("mode") or "single").strip().lower() or "single"
     preset = str(metadata.get("preset") or _infer_preset(run_base, project, timestamp) or "")
+    speakers = _extract_conversation_speakers(metadata) if mode == "conversation" else []
     speaker = resolve_voice_narrator(metadata)
+    if mode == "conversation":
+        speaker = speaker or _summarize_speakers(speakers)
     raw_llm_transform = metadata.get("llm_transform")
     llm_transform = raw_llm_transform if isinstance(raw_llm_transform, dict) else {}
     transform_status = str(llm_transform.get("status") or "") or None
     llm_enabled = bool(llm_transform.get("applied"))
+    total_lines = _safe_int(metadata.get("total_lines"))
+    speaker_count = _safe_int(metadata.get("speaker_count") or metadata.get("unique_speakers"))
+    if speaker_count is None and speakers:
+        speaker_count = len(speakers)
     scripts = _collect_scripts(metadata.get("paths", {}), project_root / "scripts", run_base)
     manual_audio, autosave_audio, legacy_copy = _resolve_audio_paths(
         metadata,
@@ -595,12 +664,16 @@ def build_record_from_meta(meta_path: str | Path) -> OutputHistoryRecord:
     return OutputHistoryRecord(
         job_json_path=job_json_path,
         project=project,
+        mode=mode,
         preset=preset,
         timestamp=timestamp,
         datetime_iso=datetime_iso,
         engine=str(metadata.get("engine") or "") or None,
         seed=_safe_int(metadata.get("seed")),
         speaker=speaker,
+        speaker_count=speaker_count,
+        speakers=speakers,
+        total_lines=total_lines,
         chunks=_safe_int(metadata.get("chunks")),
         duration_seconds=duration_seconds,
         transform=transform_status,
@@ -756,7 +829,9 @@ def _resolve_validated_history_preview_path(
     return path
 
 
-def read_history_preview(record: OutputHistoryRecord, autosave_root: str | Path, preview_kind: str) -> dict[str, str]:
+def read_history_preview(
+    record: OutputHistoryRecord, autosave_root: str | Path, preview_kind: str
+) -> dict[str, str]:
     """Return validated preview content for a history record artifact."""
     normalized_kind = str(preview_kind or "").strip().lower()
 
@@ -854,10 +929,14 @@ def build_reload_payload(record: OutputHistoryRecord) -> dict[str, Any]:
 
     return {
         "project": record.project,
+        "mode": record.mode,
         "preset": record.preset,
         "timestamp": record.timestamp,
         "engine": record.engine,
         "speaker": record.speaker,
+        "speaker_count": record.speaker_count,
+        "speakers": record.speakers,
+        "total_lines": record.total_lines,
         "voice_narrator": voice_narrator,
         "seed": record.seed,
         "audio_format": _clean_metadata_text(metadata_snapshot.get("audio_format")),

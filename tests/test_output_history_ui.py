@@ -52,10 +52,14 @@ def _write_history_bundle(tmp_path: Path) -> tuple[Path, Path]:
         json.dumps(
             {
                 "project": "default",
+                "mode": "conversation",
                 "preset": "no_preset",
                 "engine": "Fish Speech",
                 "seed": 501928455,
                 "speaker": "Confidence Narration",
+                "speaker_count": 2,
+                "speakers": ["Alice", "Bob"],
+                "total_lines": 12,
                 "duration_seconds": 12.5,
                 "audio_format": "wav",
                 "reload_snapshot": {
@@ -145,10 +149,13 @@ class TestOutputHistoryUi:
             [
                 record.id,
                 "default",
+                "Conversation",
                 "—",
                 record.timestamp,
                 "Fish Speech",
                 "Narrator",
+                "Alice, Bob",
+                "12",
                 "12.5s",
                 "—",
                 "Yes",
@@ -165,6 +172,8 @@ class TestOutputHistoryUi:
 
         assert selected_id == str(record.id)
         assert f"### History Record {record.id}" in detail
+        assert "**Mode:** Conversation" in detail
+        assert "**Characters / Speakers:** Alice, Bob" in detail
         assert "<audio controls" in audio_value
         assert f"/api/history/audio/{record.id}" in audio_value
         assert f"History record {record.id} selected." in preview

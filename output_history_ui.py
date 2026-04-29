@@ -13,7 +13,7 @@ from output_history_service import (
 from output_history_store import OutputHistoryRecord, OutputHistoryStore
 
 HISTORY_EMPTY_ROWS: list[list[object]] = [
-    ["—", "No history yet", "—", "—", "—", "—", "—", "—", "—"]
+    ["—", "No history yet", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—"]
 ]
 HISTORY_NO_SELECTION_MESSAGE = (
     "No history record selected yet. Select a table row or enter a numeric History Record ID, "
@@ -77,6 +77,23 @@ def format_history_duration(duration_seconds: float | None) -> str:
         seconds = int(total_seconds % 60)
         return f"{minutes:02d}:{seconds:02d}"
     return f"{total_seconds:.1f}s"
+
+
+def format_history_mode(mode: str | None) -> str:
+    normalized = str(mode or "").strip().lower()
+    if not normalized:
+        return "Single"
+    if normalized == "conversation":
+        return "Conversation"
+    return normalized.replace("_", " ").title()
+
+
+def format_history_characters(speakers: list[str] | None) -> str:
+    if not speakers:
+        return "—"
+    if len(speakers) <= 3:
+        return ", ".join(speakers)
+    return f"{', '.join(speakers[:3])} +{len(speakers) - 3}"
 
 
 def build_history_settings_lines(metadata_snapshot: dict[str, object] | None) -> list[str]:
@@ -146,10 +163,13 @@ def format_history_rows(records: list[OutputHistoryRecord]) -> list[list[object]
             [
                 record.id,
                 record.project,
+                format_history_mode(record.mode),
                 format_history_preset(record.preset),
                 record.timestamp,
                 record.engine or "—",
                 record.speaker or "—",
+                format_history_characters(record.speakers),
+                str(record.total_lines) if record.total_lines is not None else "—",
                 format_history_duration(record.duration_seconds),
                 str(record.seed) if record.seed is not None else "—",
                 "Yes" if record.can_reload else "No",
@@ -253,10 +273,16 @@ def build_history_detail_response(
 
     lines = [f"### History Record {record.id}"]
     lines.append(f"**Project:** {record.project}")
+    lines.append(f"**Mode:** {format_history_mode(record.mode)}")
     lines.append(f"**Preset:** {format_history_preset(record.preset)}")
     lines.append(f"**Timestamp:** {record.timestamp}")
     lines.append(f"**Engine:** {record.engine or '—'}")
     lines.append(f"**Voice / Narrator:** {voice_narrator or '—'}")
+    lines.append(f"**Characters / Speakers:** {format_history_characters(record.speakers)}")
+    lines.append(
+        f"**Speaker Count:** {record.speaker_count if record.speaker_count is not None else '—'}"
+    )
+    lines.append(f"**Lines:** {record.total_lines if record.total_lines is not None else '—'}")
     lines.append(f"**Audio Length:** {format_history_duration(record.duration_seconds)}")
     lines.append(f"**Seed:** {record.seed if record.seed is not None else '—'}")
     lines.append(f"**Audio Format:** {audio_format or '—'}")
@@ -444,7 +470,9 @@ __all__ = [
     "build_history_settings_lines",
     "build_history_table_select_response",
     "coerce_history_record_id",
+    "format_history_characters",
     "format_history_duration",
+    "format_history_mode",
     "format_history_preset",
     "format_history_rows",
     "normalize_history_filter_text",

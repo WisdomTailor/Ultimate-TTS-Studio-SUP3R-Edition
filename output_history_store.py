@@ -12,12 +12,16 @@ CREATE TABLE IF NOT EXISTS output_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_json_path TEXT NOT NULL UNIQUE,
     project TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'single',
     preset TEXT NOT NULL DEFAULT '',
     timestamp TEXT NOT NULL,
     datetime_iso TEXT,
     engine TEXT,
     seed INTEGER,
     speaker TEXT,
+    speaker_count INTEGER,
+    speakers_json TEXT NOT NULL DEFAULT '[]',
+    total_lines INTEGER,
     chunks INTEGER,
     duration_seconds REAL,
     transform TEXT,
@@ -48,11 +52,15 @@ class OutputHistoryRecord:
     job_json_path: str
     project: str
     timestamp: str
+    mode: str = "single"
     preset: str = ""
     datetime_iso: str | None = None
     engine: str | None = None
     seed: int | None = None
     speaker: str | None = None
+    speaker_count: int | None = None
+    speakers: list[str] = field(default_factory=list)
+    total_lines: int | None = None
     chunks: int | None = None
     duration_seconds: float | None = None
     transform: str | None = None
@@ -74,12 +82,16 @@ class OutputHistoryRecord:
             id=row["id"],
             job_json_path=row["job_json_path"],
             project=row["project"],
+            mode=row["mode"],
             preset=row["preset"],
             timestamp=row["timestamp"],
             datetime_iso=row["datetime_iso"],
             engine=row["engine"],
             seed=row["seed"],
             speaker=row["speaker"],
+            speaker_count=row["speaker_count"],
+            speakers=json.loads(row["speakers_json"] or "[]"),
+            total_lines=row["total_lines"],
             chunks=row["chunks"],
             duration_seconds=row["duration_seconds"],
             transform=row["transform"],
@@ -99,12 +111,16 @@ class OutputHistoryRecord:
         return {
             "job_json_path": self.job_json_path,
             "project": self.project,
+            "mode": self.mode,
             "preset": self.preset,
             "timestamp": self.timestamp,
             "datetime_iso": self.datetime_iso,
             "engine": self.engine,
             "seed": self.seed,
             "speaker": self.speaker,
+            "speaker_count": self.speaker_count,
+            "speakers_json": json.dumps(self.speakers, ensure_ascii=False),
+            "total_lines": self.total_lines,
             "chunks": self.chunks,
             "duration_seconds": self.duration_seconds,
             "transform": self.transform,
@@ -133,8 +149,22 @@ class OutputHistoryStore:
             columns = {
                 str(row["name"]) for row in connection.execute("PRAGMA table_info(output_history)")
             }
-            if "duration_seconds" not in columns:
-                connection.execute("ALTER TABLE output_history ADD COLUMN duration_seconds REAL")
+            migration_columns = {
+                "mode": "TEXT NOT NULL DEFAULT 'single'",
+                "speaker_count": "INTEGER",
+                "speakers_json": "TEXT NOT NULL DEFAULT '[]'",
+                "total_lines": "INTEGER",
+                "duration_seconds": "REAL",
+            }
+            for column_name, definition in migration_columns.items():
+                if column_name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE output_history ADD COLUMN {column_name} {definition}"
+                    )
+
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_output_history_mode ON output_history(mode)"
+            )
 
     def upsert_record(self, record: OutputHistoryRecord) -> OutputHistoryRecord:
         """Insert or update a record keyed by canonical job bundle path."""
@@ -143,12 +173,16 @@ class OutputHistoryStore:
         INSERT INTO output_history (
             job_json_path,
             project,
+            mode,
             preset,
             timestamp,
             datetime_iso,
             engine,
             seed,
             speaker,
+            speaker_count,
+            speakers_json,
+            total_lines,
             chunks,
             duration_seconds,
             transform,
@@ -162,12 +196,16 @@ class OutputHistoryStore:
         ) VALUES (
             :job_json_path,
             :project,
+            :mode,
             :preset,
             :timestamp,
             :datetime_iso,
             :engine,
             :seed,
             :speaker,
+            :speaker_count,
+            :speakers_json,
+            :total_lines,
             :chunks,
             :duration_seconds,
             :transform,
@@ -181,12 +219,16 @@ class OutputHistoryStore:
         )
         ON CONFLICT(job_json_path) DO UPDATE SET
             project = excluded.project,
+            mode = excluded.mode,
             preset = excluded.preset,
             timestamp = excluded.timestamp,
             datetime_iso = excluded.datetime_iso,
             engine = excluded.engine,
             seed = excluded.seed,
             speaker = excluded.speaker,
+            speaker_count = excluded.speaker_count,
+            speakers_json = excluded.speakers_json,
+            total_lines = excluded.total_lines,
             chunks = excluded.chunks,
             duration_seconds = excluded.duration_seconds,
             transform = excluded.transform,
@@ -270,16 +312,18 @@ class OutputHistoryStore:
                 + " OR ".join(
                     [
                         "project LIKE ?",
+                        "mode LIKE ?",
                         "preset LIKE ?",
                         "engine LIKE ?",
                         "speaker LIKE ?",
+                        "speakers_json LIKE ?",
                         "transform LIKE ?",
                         "timestamp LIKE ?",
                     ]
                 )
                 + ")"
             )
-            params.extend([like_value] * 6)
+            params.extend([like_value] * 8)
 
         params.extend([limit, offset])
         sql = (

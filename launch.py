@@ -1138,6 +1138,7 @@ def generate_conversation_audio_simple(
             "metadata_file": meta_path,
             "script_file": script_path,
         }
+        summary["saved_audio_path"] = filepath
 
         print(
             f"✅ Conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
@@ -1411,6 +1412,7 @@ def generate_conversation_audio_kokoro(
             "metadata_file": meta_path,
             "script_file": script_path,
         }
+        summary["saved_audio_path"] = filepath
 
         print(
             f"✅ Kokoro conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
@@ -1646,6 +1648,7 @@ def generate_conversation_audio_kitten(
             "metadata_file": meta_path,
             "script_file": script_path,
         }
+        summary["saved_audio_path"] = filepath
 
         print(
             f"✅ KittenTTS conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
@@ -1929,6 +1932,7 @@ def generate_conversation_audio_indextts2(
             "metadata_file": meta_path,
             "script_file": script_path,
         }
+        summary["saved_audio_path"] = filepath
 
         print(
             f"✅ IndexTTS2 conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
@@ -3139,6 +3143,154 @@ def write_generation_sidecar_metadata(
             file.write(script_text)
 
     return meta_path, script_path
+
+
+def _normalize_conversation_speaker_list(speakers: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for speaker in speakers or []:
+        speaker_name = str(speaker or "").strip()
+        if not speaker_name:
+            continue
+        lowered = speaker_name.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        normalized.append(speaker_name)
+    return normalized
+
+
+def _summarize_conversation_speakers(speakers: list[str]) -> str:
+    if not speakers:
+        return ""
+    if len(speakers) <= 2:
+        return ", ".join(speakers)
+    return f"{', '.join(speakers[:2])} +{len(speakers) - 2}"
+
+
+def _build_conversation_speaker_assignments(
+    speakers: list[str],
+    *,
+    selected_engine: str,
+    voice_samples: list | None = None,
+    ref_texts: list | None = None,
+    kokoro_voices: list | None = None,
+    kitten_voices: list | None = None,
+    emotion_modes: list | None = None,
+    emotion_descriptions: list | None = None,
+    emotion_vectors: list | None = None,
+) -> list[dict[str, Any]]:
+    assignments: list[dict[str, Any]] = []
+    for index, speaker in enumerate(speakers):
+        assignment: dict[str, Any] = {"speaker": speaker}
+
+        if voice_samples and index < len(voice_samples) and voice_samples[index]:
+            sample_path = str(voice_samples[index]).strip()
+            assignment["reference_audio_path"] = sample_path
+            assignment["reference_audio_name"] = Path(sample_path).name
+
+        if ref_texts and index < len(ref_texts) and ref_texts[index]:
+            assignment["reference_text"] = str(ref_texts[index]).strip()
+
+        if selected_engine == "Kokoro TTS" and kokoro_voices and index < len(kokoro_voices):
+            assignment["assigned_voice"] = str(kokoro_voices[index] or "").strip()
+        elif selected_engine == "KittenTTS" and kitten_voices and index < len(kitten_voices):
+            assignment["assigned_voice"] = str(kitten_voices[index] or "").strip()
+
+        if selected_engine == "IndexTTS2":
+            if emotion_modes and index < len(emotion_modes) and emotion_modes[index]:
+                assignment["emotion_mode"] = str(emotion_modes[index]).strip()
+            if (
+                emotion_descriptions
+                and index < len(emotion_descriptions)
+                and emotion_descriptions[index]
+            ):
+                assignment["emotion_description"] = str(emotion_descriptions[index]).strip()
+            if emotion_vectors and index < len(emotion_vectors) and isinstance(emotion_vectors[index], dict):
+                assignment["emotion_vector"] = _json_safe(emotion_vectors[index])
+
+        assignments.append(
+            {
+                key: value
+                for key, value in assignment.items()
+                if value not in ("", None, [], {})
+            }
+        )
+
+    return assignments
+
+
+def _build_conversation_history_metadata(
+    *,
+    script_text: str,
+    summary: dict[str, Any],
+    selected_engine: str,
+    project_name: str,
+    audio_format: str,
+    pause_duration: float,
+    transition_pause: float,
+    voice_samples: list | None = None,
+    ref_texts: list | None = None,
+    kokoro_voices: list | None = None,
+    kitten_voices: list | None = None,
+    emotion_modes: list | None = None,
+    emotion_descriptions: list | None = None,
+    emotion_vectors: list | None = None,
+) -> dict[str, Any]:
+    speakers = _normalize_conversation_speaker_list(summary.get("speakers"))
+    if not speakers and isinstance(script_text, str) and script_text.strip():
+        try:
+            speakers = _normalize_conversation_speaker_list(get_speaker_names_from_script(script_text))
+        except Exception:
+            speakers = []
+
+    speaker_assignments = _build_conversation_speaker_assignments(
+        speakers,
+        selected_engine=selected_engine,
+        voice_samples=voice_samples,
+        ref_texts=ref_texts,
+        kokoro_voices=kokoro_voices,
+        kitten_voices=kitten_voices,
+        emotion_modes=emotion_modes,
+        emotion_descriptions=emotion_descriptions,
+        emotion_vectors=emotion_vectors,
+    )
+    speaker_summary = _summarize_conversation_speakers(speakers)
+
+    total_lines = int(summary.get("total_lines") or len(summary.get("conversation_info") or []))
+    try:
+        total_duration = float(summary.get("total_duration") or 0.0)
+    except (TypeError, ValueError):
+        total_duration = 0.0
+
+    return {
+        "mode": "conversation",
+        "project": project_name,
+        "engine": selected_engine,
+        "speaker": speaker_summary,
+        "speakers": speakers,
+        "speaker_count": len(speakers),
+        "total_lines": total_lines,
+        "duration_seconds": total_duration,
+        "total_duration_seconds": total_duration,
+        "audio_format": audio_format,
+        "conversation_pause_duration": pause_duration,
+        "speaker_transition_pause": transition_pause,
+        "conversation_info": _json_safe(summary.get("conversation_info") or []),
+        "speaker_assignments": speaker_assignments,
+        "reload_snapshot": {
+            "schema_version": 1,
+            "active_engine": selected_engine,
+            "control_values": {
+                "tts_engine": selected_engine,
+                "audio_format": audio_format,
+                "speaker_name": speaker_summary,
+                "autosave_project_name": project_name,
+                "last_seed_state": None,
+            },
+            "excluded_controls": [],
+        },
+    }
 
 
 # Create necessary folders
@@ -13167,10 +13319,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             headers=[
                                 "ID",
                                 "Project",
+                                "Mode",
                                 "Preset",
                                 "Timestamp",
                                 "Engine",
                                 "Voice / Narrator",
+                                "Characters",
+                                "Lines",
                                 "Audio Length",
                                 "Seed",
                                 "Reload",
@@ -13185,8 +13340,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 "str",
                                 "str",
                                 "str",
+                                "str",
+                                "str",
+                                "str",
                             ],
-                            value=[["—", "No history yet", "—", "—", "—", "—", "—", "—", "—"]],
+                            value=[["—", "No history yet", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—"]],
                             label="Persisted Output Bundles",
                             interactive=False,
                             wrap=True,
@@ -19148,6 +19306,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             kitten_voices,
             selected_engine,
             project_name=None,
+            autosave_enabled=True,
+            autosave_store_audio_copy=True,
+            keep_legacy_output_copy=True,
             emotion_modes=None,
             emotion_audios=None,
             emotion_descriptions=None,
@@ -19223,7 +19384,89 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     return None, result[1]
 
                 audio_data, summary = result
+                conversation_metadata = _build_conversation_history_metadata(
+                    script_text=script_text,
+                    summary=summary if isinstance(summary, dict) else {},
+                    selected_engine=selected_engine,
+                    project_name=resolved_project,
+                    audio_format=audio_format,
+                    pause_duration=pause_duration,
+                    transition_pause=transition_pause,
+                    voice_samples=voice_samples,
+                    ref_texts=ref_texts,
+                    kokoro_voices=kokoro_voices,
+                    kitten_voices=kitten_voices,
+                    emotion_modes=emotion_modes,
+                    emotion_descriptions=emotion_descriptions,
+                    emotion_vectors=emotion_vectors,
+                )
+
+                saved_audio_path = ""
+                if isinstance(summary, dict):
+                    saved_audio_path = str(summary.get("saved_audio_path") or "").strip()
+
+                if saved_audio_path:
+                    rich_meta_path, rich_script_path = write_generation_sidecar_metadata(
+                        saved_audio_path,
+                        conversation_metadata,
+                        script_text,
+                        original_text=script_text,
+                        transformed_text=script_text,
+                    )
+                    if isinstance(summary, dict):
+                        summary["metadata_file"] = rich_meta_path
+                        summary["script_file"] = rich_script_path
+
+                history_status_lines = []
+                autosave_paths = None
+                if autosave_enabled:
+                    try:
+                        autosave_paths, autosave_error = autosave_generation_artifacts(
+                            audio_data,
+                            script_text,
+                            audio_format,
+                            resolved_project,
+                            conversation_metadata.get("speaker") or "conversation",
+                            conversation_metadata,
+                            source_audio_path=saved_audio_path or None,
+                            store_audio_copy=bool(autosave_store_audio_copy),
+                            original_text_input=script_text,
+                            transformed_text_input=script_text,
+                        )
+                        if autosave_paths:
+                            from output_history_service import upsert_meta_file
+
+                            history_record = upsert_meta_file(autosave_paths["meta_path"])
+                            history_status_lines.append(
+                                f"History index: {history_record.job_json_path}"
+                            )
+                        if autosave_error:
+                            history_status_lines.append(f"Autosave failed: {autosave_error}")
+                    except Exception as history_error:
+                        history_status_lines.append(
+                            f"History capture failed: {history_error}"
+                        )
+
+                if (
+                    autosave_enabled
+                    and saved_audio_path
+                    and autosave_paths
+                    and not keep_legacy_output_copy
+                ):
+                    saved_audio_abs = os.path.abspath(saved_audio_path)
+                    autosave_audio_abs = os.path.abspath(autosave_paths.get("audio_path", ""))
+                    if saved_audio_abs != autosave_audio_abs and os.path.exists(saved_audio_abs):
+                        try:
+                            os.remove(saved_audio_abs)
+                            history_status_lines.append(f"Legacy output removed: {saved_audio_abs}")
+                        except Exception as cleanup_error:
+                            history_status_lines.append(
+                                f"Legacy output cleanup failed: {cleanup_error}"
+                            )
+
                 summary_text = format_conversation_info(summary)
+                if history_status_lines:
+                    summary_text = summary_text + "\n\n" + "\n".join(history_status_lines)
 
                 print(f"✅ Conversation generated successfully")
                 return audio_data, summary_text
@@ -19603,7 +19846,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         )
 
         generate_conversation_btn.click(
-            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, rt1, rt2, rt3, rt4, rt5, kv1, kv2, kv3, kv4, kv5, ktv1, ktv2, ktv3, ktv4, ktv5, engine, project_name, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5: handle_generate_conversation_advanced(
+            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, rt1, rt2, rt3, rt4, rt5, kv1, kv2, kv3, kv4, kv5, ktv1, ktv2, ktv3, ktv4, ktv5, engine, project_name, autosave_on, autosave_copy, keep_legacy, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5: handle_generate_conversation_advanced(
                 script,
                 pause,
                 trans_pause,
@@ -19614,6 +19857,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 [ktv1, ktv2, ktv3, ktv4, ktv5],
                 engine,
                 project_name,
+                autosave_on,
+                autosave_copy,
+                keep_legacy,
                 # IndexTTS2 emotion parameters
                 [em1, em2, em3, em4, em5],  # emotion_modes
                 [ea1, ea2, ea3, ea4, ea5],  # emotion_audios
@@ -19688,6 +19934,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_5_kitten_voice,
                 tts_engine,  # Use the main TTS engine selector
                 autosave_project_name,
+                autosave_enabled,
+                autosave_store_audio_copy,
+                keep_legacy_output_copy,
                 # IndexTTS2 emotion controls
                 speaker_1_emotion_mode,
                 speaker_1_emotion_audio,
