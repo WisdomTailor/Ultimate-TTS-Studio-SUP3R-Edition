@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 import sys
 import wave
 from dataclasses import dataclass
@@ -22,7 +23,13 @@ from app.output_history_store import OutputHistoryRecord, OutputHistoryStore
 logger = logging.getLogger(__name__)
 
 TIMESTAMP_PATTERN = re.compile(r"(?P<timestamp>\d{8}_\d{6})$")
+RUN_BASE_SAFE_PATTERN = re.compile(r"[^\w\-.]+")
 MISSING_HISTORY_PRESET_NAMES = {"", "no_preset"}
+LEGACY_AUDIO_EXTENSIONS = {".wav", ".mp3"}
+LEGACY_IMPORT_PROJECT = "default"
+LEGACY_IMPORT_PRESET = "legacy_import"
+LEGACY_IMPORT_ENGINE = "Legacy Import"
+LEGACY_IMPORT_SCRIPT_PLACEHOLDER = "Recovered legacy output where source text was unavailable."
 VOICE_NARRATOR_METADATA_KEYS = (
     "speaker",
     "speaker_profile",
@@ -135,6 +142,168 @@ def _extract_timestamp(run_base: str) -> str:
     if not match:
         raise ValueError(f"Could not extract timestamp from run base '{run_base}'")
     return match.group("timestamp")
+
+
+def _sanitize_run_base_label(value: str | None, *, fallback: str) -> str:
+    cleaned = RUN_BASE_SAFE_PATTERN.sub("_", str(value or "").strip()).strip("._")
+    return cleaned[:80] or fallback
+
+
+def _derive_timestamp_from_audio_path(audio_path: Path) -> str:
+    match = TIMESTAMP_PATTERN.search(audio_path.stem)
+    if match:
+        return match.group("timestamp")
+    return datetime.fromtimestamp(audio_path.stat().st_mtime).strftime("%Y%m%d_%H%M%S")
+
+
+def _iter_legacy_audio_files(legacy_root: Path) -> list[Path]:
+    if not legacy_root.exists() or not legacy_root.is_dir():
+        return []
+    return sorted(
+        path
+        for path in legacy_root.iterdir()
+        if path.is_file() and path.suffix.lower() in LEGACY_AUDIO_EXTENSIONS
+    )
+
+
+def _load_optional_legacy_metadata(json_path: Path) -> tuple[dict[str, Any], bool]:
+    if not json_path.exists() or not json_path.is_file():
+        return {}, True
+
+    try:
+        raw_payload = json.loads(json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        logger.warning("Falling back to synthesized metadata for %s: %s", json_path, error)
+        return {}, True
+
+    if not isinstance(raw_payload, dict):
+        logger.warning("Falling back to synthesized metadata for %s: expected an object", json_path)
+        return {}, True
+    return raw_payload, False
+
+
+def _load_optional_legacy_script(script_path: Path) -> tuple[str, bool]:
+    if not script_path.exists() or not script_path.is_file():
+        return LEGACY_IMPORT_SCRIPT_PLACEHOLDER, True
+
+    try:
+        text = script_path.read_text(encoding="utf-8")
+    except OSError as error:
+        logger.warning("Falling back to synthesized script for %s: %s", script_path, error)
+        return LEGACY_IMPORT_SCRIPT_PLACEHOLDER, True
+
+    normalized = text.strip()
+    if not normalized:
+        return LEGACY_IMPORT_SCRIPT_PLACEHOLDER, True
+    return text, False
+
+
+def _build_import_run_base(preset: str, timestamp: str, *, suffix: str | None = None) -> str:
+    preset_label = _sanitize_run_base_label(preset, fallback=LEGACY_IMPORT_PRESET)
+    suffix_label = _sanitize_run_base_label(suffix, fallback="import") if suffix else ""
+    middle = f"{preset_label}_{suffix_label}" if suffix_label else preset_label
+    return f"{LEGACY_IMPORT_PROJECT}_{middle}_{timestamp}"
+
+
+def _bundle_exists(project_root: Path, run_base: str) -> bool:
+    return any(
+        [
+            any(project_root.joinpath("audio").glob(f"{run_base}.*")),
+            (project_root / "meta" / f"{run_base}.json").exists(),
+            (project_root / "scripts" / f"{run_base}.txt").exists(),
+            (project_root / "jobs" / f"{run_base}.job.json").exists(),
+        ]
+    )
+
+
+def _allocate_import_run_base(project_root: Path, preset: str, timestamp: str) -> str:
+    run_base = _build_import_run_base(preset, timestamp)
+    counter = 2
+    while _bundle_exists(project_root, run_base):
+        run_base = _build_import_run_base(preset, timestamp, suffix=str(counter))
+        counter += 1
+    return run_base
+
+
+def _index_existing_legacy_imports(autosave_root: Path) -> dict[str, Path]:
+    existing: dict[str, Path] = {}
+    for meta_path in sorted(autosave_root.glob("*/meta/*.json")):
+        try:
+            metadata = _read_json(meta_path)
+        except Exception:
+            continue
+
+        legacy_import = metadata.get("legacy_import")
+        if not isinstance(legacy_import, dict):
+            continue
+
+        source_audio = normalize_path(legacy_import.get("source_audio"))
+        if source_audio:
+            existing[source_audio] = meta_path
+    return existing
+
+
+def _build_legacy_import_metadata(
+    *,
+    run_base: str,
+    timestamp: str,
+    canonical_audio_path: Path,
+    canonical_script_path: Path,
+    canonical_meta_path: Path,
+    legacy_audio_path: Path,
+    legacy_json_path: Path,
+    legacy_script_path: Path,
+    legacy_metadata: dict[str, Any],
+    script_text: str,
+) -> dict[str, Any]:
+    metadata = dict(legacy_metadata)
+    preset = _clean_metadata_text(metadata.get("preset")) or LEGACY_IMPORT_PRESET
+    engine = _clean_metadata_text(metadata.get("engine")) or LEGACY_IMPORT_ENGINE
+    speaker = resolve_voice_narrator(metadata)
+    timestamp_iso = _timestamp_to_iso(timestamp) or datetime.fromtimestamp(
+        legacy_audio_path.stat().st_mtime
+    ).isoformat(timespec="seconds")
+
+    metadata.update(
+        {
+            "project": LEGACY_IMPORT_PROJECT,
+            "preset": preset,
+            "engine": engine,
+            "timestamp": timestamp_iso,
+            "audio_format": legacy_audio_path.suffix.lstrip(".").lower(),
+            "paths": {
+                "audio": canonical_audio_path.resolve(strict=False).as_posix(),
+                "script": canonical_script_path.resolve(strict=False).as_posix(),
+                "meta": canonical_meta_path.resolve(strict=False).as_posix(),
+            },
+            "legacy_import": {
+                "source_audio": normalize_path(legacy_audio_path),
+                "source_meta": normalize_path(legacy_json_path) if legacy_json_path.exists() else None,
+                "source_script": (
+                    normalize_path(legacy_script_path) if legacy_script_path.exists() else None
+                ),
+                "source_stem": legacy_audio_path.stem,
+                "imported_run_base": run_base,
+                "imported_at": datetime.now().isoformat(timespec="seconds"),
+            },
+        }
+    )
+    if speaker:
+        metadata["speaker"] = speaker
+
+    duration_seconds = _probe_wav_duration_seconds(normalize_path(canonical_audio_path))
+    if duration_seconds is not None:
+        metadata["duration_seconds"] = duration_seconds
+
+    if script_text:
+        metadata.setdefault(
+            "text_versions",
+            {
+                "original": {"chars": len(script_text)},
+                "transformed": {"chars": len(script_text)},
+            },
+        )
+    return metadata
 
 
 def _infer_preset(run_base: str, project: str, timestamp: str) -> str:
@@ -441,6 +610,92 @@ def reindex_root(
     return records
 
 
+def import_legacy_outputs(
+    legacy_root: str | Path,
+    autosave_root: str | Path,
+    *,
+    store: OutputHistoryStore | None = None,
+    db_path: str | Path | None = None,
+) -> dict[str, int]:
+    """Import flat legacy outputs into canonical autosave bundles under the default project."""
+    legacy_root_path = Path(legacy_root).expanduser().resolve(strict=False)
+    autosave_root_path = Path(autosave_root).expanduser().resolve(strict=False)
+    project_root = autosave_root_path / LEGACY_IMPORT_PROJECT
+    for folder_name in ("audio", "meta", "scripts"):
+        (project_root / folder_name).mkdir(parents=True, exist_ok=True)
+
+    active_store = store or OutputHistoryStore(
+        db_path or default_db_path_for_autosave_root(autosave_root_path)
+    )
+    existing_imports = _index_existing_legacy_imports(autosave_root_path)
+    summary = {
+        "imported": 0,
+        "skipped": 0,
+        "synthesized_meta": 0,
+        "synthesized_script": 0,
+        "errors": 0,
+    }
+
+    for audio_path in _iter_legacy_audio_files(legacy_root_path):
+        normalized_source_audio = normalize_path(audio_path)
+        if not normalized_source_audio:
+            summary["errors"] += 1
+            continue
+
+        existing_meta_path = existing_imports.get(normalized_source_audio)
+        if existing_meta_path and existing_meta_path.exists():
+            upsert_meta_file(existing_meta_path, store=active_store)
+            summary["skipped"] += 1
+            continue
+
+        try:
+            legacy_json_path = audio_path.with_suffix(".json")
+            legacy_script_path = audio_path.with_suffix(".txt")
+            legacy_metadata, synthesized_meta = _load_optional_legacy_metadata(legacy_json_path)
+            script_text, synthesized_script = _load_optional_legacy_script(legacy_script_path)
+
+            timestamp = _derive_timestamp_from_audio_path(audio_path)
+            preset = _clean_metadata_text(legacy_metadata.get("preset")) or LEGACY_IMPORT_PRESET
+            run_base = _allocate_import_run_base(project_root, preset, timestamp)
+
+            canonical_audio_path = project_root / "audio" / f"{run_base}{audio_path.suffix.lower()}"
+            canonical_script_path = project_root / "scripts" / f"{run_base}.txt"
+            canonical_meta_path = project_root / "meta" / f"{run_base}.json"
+
+            shutil.copy2(audio_path, canonical_audio_path)
+            canonical_script_path.write_text(script_text, encoding="utf-8")
+
+            metadata = _build_legacy_import_metadata(
+                run_base=run_base,
+                timestamp=timestamp,
+                canonical_audio_path=canonical_audio_path,
+                canonical_script_path=canonical_script_path,
+                canonical_meta_path=canonical_meta_path,
+                legacy_audio_path=audio_path,
+                legacy_json_path=legacy_json_path,
+                legacy_script_path=legacy_script_path,
+                legacy_metadata=legacy_metadata,
+                script_text=script_text,
+            )
+            canonical_meta_path.write_text(
+                json.dumps(metadata, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            upsert_meta_file(canonical_meta_path, store=active_store)
+            existing_imports[normalized_source_audio] = canonical_meta_path
+            summary["imported"] += 1
+            if synthesized_meta:
+                summary["synthesized_meta"] += 1
+            if synthesized_script:
+                summary["synthesized_script"] += 1
+        except Exception as error:
+            summary["errors"] += 1
+            logger.warning("Failed to import legacy output %s: %s", audio_path, error)
+
+    return summary
+
+
 def resolve_playback_path(record: OutputHistoryRecord, autosave_root: str | Path) -> str:
     """Return a validated playable file path for a history record."""
     for candidate in (record.autosave_audio_path, record.manual_audio_path):
@@ -536,6 +791,7 @@ __all__ = [
     "create_or_repair_job_json",
     "default_db_path_for_autosave_root",
     "feature_storage_root_from_autosave_root",
+    "import_legacy_outputs",
     "is_history_preset_missing",
     "is_path_within_root",
     "normalize_path",

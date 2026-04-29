@@ -13188,6 +13188,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 size="sm",
                                 elem_classes=["fade-in"],
                             )
+                            history_import_btn = gr.Button(
+                                "Import Legacy Outputs",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
 
                         with gr.Row():
                             history_record_id_input = gr.Textbox(
@@ -16067,6 +16073,61 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 )
                 return rows, f"❌ Reindex failed: {error}\n\n{detail}", audio_value
 
+        def handle_history_import(
+            query,
+            project,
+            preset,
+            seed,
+            speaker,
+            from_timestamp,
+            to_timestamp,
+            record_id,
+        ):
+            from output_history_service import import_legacy_outputs
+
+            try:
+                settings = load_app_state_settings()
+                legacy_root = get_runtime_output_dir("outputs", settings)
+                store, autosave_root = _get_history_store_and_root()
+                summary = import_legacy_outputs(legacy_root, autosave_root, store=store)
+                rows, detail, audio_value = handle_history_panel_refresh(
+                    query,
+                    project,
+                    preset,
+                    seed,
+                    speaker,
+                    from_timestamp,
+                    to_timestamp,
+                    record_id,
+                )
+                prefix = (
+                    "✅ Legacy import scan complete. "
+                    f"Imported {summary['imported']} item(s), "
+                    f"skipped {summary['skipped']}, "
+                    f"synthesized metadata for {summary['synthesized_meta']}, "
+                    f"synthesized script for {summary['synthesized_script']}, "
+                    f"errors {summary['errors']}."
+                )
+                if detail.startswith("No indexed autosave history yet") or detail.startswith(
+                    "No history record selected yet"
+                ):
+                    detail = prefix
+                else:
+                    detail = f"{prefix}\n\n{detail}"
+                return rows, detail, audio_value
+            except Exception as error:
+                rows, detail, audio_value = handle_history_panel_refresh(
+                    query,
+                    project,
+                    preset,
+                    seed,
+                    speaker,
+                    from_timestamp,
+                    to_timestamp,
+                    record_id,
+                )
+                return rows, f"❌ Legacy import failed: {error}\n\n{detail}", audio_value
+
         def handle_history_reload(record_id):
             from output_history_service import build_reload_payload
 
@@ -17686,6 +17747,21 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         history_reindex_btn.click(
             fn=handle_history_reindex,
+            inputs=[
+                history_query_input,
+                history_project_filter_input,
+                history_preset_filter_input,
+                history_seed_filter_input,
+                history_speaker_filter_input,
+                history_from_timestamp_input,
+                history_to_timestamp_input,
+                history_record_id_input,
+            ],
+            outputs=[history_table, history_detail_output, history_audio_output],
+        )
+
+        history_import_btn.click(
+            fn=handle_history_import,
             inputs=[
                 history_query_input,
                 history_project_filter_input,

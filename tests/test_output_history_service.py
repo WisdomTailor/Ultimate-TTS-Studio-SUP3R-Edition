@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import wave
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -18,6 +21,7 @@ from output_history_service import (
     build_reload_payload,
     default_db_path_for_autosave_root,
     feature_storage_root_from_autosave_root,
+    import_legacy_outputs,
     is_path_within_root,
     reindex_root,
     resolve_playback_path,
@@ -113,6 +117,15 @@ def _write_fixture_bundle(tmp_path: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return autosave_root, meta_path
+
+
+def _write_valid_wav(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(16000)
+        wav_file.writeframes(b"\x00\x00" * 160)
 
 
 class TestOutputHistoryService:
@@ -228,3 +241,116 @@ class TestOutputHistoryService:
             "Confidence Narration"
         )
         assert payload["reload_snapshot"]["control_values"]["last_seed_state"] == 501928455
+
+    def test_import_legacy_outputs_imports_complete_trio(self, tmp_path: Path) -> None:
+        legacy_root = tmp_path / "outputs"
+        autosave_root = tmp_path / "app_state_outputs"
+        store = OutputHistoryStore(tmp_path / "outputs.db")
+        audio_path = legacy_root / "legacy_clip_20260425_042128.wav"
+        text_path = legacy_root / "legacy_clip_20260425_042128.txt"
+        json_path = legacy_root / "legacy_clip_20260425_042128.json"
+        _write_valid_wav(audio_path)
+        text_path.write_text("Recovered script from legacy output.", encoding="utf-8")
+        json_path.write_text(
+            json.dumps(
+                {
+                    "project": "old_project",
+                    "preset": "archived_voice",
+                    "engine": "Fish Speech",
+                    "speaker": "Legacy Narrator",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        summary = import_legacy_outputs(legacy_root, autosave_root, store=store)
+
+        assert summary == {
+            "imported": 1,
+            "skipped": 0,
+            "synthesized_meta": 0,
+            "synthesized_script": 0,
+            "errors": 0,
+        }
+        records = store.list_records(limit=10)
+        assert len(records) == 1
+        record = records[0]
+        assert record.project == "default"
+        assert record.preset == "archived_voice"
+        assert record.timestamp == "20260425_042128"
+        assert record.speaker == "Legacy Narrator"
+        assert record.autosave_audio_path is not None
+        assert record.autosave_meta_path is not None
+        assert Path(record.autosave_audio_path).exists()
+        assert record.autosave_scripts == [
+            (autosave_root / "default" / "scripts" / "default_archived_voice_20260425_042128.txt")
+            .resolve()
+            .as_posix()
+        ]
+        imported_meta = json.loads(Path(record.autosave_meta_path).read_text(encoding="utf-8"))
+        assert imported_meta["legacy_import"]["source_audio"] == audio_path.resolve().as_posix()
+        assert Path(imported_meta["paths"]["audio"]).name == "default_archived_voice_20260425_042128.wav"
+        assert Path(imported_meta["paths"]["script"]).read_text(encoding="utf-8") == (
+            "Recovered script from legacy output."
+        )
+
+    def test_import_legacy_outputs_synthesizes_missing_metadata_and_script(self, tmp_path: Path) -> None:
+        legacy_root = tmp_path / "outputs"
+        autosave_root = tmp_path / "app_state_outputs"
+        store = OutputHistoryStore(tmp_path / "outputs.db")
+        audio_path = legacy_root / "orphan_clip.wav"
+        _write_valid_wav(audio_path)
+        mtime = datetime(2026, 4, 26, 5, 6, 7).timestamp()
+        os.utime(audio_path, (mtime, mtime))
+
+        summary = import_legacy_outputs(legacy_root, autosave_root, store=store)
+
+        assert summary == {
+            "imported": 1,
+            "skipped": 0,
+            "synthesized_meta": 1,
+            "synthesized_script": 1,
+            "errors": 0,
+        }
+        records = store.list_records(limit=10)
+        assert len(records) == 1
+        record = records[0]
+        assert record.timestamp == datetime.fromtimestamp(mtime).strftime("%Y%m%d_%H%M%S")
+        assert record.autosave_meta_path is not None
+        imported_meta = json.loads(Path(record.autosave_meta_path).read_text(encoding="utf-8"))
+        assert imported_meta["preset"] == "legacy_import"
+        assert imported_meta["project"] == "default"
+        assert imported_meta["engine"] == "Legacy Import"
+        assert Path(imported_meta["paths"]["script"]).read_text(encoding="utf-8") == (
+            "Recovered legacy output where source text was unavailable."
+        )
+
+    def test_import_legacy_outputs_is_idempotent_for_repeated_runs(self, tmp_path: Path) -> None:
+        legacy_root = tmp_path / "outputs"
+        autosave_root = tmp_path / "app_state_outputs"
+        store = OutputHistoryStore(tmp_path / "outputs.db")
+        audio_path = legacy_root / "repeat_clip_20260425_042128.wav"
+        _write_valid_wav(audio_path)
+
+        first_summary = import_legacy_outputs(legacy_root, autosave_root, store=store)
+        records_after_first = store.list_records(limit=10)
+        assert len(records_after_first) == 1
+        first_record = records_after_first[0]
+        assert first_record.autosave_meta_path is not None
+        first_meta_contents = Path(first_record.autosave_meta_path).read_text(encoding="utf-8")
+
+        second_summary = import_legacy_outputs(legacy_root, autosave_root, store=store)
+        records_after_second = store.list_records(limit=10)
+
+        assert first_summary["imported"] == 1
+        assert second_summary == {
+            "imported": 0,
+            "skipped": 1,
+            "synthesized_meta": 0,
+            "synthesized_script": 0,
+            "errors": 0,
+        }
+        assert len(records_after_second) == 1
+        assert records_after_second[0].job_json_path == first_record.job_json_path
+        assert Path(first_record.autosave_meta_path).read_text(encoding="utf-8") == first_meta_contents
