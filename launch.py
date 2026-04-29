@@ -2414,10 +2414,40 @@ def compute_gradio_allowed_paths(settings: dict | None = None) -> list[str]:
 HISTORY_AUDIO_PROXY_PATH_TEMPLATE = "/api/history/audio/{record_id}"
 
 
-def build_history_audio_proxy_url(record_id: int | None) -> str | None:
+def build_history_audio_proxy_url(
+    record_id: int | None,
+    request: gr.Request | None = None,
+) -> str | None:
     if record_id is None:
         return None
-    return HISTORY_AUDIO_PROXY_PATH_TEMPLATE.format(record_id=record_id)
+
+    relative_path = HISTORY_AUDIO_PROXY_PATH_TEMPLATE.format(record_id=record_id)
+    if request is None:
+        return relative_path
+
+    try:
+        request_url = getattr(request, "request", None)
+        headers = getattr(request, "headers", {}) or {}
+        scheme = headers.get("x-forwarded-proto")
+        if not scheme and request_url is not None and getattr(request_url, "url", None) is not None:
+            scheme = request_url.url.scheme
+        if not scheme:
+            scheme = "http"
+
+        host = headers.get("x-forwarded-host") or headers.get("host")
+        if not host and request_url is not None and getattr(request_url, "url", None) is not None:
+            host = request_url.url.netloc
+
+        root_path = ""
+        if request_url is not None and hasattr(request_url, "scope"):
+            root_path = str(request_url.scope.get("root_path") or "").rstrip("/")
+
+        if host:
+            return f"{scheme}://{host}{root_path}{relative_path}"
+    except Exception:
+        pass
+
+    return relative_path
 
 
 def register_history_audio_proxy_route(demo: gr.Blocks) -> None:
@@ -15898,7 +15928,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 )
             return rows
 
-        def handle_history_detail(record_id):
+        def handle_history_detail(record_id, request: gr.Request | None = None):
             from output_history_ui import (
                 build_history_detail_response,
                 build_history_preview_placeholder,
@@ -15909,7 +15939,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 record_id,
                 store=store,
                 autosave_root=autosave_root,
-                audio_proxy_url_builder=build_history_audio_proxy_url,
+                audio_proxy_url_builder=lambda selected_record_id: build_history_audio_proxy_url(
+                    selected_record_id,
+                    request,
+                ),
             )
             return detail, audio_value, build_history_preview_placeholder(record_id)
 
@@ -15922,6 +15955,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             from_timestamp,
             to_timestamp,
             record_id,
+            request: gr.Request | None = None,
         ):
             from output_history_ui import build_history_panel_refresh_response
 
@@ -15929,7 +15963,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
             return build_history_panel_refresh_response(
                 store=store,
                 autosave_root=autosave_root,
-                audio_proxy_url_builder=build_history_audio_proxy_url,
+                audio_proxy_url_builder=lambda selected_record_id: build_history_audio_proxy_url(
+                    selected_record_id,
+                    request,
+                ),
                 query=query,
                 project=project,
                 preset=preset,
@@ -15949,6 +15986,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             from_timestamp,
             to_timestamp,
             record_id,
+            request: gr.Request | None = None,
         ):
             from output_history_service import reindex_root
 
@@ -15964,6 +16002,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     from_timestamp,
                     to_timestamp,
                     record_id,
+                    request,
                 )
                 prefix = f"✅ Reindexed {len(records)} autosave bundle(s)."
                 if detail.startswith("No indexed autosave history yet") or detail.startswith(
@@ -15983,6 +16022,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     from_timestamp,
                     to_timestamp,
                     record_id,
+                    request,
                 )
                 return rows, f"❌ Reindex failed: {error}\n\n{detail}", audio_value, preview_value
 
@@ -15995,6 +16035,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             from_timestamp,
             to_timestamp,
             record_id,
+            request: gr.Request | None = None,
         ):
             from output_history_service import import_legacy_outputs
 
@@ -16012,6 +16053,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     from_timestamp,
                     to_timestamp,
                     record_id,
+                    request,
                 )
                 prefix = (
                     "✅ Legacy import scan complete. "
@@ -16038,8 +16080,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     from_timestamp,
                     to_timestamp,
                     record_id,
+                    request,
                 )
-                return rows, f"❌ Legacy import failed: {error}\n\n{detail}", audio_value, preview_value
+                return (
+                    rows,
+                    f"❌ Legacy import failed: {error}\n\n{detail}",
+                    audio_value,
+                    preview_value,
+                )
 
         def handle_history_preview(record_id, preview_kind):
             from output_history_ui import build_history_preview_response
@@ -16052,7 +16100,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 autosave_root=autosave_root,
             )
 
-        def handle_history_table_select(evt, table_rows):
+        def handle_history_table_select(
+            evt,
+            table_rows,
+            request: gr.Request | None = None,
+        ):
             from output_history_ui import build_history_table_select_response
 
             row_index = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
@@ -16062,7 +16114,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 selected_row_index=row_index,
                 store=store,
                 autosave_root=autosave_root,
-                audio_proxy_url_builder=build_history_audio_proxy_url,
+                audio_proxy_url_builder=lambda selected_record_id: build_history_audio_proxy_url(
+                    selected_record_id,
+                    request,
+                ),
             )
 
         def handle_history_reload(record_id):
