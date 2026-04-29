@@ -24,6 +24,7 @@ import importlib.metadata as importlib_metadata
 import unicodedata
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Any, Optional
 from datetime import datetime
 from pathlib import Path
@@ -2421,33 +2422,39 @@ def build_history_audio_proxy_url(
     if record_id is None:
         return None
 
-    relative_path = HISTORY_AUDIO_PROXY_PATH_TEMPLATE.format(record_id=record_id)
-    if request is None:
+    def _prepend_root_path(relative_path: str) -> str:
+        if request is None:
+            return relative_path
+        try:
+            request_url = getattr(request, "request", None)
+            if request_url is not None and hasattr(request_url, "scope"):
+                root_path = str(request_url.scope.get("root_path") or "").rstrip("/")
+                if root_path and not relative_path.startswith(root_path + "/"):
+                    return f"{root_path}{relative_path}"
+        except Exception:
+            pass
         return relative_path
 
+    # Prefer Gradio's built-in file route after validating the resolved playback path.
     try:
-        request_url = getattr(request, "request", None)
-        headers = getattr(request, "headers", {}) or {}
-        scheme = headers.get("x-forwarded-proto")
-        if not scheme and request_url is not None and getattr(request_url, "url", None) is not None:
-            scheme = request_url.url.scheme
-        if not scheme:
-            scheme = "http"
+        from output_history_service import default_db_path_for_autosave_root, resolve_playback_path
+        from output_history_store import OutputHistoryStore
 
-        host = headers.get("x-forwarded-host") or headers.get("host")
-        if not host and request_url is not None and getattr(request_url, "url", None) is not None:
-            host = request_url.url.netloc
-
-        root_path = ""
-        if request_url is not None and hasattr(request_url, "scope"):
-            root_path = str(request_url.scope.get("root_path") or "").rstrip("/")
-
-        if host:
-            return f"{scheme}://{host}{root_path}{relative_path}"
+        settings = load_app_state_settings()
+        autosave_root = get_runtime_output_dir("autosave", settings)
+        db_path = default_db_path_for_autosave_root(autosave_root)
+        store = OutputHistoryStore(db_path)
+        record = store.get_record(int(record_id))
+        if record is not None:
+            playback_path = resolve_playback_path(record, autosave_root)
+            resolved_playback = Path(playback_path).expanduser().resolve(strict=False).as_posix()
+            encoded_path = urllib.parse.quote(resolved_playback, safe=":/")
+            return _prepend_root_path(f"/gradio_api/file={encoded_path}")
     except Exception:
         pass
 
-    return relative_path
+    # Fallback to the local validated proxy route path.
+    return _prepend_root_path(HISTORY_AUDIO_PROXY_PATH_TEMPLATE.format(record_id=record_id))
 
 
 def register_history_audio_proxy_route(demo: gr.Blocks) -> None:
@@ -16208,6 +16215,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                 if value is missing:
                     updates.append(preserve)
+                elif control_name == "tts_engine":
+                    normalized_engine = str(value or "").strip()
+                    if normalized_engine.lower() == "legacy import":
+                        updates.append(preserve)
+                    else:
+                        updates.append(gr.update(value=value))
                 else:
                     updates.append(gr.update(value=value))
 
