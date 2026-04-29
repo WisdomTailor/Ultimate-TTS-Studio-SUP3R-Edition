@@ -30,6 +30,8 @@ LEGACY_IMPORT_PROJECT = "default"
 LEGACY_IMPORT_PRESET = "legacy_import"
 LEGACY_IMPORT_ENGINE = "Legacy Import"
 LEGACY_IMPORT_SCRIPT_PLACEHOLDER = "Recovered legacy output where source text was unavailable."
+HISTORY_PREVIEW_CURRENT_SCRIPT = "current_script"
+HISTORY_PREVIEW_METADATA_JSON = "metadata_json"
 VOICE_NARRATOR_METADATA_KEYS = (
     "speaker",
     "speaker_profile",
@@ -149,6 +151,52 @@ def _sanitize_run_base_label(value: str | None, *, fallback: str) -> str:
     return cleaned[:80] or fallback
 
 
+def _split_run_base_timestamp(run_base: str) -> tuple[str, str]:
+    timestamp = _extract_timestamp(run_base)
+    suffix = f"_{timestamp}"
+    if not run_base.endswith(suffix):
+        raise ValueError(f"Run base '{run_base}' does not end with expected timestamp suffix")
+    prefix = run_base[: -len(suffix)].rstrip("_")
+    return prefix, timestamp
+
+
+def add_run_base_collision_suffix(run_base: str, collision_index: int) -> str:
+    """Return a deterministic collision-safe run base preserving the terminal timestamp."""
+    if collision_index < 1:
+        return run_base
+
+    prefix, timestamp = _split_run_base_timestamp(run_base)
+    return f"{prefix}_{collision_index:02d}_{timestamp}" if prefix else f"{collision_index:02d}_{timestamp}"
+
+
+def bundle_exists(project_root: str | Path, run_base: str) -> bool:
+    project_root_path = Path(project_root).expanduser().resolve(strict=False)
+    return any(
+        [
+            any(project_root_path.joinpath("audio").glob(f"{run_base}.*")),
+            (project_root_path / "meta" / f"{run_base}.json").exists(),
+            (project_root_path / "scripts" / f"{run_base}.txt").exists(),
+            (project_root_path / "scripts" / f"{run_base}.original.txt").exists(),
+            (project_root_path / "scripts" / f"{run_base}.transformed.txt").exists(),
+            (project_root_path / "jobs" / f"{run_base}.job.json").exists(),
+        ]
+    )
+
+
+def allocate_collision_safe_run_base(project_root: str | Path, preferred_run_base: str) -> str:
+    """Allocate a run base that does not collide with existing canonical bundle artifacts."""
+    project_root_path = Path(project_root).expanduser().resolve(strict=False)
+    if not bundle_exists(project_root_path, preferred_run_base):
+        return preferred_run_base
+
+    collision_index = 1
+    while True:
+        candidate = add_run_base_collision_suffix(preferred_run_base, collision_index)
+        if not bundle_exists(project_root_path, candidate):
+            return candidate
+        collision_index += 1
+
+
 def _derive_timestamp_from_audio_path(audio_path: Path) -> str:
     match = TIMESTAMP_PATTERN.search(audio_path.stem)
     if match:
@@ -205,24 +253,8 @@ def _build_import_run_base(preset: str, timestamp: str, *, suffix: str | None = 
     return f"{LEGACY_IMPORT_PROJECT}_{middle}_{timestamp}"
 
 
-def _bundle_exists(project_root: Path, run_base: str) -> bool:
-    return any(
-        [
-            any(project_root.joinpath("audio").glob(f"{run_base}.*")),
-            (project_root / "meta" / f"{run_base}.json").exists(),
-            (project_root / "scripts" / f"{run_base}.txt").exists(),
-            (project_root / "jobs" / f"{run_base}.job.json").exists(),
-        ]
-    )
-
-
 def _allocate_import_run_base(project_root: Path, preset: str, timestamp: str) -> str:
-    run_base = _build_import_run_base(preset, timestamp)
-    counter = 2
-    while _bundle_exists(project_root, run_base):
-        run_base = _build_import_run_base(preset, timestamp, suffix=str(counter))
-        counter += 1
-    return run_base
+    return allocate_collision_safe_run_base(project_root, _build_import_run_base(preset, timestamp))
 
 
 def _index_existing_legacy_imports(autosave_root: Path) -> dict[str, Path]:
@@ -278,7 +310,9 @@ def _build_legacy_import_metadata(
             },
             "legacy_import": {
                 "source_audio": normalize_path(legacy_audio_path),
-                "source_meta": normalize_path(legacy_json_path) if legacy_json_path.exists() else None,
+                "source_meta": (
+                    normalize_path(legacy_json_path) if legacy_json_path.exists() else None
+                ),
                 "source_script": (
                     normalize_path(legacy_script_path) if legacy_script_path.exists() else None
                 ),
@@ -704,6 +738,59 @@ def resolve_playback_path(record: OutputHistoryRecord, autosave_root: str | Path
     raise ValueError("No playable audio path exists under the configured autosave root")
 
 
+def _resolve_validated_history_preview_path(
+    candidate: str | Path | None,
+    autosave_root: str | Path,
+    *,
+    label: str,
+) -> Path:
+    normalized = normalize_path(candidate)
+    if not normalized:
+        raise ValueError(f"No {label} is available for this history record")
+    if not is_path_within_root(normalized, autosave_root):
+        raise ValueError(f"{label.capitalize()} preview is only available under the autosave root")
+
+    path = Path(normalized)
+    if not path.exists() or not path.is_file():
+        raise ValueError(f"{label.capitalize()} file is missing: {normalized}")
+    return path
+
+
+def read_history_preview(record: OutputHistoryRecord, autosave_root: str | Path, preview_kind: str) -> dict[str, str]:
+    """Return validated preview content for a history record artifact."""
+    normalized_kind = str(preview_kind or "").strip().lower()
+
+    if normalized_kind == HISTORY_PREVIEW_CURRENT_SCRIPT:
+        script_path = _resolve_validated_history_preview_path(
+            record.autosave_scripts[0] if record.autosave_scripts else None,
+            autosave_root,
+            label="current script",
+        )
+        return {
+            "kind": HISTORY_PREVIEW_CURRENT_SCRIPT,
+            "title": "Current Script",
+            "path": script_path.resolve(strict=False).as_posix(),
+            "content": script_path.read_text(encoding="utf-8"),
+            "language": "text",
+        }
+
+    if normalized_kind == HISTORY_PREVIEW_METADATA_JSON:
+        meta_path = _resolve_validated_history_preview_path(
+            record.autosave_meta_path,
+            autosave_root,
+            label="metadata json",
+        )
+        return {
+            "kind": HISTORY_PREVIEW_METADATA_JSON,
+            "title": "Metadata JSON",
+            "path": meta_path.resolve(strict=False).as_posix(),
+            "content": meta_path.read_text(encoding="utf-8"),
+            "language": "json",
+        }
+
+    raise ValueError(f"Unsupported history preview kind: {preview_kind}")
+
+
 def build_reload_payload(record: OutputHistoryRecord) -> dict[str, Any]:
     """Return a Gradio-friendly reload payload using job JSON and current files."""
     job_path = Path(record.job_json_path)
@@ -788,15 +875,21 @@ __all__ = [
     "OutputHistoryPaths",
     "build_record_from_meta",
     "build_reload_payload",
+    "bundle_exists",
     "create_or_repair_job_json",
     "default_db_path_for_autosave_root",
     "feature_storage_root_from_autosave_root",
+    "HISTORY_PREVIEW_CURRENT_SCRIPT",
+    "HISTORY_PREVIEW_METADATA_JSON",
     "import_legacy_outputs",
     "is_history_preset_missing",
     "is_path_within_root",
     "normalize_path",
+    "read_history_preview",
     "reindex_root",
     "resolve_voice_narrator",
     "resolve_playback_path",
     "upsert_meta_file",
+    "add_run_base_collision_suffix",
+    "allocate_collision_safe_run_base",
 ]

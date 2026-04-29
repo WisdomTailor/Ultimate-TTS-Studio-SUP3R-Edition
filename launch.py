@@ -8572,6 +8572,8 @@ def autosave_generation_artifacts(
     original_text_input: str = None,
     transformed_text_input: str = None,
 ):
+    from output_history_service import allocate_collision_safe_run_base
+
     ensure_app_state_dirs()
 
     if (
@@ -8597,9 +8599,10 @@ def autosave_generation_artifacts(
     os.makedirs(meta_dir, exist_ok=True)
 
     engine_name = (metadata or {}).get("engine", "tts")
-    run_base = _build_autosave_run_base(
+    preferred_run_base = _build_autosave_run_base(
         project, speaker_name, engine_name, (metadata or {}).get("preset", "")
     )
+    run_base = allocate_collision_safe_run_base(project_root, preferred_run_base)
 
     audio_copy_created = True
     if source_audio_path and not store_audio_copy and os.path.exists(source_audio_path):
@@ -13211,6 +13214,20 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 elem_classes=["fade-in"],
                             )
 
+                        with gr.Row():
+                            history_preview_script_btn = gr.Button(
+                                "📄 Preview Script",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+                            history_preview_meta_btn = gr.Button(
+                                "🧾 Preview Metadata",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+
                         history_detail_output = gr.Markdown(
                             value=(
                                 "No indexed autosave history yet. Generate a clip with autosave enabled "
@@ -13222,6 +13239,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             label="History Audio Preview",
                             show_download_button=True,
                             elem_classes=["fade-in", "glow"],
+                        )
+                        history_preview_output = gr.Markdown(
+                            value=(
+                                "Select a history record, then use Preview Script or Preview Metadata "
+                                "to inspect the saved bundle content."
+                            ),
+                            elem_classes=["fade-in"],
                         )
 
                     with gr.TabItem("📋 JOBS", id="jobs_mode") as jobs_mode_tab:
@@ -15875,127 +15899,19 @@ Alice: I went to Japan. It was absolutely incredible!""",
             return rows
 
         def handle_history_detail(record_id):
-            from output_history_service import build_reload_payload, resolve_playback_path
-
-            parsed_id = _coerce_history_record_id(record_id)
-            if parsed_id is None:
-                return (
-                    "No history record selected yet. Enter a numeric History Record ID after refreshing "
-                    "or reindexing.",
-                    None,
-                )
+            from output_history_ui import (
+                build_history_detail_response,
+                build_history_preview_placeholder,
+            )
 
             store, autosave_root = _get_history_store_and_root()
-            record = store.get_record(parsed_id)
-            if record is None:
-                return f"❌ History record not found: {record_id}", None
-
-            payload = {}
-            payload_error = None
-            try:
-                payload = build_reload_payload(record)
-            except Exception as error:
-                payload_error = str(error)
-
-            metadata_snapshot = payload.get("metadata_snapshot", {})
-            reload_snapshot = payload.get("reload_snapshot", {})
-            reload_control_values = (
-                reload_snapshot.get("control_values", {})
-                if isinstance(reload_snapshot, dict)
-                else {}
+            detail, audio_value = build_history_detail_response(
+                record_id,
+                store=store,
+                autosave_root=autosave_root,
+                audio_proxy_url_builder=build_history_audio_proxy_url,
             )
-            excluded_controls = (
-                reload_snapshot.get("excluded_controls", [])
-                if isinstance(reload_snapshot, dict)
-                else []
-            )
-            excluded_reasons = {
-                item.get("reason")
-                for item in excluded_controls
-                if isinstance(item, dict) and item.get("reason")
-            }
-            voice_narrator = payload.get("voice_narrator") or record.speaker
-            audio_format = payload.get("audio_format")
-            uses_legacy_reload = bool(payload.get("legacy_reload"))
-
-            lines = [f"### History Record {record.id}"]
-            lines.append(f"**Project:** {record.project}")
-            lines.append(f"**Preset:** {_format_history_preset(record.preset)}")
-            lines.append(f"**Timestamp:** {record.timestamp}")
-            lines.append(f"**Engine:** {record.engine or '—'}")
-            lines.append(f"**Voice / Narrator:** {voice_narrator or '—'}")
-            lines.append(f"**Audio Length:** {_format_history_duration(record.duration_seconds)}")
-            lines.append(f"**Seed:** {record.seed if record.seed is not None else '—'}")
-            lines.append(f"**Audio Format:** {audio_format or '—'}")
-            lines.append(f"**Chunks:** {record.chunks if record.chunks is not None else '—'}")
-            lines.append(f"**Transform:** {record.transform or '—'}")
-            lines.append(f"**LLM Transform Applied:** {'Yes' if record.llm_enabled else 'No'}")
-            lines.append(f"**Reload Ready:** {'Yes' if record.can_reload else 'No'}")
-            lines.append("")
-            lines.append("**Reload Into Text Tab**")
-            if uses_legacy_reload:
-                lines.append(
-                    "- Restores: original source text when available, project name, engine, audio format, voice/narrator label, preset dropdown, and last seed."
-                )
-                lines.append(
-                    "- This older record predates the richer production snapshot, so engine-specific controls, narration transform settings, audio effects, and autosave toggle details may be incomplete."
-                )
-            else:
-                lines.append(
-                    "- Restores: original source text, engine, audio format, saved controls for the production engine, narration transform settings except API key, audio effects, speaker label, preset, autosave options/project name, and last seed."
-                )
-                lines.append(
-                    "- Does not restore uploaded/reference audio temp files directly, but the active engine reference audio can be repopulated from the selected preset when that preset still points to a valid saved audio file. Emotion audio uploads, API keys, and unrelated tab state are not restored."
-                )
-
-            if excluded_reasons:
-                lines.append("")
-                lines.append("**Reload Limitations**")
-                if "secret" in excluded_reasons:
-                    lines.append(
-                        "- API keys are intentionally excluded from history snapshots for safety."
-                    )
-                if "transient_file_input" in excluded_reasons:
-                    lines.append(
-                        "- Uploaded reference/emotion audio file inputs are not restored directly because their original temp paths may no longer exist. If the saved preset still has a valid reference audio file, reload can repopulate the active engine's standard reference-audio control from that preset."
-                    )
-
-            settings_lines = _build_history_settings_lines(metadata_snapshot)
-            if settings_lines:
-                lines.append("")
-                lines.append("**Stored Settings Context**")
-                lines.extend(settings_lines)
-
-            if reload_control_values and not uses_legacy_reload:
-                lines.append("")
-                lines.append(
-                    f"**Reload Snapshot:** {len(reload_control_values)} sanitized control value(s) captured at generation time."
-                )
-
-            if payload_error:
-                lines.append("")
-                lines.append(f"⚠️ Stored reload metadata unavailable: {payload_error}")
-
-            lines.append("")
-            lines.append("**Paths**")
-            lines.append(f"- Job JSON: `{record.job_json_path}`")
-            lines.append(f"- Metadata: `{record.autosave_meta_path or '—'}`")
-            lines.append(f"- Autosave audio: `{record.autosave_audio_path or '—'}`")
-            lines.append(f"- Manual audio: `{record.manual_audio_path or '—'}`")
-
-            if record.autosave_scripts:
-                lines.append("- Scripts:")
-                lines.extend(f"  - `{script_path}`" for script_path in record.autosave_scripts)
-
-            audio_value = None
-            try:
-                resolve_playback_path(record, autosave_root)
-                audio_value = build_history_audio_proxy_url(record.id)
-            except ValueError as error:
-                lines.append("")
-                lines.append(f"⚠️ Audio preview unavailable: {error}")
-
-            return "\n".join(lines), audio_value
+            return detail, audio_value, build_history_preview_placeholder(record_id)
 
         def handle_history_panel_refresh(
             query,
@@ -16007,25 +15923,22 @@ Alice: I went to Japan. It was absolutely incredible!""",
             to_timestamp,
             record_id,
         ):
-            store, _autosave_root = _get_history_store_and_root()
-            history_filters = _build_history_list_filters(
-                query,
-                project,
-                preset,
-                seed,
-                speaker,
-                from_timestamp,
-                to_timestamp,
+            from output_history_ui import build_history_panel_refresh_response
+
+            store, autosave_root = _get_history_store_and_root()
+            return build_history_panel_refresh_response(
+                store=store,
+                autosave_root=autosave_root,
+                audio_proxy_url_builder=build_history_audio_proxy_url,
+                query=query,
+                project=project,
+                preset=preset,
+                seed=seed,
+                speaker=speaker,
+                from_timestamp=from_timestamp,
+                to_timestamp=to_timestamp,
+                record_id=record_id,
             )
-            records = store.list_records(limit=50, **history_filters)
-            rows = _format_history_rows(records)
-            detail, audio_value = handle_history_detail(record_id)
-            if not records and _coerce_history_record_id(record_id) is None:
-                detail = (
-                    "No indexed autosave history yet. Generate a clip with autosave enabled or click "
-                    "Reindex Autosaves to scan the current autosave root."
-                )
-            return rows, detail, audio_value
 
         def handle_history_reindex(
             query,
@@ -16042,7 +15955,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             try:
                 store, autosave_root = _get_history_store_and_root()
                 records = reindex_root(autosave_root, store=store)
-                rows, detail, audio_value = handle_history_panel_refresh(
+                rows, detail, audio_value, preview_value = handle_history_panel_refresh(
                     query,
                     project,
                     preset,
@@ -16059,9 +15972,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     detail = prefix
                 else:
                     detail = f"{prefix}\n\n{detail}"
-                return rows, detail, audio_value
+                return rows, detail, audio_value, preview_value
             except Exception as error:
-                rows, detail, audio_value = handle_history_panel_refresh(
+                rows, detail, audio_value, preview_value = handle_history_panel_refresh(
                     query,
                     project,
                     preset,
@@ -16071,7 +15984,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     to_timestamp,
                     record_id,
                 )
-                return rows, f"❌ Reindex failed: {error}\n\n{detail}", audio_value
+                return rows, f"❌ Reindex failed: {error}\n\n{detail}", audio_value, preview_value
 
         def handle_history_import(
             query,
@@ -16090,7 +16003,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 legacy_root = get_runtime_output_dir("outputs", settings)
                 store, autosave_root = _get_history_store_and_root()
                 summary = import_legacy_outputs(legacy_root, autosave_root, store=store)
-                rows, detail, audio_value = handle_history_panel_refresh(
+                rows, detail, audio_value, preview_value = handle_history_panel_refresh(
                     query,
                     project,
                     preset,
@@ -16114,9 +16027,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     detail = prefix
                 else:
                     detail = f"{prefix}\n\n{detail}"
-                return rows, detail, audio_value
+                return rows, detail, audio_value, preview_value
             except Exception as error:
-                rows, detail, audio_value = handle_history_panel_refresh(
+                rows, detail, audio_value, preview_value = handle_history_panel_refresh(
                     query,
                     project,
                     preset,
@@ -16126,7 +16039,31 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     to_timestamp,
                     record_id,
                 )
-                return rows, f"❌ Legacy import failed: {error}\n\n{detail}", audio_value
+                return rows, f"❌ Legacy import failed: {error}\n\n{detail}", audio_value, preview_value
+
+        def handle_history_preview(record_id, preview_kind):
+            from output_history_ui import build_history_preview_response
+
+            store, autosave_root = _get_history_store_and_root()
+            return build_history_preview_response(
+                record_id,
+                preview_kind,
+                store=store,
+                autosave_root=autosave_root,
+            )
+
+        def handle_history_table_select(evt, table_rows):
+            from output_history_ui import build_history_table_select_response
+
+            row_index = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+            store, autosave_root = _get_history_store_and_root()
+            return build_history_table_select_response(
+                table_rows=table_rows,
+                selected_row_index=row_index,
+                store=store,
+                autosave_root=autosave_root,
+                audio_proxy_url_builder=build_history_audio_proxy_url,
+            )
 
         def handle_history_reload(record_id):
             from output_history_service import build_reload_payload
@@ -17703,7 +17640,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 history_to_timestamp_input,
                 history_record_id_input,
             ],
-            outputs=[history_table, history_detail_output, history_audio_output],
+            outputs=[
+                history_table,
+                history_detail_output,
+                history_audio_output,
+                history_preview_output,
+            ],
         )
 
         history_refresh_btn.click(
@@ -17718,7 +17660,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 history_to_timestamp_input,
                 history_record_id_input,
             ],
-            outputs=[history_table, history_detail_output, history_audio_output],
+            outputs=[
+                history_table,
+                history_detail_output,
+                history_audio_output,
+                history_preview_output,
+            ],
         )
 
         for history_submit_input in (
@@ -17742,7 +17689,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     history_to_timestamp_input,
                     history_record_id_input,
                 ],
-                outputs=[history_table, history_detail_output, history_audio_output],
+                outputs=[
+                    history_table,
+                    history_detail_output,
+                    history_audio_output,
+                    history_preview_output,
+                ],
             )
 
         history_reindex_btn.click(
@@ -17757,7 +17709,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 history_to_timestamp_input,
                 history_record_id_input,
             ],
-            outputs=[history_table, history_detail_output, history_audio_output],
+            outputs=[
+                history_table,
+                history_detail_output,
+                history_audio_output,
+                history_preview_output,
+            ],
         )
 
         history_import_btn.click(
@@ -17772,13 +17729,41 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 history_to_timestamp_input,
                 history_record_id_input,
             ],
-            outputs=[history_table, history_detail_output, history_audio_output],
+            outputs=[
+                history_table,
+                history_detail_output,
+                history_audio_output,
+                history_preview_output,
+            ],
         )
 
         history_record_id_input.change(
             fn=handle_history_detail,
             inputs=[history_record_id_input],
-            outputs=[history_detail_output, history_audio_output],
+            outputs=[history_detail_output, history_audio_output, history_preview_output],
+        )
+
+        history_table.select(
+            fn=handle_history_table_select,
+            inputs=[history_table],
+            outputs=[
+                history_record_id_input,
+                history_detail_output,
+                history_audio_output,
+                history_preview_output,
+            ],
+        )
+
+        history_preview_script_btn.click(
+            fn=lambda record_id: handle_history_preview(record_id, "current_script"),
+            inputs=[history_record_id_input],
+            outputs=[history_preview_output],
+        )
+
+        history_preview_meta_btn.click(
+            fn=lambda record_id: handle_history_preview(record_id, "metadata_json"),
+            inputs=[history_record_id_input],
+            outputs=[history_preview_output],
         )
 
         history_reload_btn.click(

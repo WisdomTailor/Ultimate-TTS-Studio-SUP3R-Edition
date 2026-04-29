@@ -17,12 +17,18 @@ if str(APP_DIR) not in sys.path:
 
 
 from output_history_service import (
+    HISTORY_PREVIEW_CURRENT_SCRIPT,
+    HISTORY_PREVIEW_METADATA_JSON,
+    add_run_base_collision_suffix,
+    allocate_collision_safe_run_base,
+    bundle_exists,
     build_record_from_meta,
     build_reload_payload,
     default_db_path_for_autosave_root,
     feature_storage_root_from_autosave_root,
     import_legacy_outputs,
     is_path_within_root,
+    read_history_preview,
     reindex_root,
     resolve_playback_path,
 )
@@ -180,6 +186,38 @@ class TestOutputHistoryService:
 
         assert record.duration_seconds is None
 
+    def test_allocate_collision_safe_run_base_uses_zero_padded_suffixes(
+        self, tmp_path: Path
+    ) -> None:
+        project_root = tmp_path / "app_state_outputs" / "default"
+        for folder_name in ("audio", "meta", "scripts", "jobs"):
+            (project_root / folder_name).mkdir(parents=True, exist_ok=True)
+
+        preferred = "default_story_20260429_101530"
+        assert allocate_collision_safe_run_base(project_root, preferred) == preferred
+
+        (project_root / "meta" / f"{preferred}.json").write_text("{}", encoding="utf-8")
+        assert bundle_exists(project_root, preferred) is True
+        assert allocate_collision_safe_run_base(project_root, preferred) == (
+            "default_story_01_20260429_101530"
+        )
+
+        (project_root / "jobs" / "default_story_01_20260429_101530.job.json").write_text(
+            "{}",
+            encoding="utf-8",
+        )
+        assert allocate_collision_safe_run_base(project_root, preferred) == (
+            "default_story_02_20260429_101530"
+        )
+
+    def test_add_run_base_collision_suffix_preserves_terminal_timestamp(self) -> None:
+        assert add_run_base_collision_suffix("default_story_20260429_101530", 1) == (
+            "default_story_01_20260429_101530"
+        )
+        assert add_run_base_collision_suffix("default_story_20260429_101530", 12) == (
+            "default_story_12_20260429_101530"
+        )
+
     def test_reindex_root_upserts_fixture_bundle(self, tmp_path: Path) -> None:
         autosave_root, _meta_path = _write_fixture_bundle(tmp_path)
         store = OutputHistoryStore(tmp_path / "outputs.db")
@@ -242,6 +280,23 @@ class TestOutputHistoryService:
         )
         assert payload["reload_snapshot"]["control_values"]["last_seed_state"] == 501928455
 
+    def test_read_history_preview_returns_current_script_and_metadata(self, tmp_path: Path) -> None:
+        autosave_root, meta_path = _write_fixture_bundle(tmp_path)
+        record = build_record_from_meta(meta_path)
+
+        script_preview = read_history_preview(record, autosave_root, HISTORY_PREVIEW_CURRENT_SCRIPT)
+        metadata_preview = read_history_preview(
+            record,
+            autosave_root,
+            HISTORY_PREVIEW_METADATA_JSON,
+        )
+
+        assert script_preview["title"] == "Current Script"
+        assert script_preview["content"] == "Current text"
+        assert script_preview["path"].endswith("default_no_preset_20260425_042128.txt")
+        assert metadata_preview["title"] == "Metadata JSON"
+        assert '"engine": "Fish Speech"' in metadata_preview["content"]
+
     def test_import_legacy_outputs_imports_complete_trio(self, tmp_path: Path) -> None:
         legacy_root = tmp_path / "outputs"
         autosave_root = tmp_path / "app_state_outputs"
@@ -290,12 +345,17 @@ class TestOutputHistoryService:
         ]
         imported_meta = json.loads(Path(record.autosave_meta_path).read_text(encoding="utf-8"))
         assert imported_meta["legacy_import"]["source_audio"] == audio_path.resolve().as_posix()
-        assert Path(imported_meta["paths"]["audio"]).name == "default_archived_voice_20260425_042128.wav"
+        assert (
+            Path(imported_meta["paths"]["audio"]).name
+            == "default_archived_voice_20260425_042128.wav"
+        )
         assert Path(imported_meta["paths"]["script"]).read_text(encoding="utf-8") == (
             "Recovered script from legacy output."
         )
 
-    def test_import_legacy_outputs_synthesizes_missing_metadata_and_script(self, tmp_path: Path) -> None:
+    def test_import_legacy_outputs_synthesizes_missing_metadata_and_script(
+        self, tmp_path: Path
+    ) -> None:
         legacy_root = tmp_path / "outputs"
         autosave_root = tmp_path / "app_state_outputs"
         store = OutputHistoryStore(tmp_path / "outputs.db")
@@ -353,4 +413,44 @@ class TestOutputHistoryService:
         }
         assert len(records_after_second) == 1
         assert records_after_second[0].job_json_path == first_record.job_json_path
-        assert Path(first_record.autosave_meta_path).read_text(encoding="utf-8") == first_meta_contents
+        assert (
+            Path(first_record.autosave_meta_path).read_text(encoding="utf-8") == first_meta_contents
+        )
+
+    def test_import_legacy_outputs_avoids_same_second_bundle_overwrite(self, tmp_path: Path) -> None:
+        legacy_root = tmp_path / "outputs"
+        autosave_root = tmp_path / "app_state_outputs"
+        store = OutputHistoryStore(tmp_path / "outputs.db")
+
+        first_audio = legacy_root / "clip_a_20260425_042128.wav"
+        second_audio = legacy_root / "clip_b_20260425_042128.wav"
+        _write_valid_wav(first_audio)
+        _write_valid_wav(second_audio)
+
+        (legacy_root / "clip_a_20260425_042128.json").write_text(
+            json.dumps({"preset": "archived_voice", "speaker": "Narrator A"}, indent=2),
+            encoding="utf-8",
+        )
+        (legacy_root / "clip_b_20260425_042128.json").write_text(
+            json.dumps({"preset": "archived_voice", "speaker": "Narrator B"}, indent=2),
+            encoding="utf-8",
+        )
+
+        summary = import_legacy_outputs(legacy_root, autosave_root, store=store)
+
+        assert summary == {
+            "imported": 2,
+            "skipped": 0,
+            "synthesized_meta": 0,
+            "synthesized_script": 2,
+            "errors": 0,
+        }
+        records = store.list_records(limit=10)
+        assert len(records) == 2
+        run_bases = sorted(Path(record.job_json_path).stem.replace(".job", "") for record in records)
+        assert run_bases == [
+            "default_archived_voice_01_20260425_042128",
+            "default_archived_voice_20260425_042128",
+        ]
+        speakers = sorted(record.speaker for record in records if record.speaker)
+        assert speakers == ["Narrator A", "Narrator B"]
