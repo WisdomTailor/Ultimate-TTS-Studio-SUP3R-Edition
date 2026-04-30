@@ -3302,52 +3302,9 @@ refresh_runtime_storage_paths()
 os.makedirs(custom_voices_folder, exist_ok=True)
 
 # ===== BACKGROUND HISTORY INDEXING =====
-import threading
+from history_index_scheduler import HistoryIndexScheduler
 
-
-class _HistoryIndexScheduler:
-    """Queue history index upserts off the main generation path."""
-
-    def __init__(self) -> None:
-        self._queue: list[str] = []
-        self._lock = threading.Lock()
-        self._worker: threading.Thread | None = None
-        self._stop = False
-
-    def _run(self) -> None:
-        while True:
-            with self._lock:
-                if self._stop and not self._queue:
-                    break
-                batch = self._queue[:]
-                self._queue = []
-            if not batch:
-                time.sleep(0.5)
-                continue
-            for meta_path in batch:
-                try:
-                    from output_history_service import upsert_meta_file
-
-                    upsert_meta_file(meta_path)
-                except Exception:
-                    pass
-
-    def submit(self, meta_path: str | None) -> None:
-        if not meta_path:
-            return
-        with self._lock:
-            if self._worker is None or not self._worker.is_alive():
-                self._stop = False
-                self._worker = threading.Thread(target=self._run, daemon=True)
-                self._worker.start()
-            self._queue.append(meta_path)
-
-    def shutdown(self) -> None:
-        with self._lock:
-            self._stop = True
-
-
-_HISTORY_SCHEDULER = _HistoryIndexScheduler()
+_HISTORY_SCHEDULER = HistoryIndexScheduler()
 
 
 # ===== MODEL INITIALIZATION =====
