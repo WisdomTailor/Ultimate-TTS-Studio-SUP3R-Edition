@@ -11,6 +11,7 @@ import gradio as gr
 import os
 import subprocess
 import sys
+import time
 import warnings
 import re
 import json
@@ -3299,6 +3300,55 @@ def _build_conversation_history_metadata(
 ensure_app_state_dirs()
 refresh_runtime_storage_paths()
 os.makedirs(custom_voices_folder, exist_ok=True)
+
+# ===== BACKGROUND HISTORY INDEXING =====
+import threading
+
+
+class _HistoryIndexScheduler:
+    """Queue history index upserts off the main generation path."""
+
+    def __init__(self) -> None:
+        self._queue: list[str] = []
+        self._lock = threading.Lock()
+        self._worker: threading.Thread | None = None
+        self._stop = False
+
+    def _run(self) -> None:
+        while True:
+            with self._lock:
+                if self._stop and not self._queue:
+                    break
+                batch = self._queue[:]
+                self._queue = []
+            if not batch:
+                time.sleep(0.5)
+                continue
+            for meta_path in batch:
+                try:
+                    from output_history_service import upsert_meta_file
+
+                    upsert_meta_file(meta_path)
+                except Exception:
+                    pass
+
+    def submit(self, meta_path: str | None) -> None:
+        if not meta_path:
+            return
+        with self._lock:
+            if self._worker is None or not self._worker.is_alive():
+                self._stop = False
+                self._worker = threading.Thread(target=self._run, daemon=True)
+                self._worker.start()
+            self._queue.append(meta_path)
+
+    def shutdown(self) -> None:
+        with self._lock:
+            self._stop = True
+
+
+_HISTORY_SCHEDULER = _HistoryIndexScheduler()
+
 
 # ===== MODEL INITIALIZATION =====
 CHATTERBOX_MODEL = None
@@ -9087,10 +9137,8 @@ def generate_unified_tts_wrapped(*all_args):
                 )
                 status_lines.append(f"Autosave meta: {autosave_paths['meta_path']}")
                 try:
-                    from output_history_service import upsert_meta_file
-
-                    history_record = upsert_meta_file(autosave_paths["meta_path"])
-                    status_lines.append(f"History index: {history_record.job_json_path}")
+                    _HISTORY_SCHEDULER.submit(autosave_paths["meta_path"])
+                    status_lines.append("History index: queued for background indexing")
                 except Exception as history_error:
                     status_lines.append(f"⚠️ History index update failed: {history_error}")
         except Exception as error:
@@ -19551,12 +19599,15 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                             transformed_text_input=script_text,
                         )
                         if autosave_paths:
-                            from output_history_service import upsert_meta_file
-
-                            history_record = upsert_meta_file(autosave_paths["meta_path"])
-                            history_status_lines.append(
-                                f"History index: {history_record.job_json_path}"
-                            )
+                            try:
+                                _HISTORY_SCHEDULER.submit(autosave_paths["meta_path"])
+                                history_status_lines.append(
+                                    "History index: queued for background indexing"
+                                )
+                            except Exception as scheduler_error:
+                                history_status_lines.append(
+                                    f"⚠️ History index scheduler failed: {scheduler_error}"
+                                )
                         if autosave_error:
                             history_status_lines.append(f"Autosave failed: {autosave_error}")
                     except Exception as history_error:
