@@ -43,6 +43,8 @@ def _infer_provider_from_base_url(base_url: str) -> str | None:
         return "GitHub Models (OpenAI-compatible)"
     if "huggingface.co" in host:
         return "Hugging Face Inference API"
+    if "openrouter.ai" in host:
+        return "OpenRouter (OpenAI-compatible)"
     if host.startswith("localhost:1234") or host.startswith("127.0.0.1:1234"):
         return "LM Studio OpenAI Server"
     if host.startswith("localhost:11434") or host.startswith("127.0.0.1:11434"):

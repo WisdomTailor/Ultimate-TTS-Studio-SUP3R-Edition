@@ -7785,6 +7785,18 @@ LLM_PROVIDER_CONFIGS = {
         "auth_style": "api-key",
         "headers": {},
     },
+    "OpenRouter (OpenAI-compatible)": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "default_model": "openai/gpt-4o-mini",
+        "env_var": "OPENROUTER_API_KEY",
+        "requires_api_key": True,
+        "kind": "cloud",
+        "auth_style": "bearer",
+        "headers": {
+            "HTTP-Referer": "https://github.com/pinokiofactory/Ultimate-TTS-Studio",
+            "X-Title": "Ultimate TTS Studio",
+        },
+    },
     "Ollama (OpenAI-compatible)": {
         "base_url": "http://localhost:11434/v1",
         "default_model": "qwen3:30b-a3b",
@@ -7828,6 +7840,13 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
         "gpt-4o",
         "gpt-4.1-mini",
         "gpt-4.1-nano",
+    ],
+    "OpenRouter (OpenAI-compatible)": [
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1-mini",
+        "anthropic/claude-3.5-sonnet",
+        "meta-llama/llama-3.1-8b-instruct",
+        "google/gemini-2.5-flash-preview",
     ],
     "Ollama (OpenAI-compatible)": [
         "qwen3:30b-a3b",
@@ -7898,6 +7917,8 @@ def get_llm_shell_key_setup_hint(provider_name: str) -> str:
         hint += "\nOr use: Azure Portal \u2192 AI Foundry \u2192 Project \u2192 Keys"
     elif provider_name == "GitHub Models (OpenAI-compatible)":
         hint += "\nGenerate at: github.com/settings/tokens (Fine-grained or Classic)"
+    elif provider_name == "OpenRouter (OpenAI-compatible)":
+        hint += "\nGenerate at: openrouter.ai/settings/keys"
     return hint
 
 

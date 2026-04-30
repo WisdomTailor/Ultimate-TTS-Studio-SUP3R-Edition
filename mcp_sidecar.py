@@ -140,6 +140,7 @@ def _resolve_provider(provider_name: str, base_url: str, model_id: str) -> tuple
         "Google Gemini": "Google Gemini API (OpenAI-compatible)",
         "GitHub Models": "GitHub Models (OpenAI-compatible)",
         "Microsoft Foundry": "Microsoft Foundry (OpenAI-compatible)",
+        "OpenRouter": "OpenRouter (OpenAI-compatible)",
     }
     resolved_provider = aliases.get(provider_name, provider_name)
     cfg = LLM_PROVIDER_CONFIGS.get(resolved_provider, {})
