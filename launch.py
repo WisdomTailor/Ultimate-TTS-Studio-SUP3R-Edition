@@ -10212,22 +10212,6 @@ def create_gradio_interface():
             color: #667eea !important;
         }
 
-        /* Feature Cards - Compact */
-        .feature-card {
-            background: linear-gradient(135deg, rgba(139, 92, 246, 0.12), rgba(34, 211, 238, 0.07));
-            border: 1px solid rgba(139, 92, 246, 0.24);
-            border-radius: 12px;
-            padding: 12px;
-            margin: 5px;
-            transition: all 0.3s ease;
-            text-align: center;
-        }
-
-        .feature-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 24px rgba(139, 92, 246, 0.28);
-        }
-
         /* Glow Effects */
         .glow {
             box-shadow:
@@ -10269,10 +10253,7 @@ def create_gradio_interface():
                 margin: 5px 0 !important;
             }
 
-            .feature-card {
-                padding: 8px;
-                margin: 3px;
-            }
+
         }
 
         /* Additional light mode fixes removed */
@@ -10896,17 +10877,17 @@ def create_gradio_interface():
 
                         with gr.Column():
                             f5_download_btn = gr.Button(
-                                "📥 Download Model", variant="secondary", elem_classes=["fade-in"]
+                                "Download Model", variant="secondary", elem_classes=["fade-in"]
                             )
                             f5_load_btn = gr.Button(
-                                "🚀 Load Model", variant="primary", elem_classes=["fade-in"]
+                                "Load Model", variant="primary", elem_classes=["fade-in"]
                             )
                             f5_unload_btn = gr.Button(
-                                "🗑️ Unload Model", variant="secondary", elem_classes=["fade-in"]
+                                "Unload Model", variant="secondary", elem_classes=["fade-in"]
                             )
 
                     f5_download_status = gr.Textbox(
-                        label="📊 Download Status",
+                        label="Download Status",
                         interactive=False,
                         elem_classes=["fade-in"],
                         visible=False,
@@ -10947,17 +10928,17 @@ def create_gradio_interface():
 
                     with gr.Row():
                         qwen_download_btn = gr.Button(
-                            "📥 Download Model", variant="secondary", elem_classes=["fade-in"]
+                            "Download Model", variant="secondary", elem_classes=["fade-in"]
                         )
                         load_qwen_btn = gr.Button(
-                            "🚀 Load Model", variant="primary", elem_classes=["fade-in"]
+                            "Load Model", variant="primary", elem_classes=["fade-in"]
                         )
                         unload_qwen_btn = gr.Button(
-                            "🗑️ Unload Model", variant="secondary", elem_classes=["fade-in"]
+                            "Unload Model", variant="secondary", elem_classes=["fade-in"]
                         )
 
                     qwen_download_status = gr.Textbox(
-                        label="📊 Status", interactive=False, elem_classes=["fade-in"], visible=True
+                        label="Status", interactive=False, elem_classes=["fade-in"], visible=True
                     )
 
                     qwen_status = gr.Markdown(
@@ -10992,14 +10973,14 @@ def create_gradio_interface():
                 # ChatterboxTTS Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🎤 **ChatterboxTTS**", elem_classes=["fade-in"])
+                        gr.Markdown("**ChatterboxTTS**", elem_classes=["fade-in"])
                         chatterbox_status = gr.Markdown(
-                            value="⭕ Not loaded" if CHATTERBOX_AVAILABLE else "❌ Not available",
+                            value="Not loaded" if CHATTERBOX_AVAILABLE else "Not available",
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_chatterbox_btn = gr.Button(
-                            "🔄 Load",
+                            "Load",
                             variant="primary",
                             size="sm",
                             visible=CHATTERBOX_AVAILABLE,
@@ -11007,7 +10988,7 @@ def create_gradio_interface():
                             scale=1,
                         )
                         unload_chatterbox_btn = gr.Button(
-                            "🗑️ Unload",
+                            "Unload",
                             variant="secondary",
                             size="sm",
                             visible=CHATTERBOX_AVAILABLE,
@@ -11018,18 +10999,18 @@ def create_gradio_interface():
                 # ChatterboxTTS Multilingual Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🌍 **Chatterbox Multi**", elem_classes=["fade-in"])
+                        gr.Markdown("**Chatterbox Multi**", elem_classes=["fade-in"])
                         chatterbox_mtl_status = gr.Markdown(
                             value=(
-                                "⭕ Not loaded"
+                                "Not loaded"
                                 if CHATTERBOX_MULTILINGUAL_AVAILABLE
-                                else "❌ Not available"
+                                else "Not available"
                             ),
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_chatterbox_mtl_btn = gr.Button(
-                            "🔄 Load",
+                            "Load",
                             variant="primary",
                             size="sm",
                             visible=CHATTERBOX_MULTILINGUAL_AVAILABLE,
@@ -11037,7 +11018,7 @@ def create_gradio_interface():
                             scale=1,
                         )
                         unload_chatterbox_mtl_btn = gr.Button(
-                            "🗑️ Unload",
+                            "Unload",
                             variant="secondary",
                             size="sm",
                             visible=CHATTERBOX_MULTILINGUAL_AVAILABLE,
@@ -11048,18 +11029,14 @@ def create_gradio_interface():
                 # Chatterbox Turbo Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🚀 **Chatterbox Turbo**", elem_classes=["fade-in"])
+                        gr.Markdown("**Chatterbox Turbo**", elem_classes=["fade-in"])
                         chatterbox_turbo_status = gr.Markdown(
-                            value=(
-                                "⭕ Not loaded"
-                                if CHATTERBOX_TURBO_AVAILABLE
-                                else "❌ Not available"
-                            ),
+                            value=("Not loaded" if CHATTERBOX_TURBO_AVAILABLE else "Not available"),
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_chatterbox_turbo_btn = gr.Button(
-                            "🔄 Load",
+                            "Load",
                             variant="primary",
                             size="sm",
                             visible=CHATTERBOX_TURBO_AVAILABLE,
@@ -11067,7 +11044,7 @@ def create_gradio_interface():
                             scale=1,
                         )
                         unload_chatterbox_turbo_btn = gr.Button(
-                            "🗑️ Unload",
+                            "Unload",
                             variant="secondary",
                             size="sm",
                             visible=CHATTERBOX_TURBO_AVAILABLE,
@@ -11078,14 +11055,14 @@ def create_gradio_interface():
                 # Kokoro TTS Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🗣️ **Kokoro TTS**", elem_classes=["fade-in"])
+                        gr.Markdown("**Kokoro TTS**", elem_classes=["fade-in"])
                         kokoro_status = gr.Markdown(
-                            value="⭕ Not loaded" if KOKORO_AVAILABLE else "❌ Not available",
+                            value="Not loaded" if KOKORO_AVAILABLE else "Not available",
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_kokoro_btn = gr.Button(
-                            "🔄 Load",
+                            "Load",
                             variant="primary",
                             size="sm",
                             visible=KOKORO_AVAILABLE,
@@ -11093,7 +11070,7 @@ def create_gradio_interface():
                             scale=1,
                         )
                         unload_kokoro_btn = gr.Button(
-                            "🗑️ Unload",
+                            "Unload",
                             variant="secondary",
                             size="sm",
                             visible=KOKORO_AVAILABLE,
@@ -11104,14 +11081,14 @@ def create_gradio_interface():
                 # Fish Speech Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🐟 **Fish Speech**", elem_classes=["fade-in"])
+                        gr.Markdown("**Fish Speech**", elem_classes=["fade-in"])
                         fish_status = gr.Markdown(
-                            value="⭕ Not loaded" if FISH_SPEECH_AVAILABLE else "❌ Not available",
+                            value="Not loaded" if FISH_SPEECH_AVAILABLE else "Not available",
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_fish_btn = gr.Button(
-                            "🔄 Load",
+                            "Load",
                             variant="primary",
                             size="sm",
                             visible=FISH_SPEECH_AVAILABLE,
@@ -11119,7 +11096,7 @@ def create_gradio_interface():
                             scale=1,
                         )
                         unload_fish_btn = gr.Button(
-                            "🗑️ Unload",
+                            "Unload",
                             variant="secondary",
                             size="sm",
                             visible=FISH_SPEECH_AVAILABLE,
@@ -11130,14 +11107,14 @@ def create_gradio_interface():
                 # IndexTTS Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🎯 **IndexTTS**", elem_classes=["fade-in"])
+                        gr.Markdown("**IndexTTS**", elem_classes=["fade-in"])
                         indextts_status = gr.Markdown(
-                            value="⭕ Not loaded" if INDEXTTS_AVAILABLE else "❌ Not available",
+                            value="Not loaded" if INDEXTTS_AVAILABLE else "Not available",
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_indextts_btn = gr.Button(
-                            "🔄 Load",
+                            "Load",
                             variant="primary",
                             size="sm",
                             visible=INDEXTTS_AVAILABLE,
@@ -11145,7 +11122,7 @@ def create_gradio_interface():
                             scale=1,
                         )
                         unload_indextts_btn = gr.Button(
-                            "🗑️ Unload",
+                            "Unload",
                             variant="secondary",
                             size="sm",
                             visible=INDEXTTS_AVAILABLE,
@@ -11156,14 +11133,14 @@ def create_gradio_interface():
                 # IndexTTS2 Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🎯 **IndexTTS2**", elem_classes=["fade-in"])
+                        gr.Markdown("**IndexTTS2**", elem_classes=["fade-in"])
                         indextts2_status = gr.Markdown(
-                            value="⭕ Not loaded" if INDEXTTS2_AVAILABLE else "❌ Not available",
+                            value="Not loaded" if INDEXTTS2_AVAILABLE else "Not available",
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_indextts2_btn = gr.Button(
-                            "🔄 Load",
+                            "Load",
                             variant="primary",
                             size="sm",
                             visible=INDEXTTS2_AVAILABLE,
@@ -11171,7 +11148,7 @@ def create_gradio_interface():
                             scale=1,
                         )
                         unload_indextts2_btn = gr.Button(
-                            "🗑️ Unload",
+                            "Unload",
                             variant="secondary",
                             size="sm",
                             visible=INDEXTTS2_AVAILABLE,
@@ -11184,14 +11161,14 @@ def create_gradio_interface():
                 # Higgs Audio Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🎙️ **Higgs Audio**", elem_classes=["fade-in"])
+                        gr.Markdown("**Higgs Audio**", elem_classes=["fade-in"])
                         higgs_status = gr.Markdown(
-                            value="⭕ Not loaded" if HIGGS_AUDIO_AVAILABLE else "❌ Not available",
+                            value="Not loaded" if HIGGS_AUDIO_AVAILABLE else "Not available",
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_higgs_btn = gr.Button(
-                            "🔄 Load",
+                            "Load",
                             variant="primary",
                             size="sm",
                             visible=HIGGS_AUDIO_AVAILABLE,
@@ -11199,7 +11176,7 @@ def create_gradio_interface():
                             scale=1,
                         )
                         unload_higgs_btn = gr.Button(
-                            "🗑️ Unload",
+                            "Unload",
                             variant="secondary",
                             size="sm",
                             visible=HIGGS_AUDIO_AVAILABLE,
@@ -11302,9 +11279,7 @@ def create_gradio_interface():
                             elem_id="text_synthesize_input",
                         )
 
-                        with gr.Accordion(
-                            "Narration Transform (LLM)", open=False, elem_classes=["fade-in"]
-                        ):
+                        with gr.Accordion("AI Script Polish", open=False, elem_classes=["fade-in"]):
                             llm_transform_enabled = gr.Checkbox(
                                 value=False,
                                 label="Enable LLM narration transform before synthesis",
@@ -13283,16 +13258,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         )
 
                         with gr.Row():
-                            history_project_filter_input = gr.Textbox(
+                            history_project_filter_input = gr.Dropdown(
                                 label="Project",
+                                choices=[],
                                 value="",
-                                placeholder="Exact project name",
+                                allow_custom_value=True,
                                 elem_classes=["fade-in"],
                             )
-                            history_preset_filter_input = gr.Textbox(
+                            history_preset_filter_input = gr.Dropdown(
                                 label="Preset",
+                                choices=[],
                                 value="",
-                                placeholder="Exact preset name",
+                                allow_custom_value=True,
                                 elem_classes=["fade-in"],
                             )
                             history_seed_filter_input = gr.Textbox(
@@ -13303,10 +13280,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             )
 
                         with gr.Row():
-                            history_speaker_filter_input = gr.Textbox(
+                            history_speaker_filter_input = gr.Dropdown(
                                 label="Speaker",
+                                choices=[],
                                 value="",
-                                placeholder="Exact speaker / narrator",
+                                allow_custom_value=True,
+                                elem_classes=["fade-in"],
+                            )
+                            history_engine_filter_input = gr.Dropdown(
+                                label="Engine",
+                                choices=[],
+                                value="",
+                                allow_custom_value=True,
                                 elem_classes=["fade-in"],
                             )
                             history_from_timestamp_input = gr.Textbox(
@@ -18020,14 +18005,37 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         for history_submit_input in (
             history_query_input,
-            history_project_filter_input,
-            history_preset_filter_input,
             history_seed_filter_input,
-            history_speaker_filter_input,
             history_from_timestamp_input,
             history_to_timestamp_input,
         ):
             history_submit_input.submit(
+                fn=handle_history_panel_refresh,
+                inputs=[
+                    history_query_input,
+                    history_project_filter_input,
+                    history_preset_filter_input,
+                    history_seed_filter_input,
+                    history_speaker_filter_input,
+                    history_from_timestamp_input,
+                    history_to_timestamp_input,
+                    history_record_id_input,
+                ],
+                outputs=[
+                    history_table,
+                    history_detail_output,
+                    history_audio_output,
+                    history_preview_output,
+                ],
+            )
+
+        for history_dropdown in (
+            history_project_filter_input,
+            history_preset_filter_input,
+            history_speaker_filter_input,
+            history_engine_filter_input,
+        ):
+            history_dropdown.change(
                 fn=handle_history_panel_refresh,
                 inputs=[
                     history_query_input,
