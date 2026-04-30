@@ -3206,15 +3206,15 @@ def _build_conversation_speaker_assignments(
                 and emotion_descriptions[index]
             ):
                 assignment["emotion_description"] = str(emotion_descriptions[index]).strip()
-            if emotion_vectors and index < len(emotion_vectors) and isinstance(emotion_vectors[index], dict):
+            if (
+                emotion_vectors
+                and index < len(emotion_vectors)
+                and isinstance(emotion_vectors[index], dict)
+            ):
                 assignment["emotion_vector"] = _json_safe(emotion_vectors[index])
 
         assignments.append(
-            {
-                key: value
-                for key, value in assignment.items()
-                if value not in ("", None, [], {})
-            }
+            {key: value for key, value in assignment.items() if value not in ("", None, [], {})}
         )
 
     return assignments
@@ -3240,7 +3240,9 @@ def _build_conversation_history_metadata(
     speakers = _normalize_conversation_speaker_list(summary.get("speakers"))
     if not speakers and isinstance(script_text, str) and script_text.strip():
         try:
-            speakers = _normalize_conversation_speaker_list(get_speaker_names_from_script(script_text))
+            speakers = _normalize_conversation_speaker_list(
+                get_speaker_names_from_script(script_text)
+            )
         except Exception:
             speakers = []
 
@@ -13344,7 +13346,22 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 "str",
                                 "str",
                             ],
-                            value=[["—", "No history yet", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—"]],
+                            value=[
+                                [
+                                    "—",
+                                    "No history yet",
+                                    "—",
+                                    "—",
+                                    "—",
+                                    "—",
+                                    "—",
+                                    "—",
+                                    "—",
+                                    "—",
+                                    "—",
+                                    "—",
+                                ]
+                            ],
                             label="Persisted Output Bundles",
                             interactive=False,
                             wrap=True,
@@ -13400,12 +13417,19 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 elem_classes=["fade-in"],
                             )
 
+                        history_action_status_output = gr.Markdown(
+                            value="",
+                            elem_classes=["fade-in"],
+                        )
+
                         history_help_output = gr.Markdown(
                             value=(
                                 "Use **Search** after changing filters. Click a table row to populate the "
                                 "record ID, then use **Search / Load Record** to load details and audio in "
                                 "this tab. **Reload Into Text Tab** restores the saved generation state so "
-                                "you can run it again with the current app version."
+                                "you can run it again with the current app version. "
+                                "**Open Folder** opens the bundle directory in your file explorer. "
+                                "**Copy Path** copies the bundle file path to your clipboard."
                             ),
                             elem_classes=["fade-in"],
                         )
@@ -13419,6 +13443,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             )
                             history_preview_meta_btn = gr.Button(
                                 "🧾 Preview Metadata",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+                            history_open_folder_btn = gr.Button(
+                                "📂 Open Folder",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+                            history_copy_path_btn = gr.Button(
+                                "📋 Copy Path",
                                 variant="secondary",
                                 size="sm",
                                 elem_classes=["fade-in"],
@@ -16259,6 +16295,75 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 autosave_root=autosave_root,
             )
 
+        def _resolve_history_bundle_path(record_id: object) -> str | None:
+            parsed_id = _coerce_history_record_id(record_id)
+            if parsed_id is None:
+                return None
+            store, _autosave_root = _get_history_store_and_root()
+            record = store.get_record(parsed_id)
+            if record is None:
+                return None
+            for candidate in (
+                record.autosave_audio_path,
+                record.autosave_meta_path,
+                record.job_json_path,
+            ):
+                if candidate and os.path.exists(candidate):
+                    return candidate
+            return None
+
+        def handle_history_open_folder(record_id):
+            bundle_path = _resolve_history_bundle_path(record_id)
+            if bundle_path is None:
+                return "⚠️ No valid bundle path found for the selected record."
+            folder_path = os.path.dirname(bundle_path)
+            if not os.path.isdir(folder_path):
+                return f"❌ Folder does not exist: {folder_path}"
+            try:
+                if sys.platform == "win32":
+                    os.startfile(folder_path)
+                elif sys.platform == "darwin":
+                    subprocess.run(["open", folder_path], check=False)
+                else:
+                    subprocess.run(["xdg-open", folder_path], check=False)
+                return f"📂 Opened folder: {folder_path}"
+            except Exception as error:
+                return f"❌ Failed to open folder: {error}"
+
+        def handle_history_copy_path(record_id):
+            bundle_path = _resolve_history_bundle_path(record_id)
+            if bundle_path is None:
+                return "⚠️ No valid bundle path found for the selected record."
+            try:
+                if sys.platform == "win32":
+                    subprocess.run(
+                        ["powershell", "-command", f"Set-Clipboard -Value '{bundle_path}'"],
+                        check=False,
+                        capture_output=True,
+                    )
+                elif sys.platform == "darwin":
+                    subprocess.run(
+                        ["pbcopy"],
+                        input=bundle_path.encode("utf-8"),
+                        check=False,
+                    )
+                else:
+                    for cmd in (
+                        ["xclip", "-selection", "clipboard"],
+                        ["xsel", "--clipboard", "--input"],
+                    ):
+                        result = subprocess.run(
+                            cmd,
+                            input=bundle_path.encode("utf-8"),
+                            check=False,
+                            capture_output=True,
+                        )
+                        if result.returncode == 0:
+                            break
+                return f"📋 Copied path to clipboard: {bundle_path}"
+            except Exception as error:
+                return f"❌ Failed to copy path: {error}"
+
         def handle_history_table_select(
             evt,
             table_rows,
@@ -18012,6 +18117,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[history_preview_output],
         )
 
+        history_open_folder_btn.click(
+            fn=handle_history_open_folder,
+            inputs=[history_record_id_input],
+            outputs=[history_action_status_output],
+        )
+
+        history_copy_path_btn.click(
+            fn=handle_history_copy_path,
+            inputs=[history_record_id_input],
+            outputs=[history_action_status_output],
+        )
+
         history_reload_btn.click(
             fn=handle_history_reload,
             inputs=[history_record_id_input],
@@ -19443,9 +19560,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                         if autosave_error:
                             history_status_lines.append(f"Autosave failed: {autosave_error}")
                     except Exception as history_error:
-                        history_status_lines.append(
-                            f"History capture failed: {history_error}"
-                        )
+                        history_status_lines.append(f"History capture failed: {history_error}")
 
                 if (
                     autosave_enabled
