@@ -61,9 +61,7 @@ class TestHistoryIndexScheduler:
             calls.append(path)
 
         with patch("history_index_scheduler.time.sleep", return_value=None):
-            with patch(
-                "output_history_service.upsert_meta_file", side_effect=_capture
-            ):
+            with patch("output_history_service.upsert_meta_file", side_effect=_capture):
                 scheduler.submit("/fake/one.json")
                 scheduler.submit("/fake/two.json")
                 self._wait_for_empty(scheduler)

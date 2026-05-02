@@ -30,7 +30,6 @@ from tts_service import (
     list_voices,
 )
 
-
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_MCP_MOUNT_PATH = "/gradio_api/mcp"
 

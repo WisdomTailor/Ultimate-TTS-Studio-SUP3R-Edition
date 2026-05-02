@@ -148,14 +148,14 @@ try:
 except Exception as error:
     filtfilt = None
     AUDIO_PROCESSING_AVAILABLE = False
-    print(f"⚠️ Advanced audio processing unavailable. Error: {error}")
+    print(f"WARNING: Advanced audio processing unavailable. Error: {error}")
 
 try:
     with suppress_specific_warnings():
         import soundfile as sf
 except Exception as error:
     sf = None
-    print(f"⚠️ soundfile not available. Falling back where possible. Error: {error}")
+    print(f"WARNING: soundfile not available. Falling back where possible. Error: {error}")
 
 try:
     with suppress_specific_warnings():
@@ -176,7 +176,7 @@ except Exception as error:
     ChatterboxTTS = None
     ChatterboxMultilingualTTS = None
     SUPPORTED_LANGUAGES = []
-    print(f"⚠️ ChatterboxTTS not available. Some features will be disabled. Error: {error}")
+    print(f"WARNING: ChatterboxTTS not available. Some features will be disabled. Error: {error}")
 
 # Kokoro imports
 try:
@@ -187,7 +187,7 @@ except Exception as error:
     KOKORO_AVAILABLE = False
     KModel = None
     KPipeline = None
-    print(f"⚠️ Kokoro TTS not available. Some features will be disabled. Error: {error}")
+    print(f"WARNING: Kokoro TTS not available. Some features will be disabled. Error: {error}")
 
 # Fish Speech imports
 try:
@@ -207,18 +207,18 @@ except Exception as error:
     ServeTTSRequest = None
     ServeReferenceAudio = None
     audio_to_bytes = lambda *args, **kwargs: b""
-    print(f"⚠️ Fish Speech not available. Some features will be disabled. Error: {error}")
+    print(f"WARNING: Fish Speech not available. Some features will be disabled. Error: {error}")
 
 # F5-TTS imports
 try:
     with suppress_specific_warnings():
         from f5_tts_handler import get_f5_tts_handler
     F5_TTS_AVAILABLE = True
-    print("✅ F5-TTS handler loaded")
+    print("F5-TTS handler loaded")
 except Exception as error:
     F5_TTS_AVAILABLE = False
     get_f5_tts_handler = lambda *args, **kwargs: None
-    print(f"⚠️ F5-TTS not available. Some features will be disabled. Error: {error}")
+    print(f"WARNING: F5-TTS not available. Some features will be disabled. Error: {error}")
 
 
 # Higgs Audio imports
@@ -229,17 +229,17 @@ def _get_higgs_audio_handler_placeholder():
 
 def _tts_unavailable(*args, **kwargs):
     """Common placeholder for unavailable TTS generation functions."""
-    return None, "❌ TTS handler not available"
+    return None, "ERROR: TTS handler not available"
 
 
 def _init_unavailable(*args, **kwargs):
     """Common placeholder for unavailable model init functions."""
-    return False, "❌ TTS handler not available"
+    return False, "ERROR: TTS handler not available"
 
 
 def _unload_unavailable(*args, **kwargs):
     """Common placeholder for unavailable model unload functions."""
-    return "❌ TTS handler not available"
+    return "ERROR: TTS handler not available"
 
 
 def _transcribe_unavailable(*args, **kwargs):
@@ -286,16 +286,68 @@ generate_higgs_audio_tts = _tts_unavailable
 
 transcribe_voxcpm_audio = _transcribe_unavailable
 
+# ===== EARLY CONSTANTS AND HELPER PLACEHOLDERS =====
+# These must be declared early to avoid forward reference issues in conversation generation functions
+INVALID_GENERATION_PROJECT_NAMES = {"default"}
+PROJECT_NAME_REQUIRED_MESSAGE = (
+    "ERROR: Enter a real project name before generating. Blank names and 'default' are not allowed. "
+    "Use Workspace Controls -> Project Name."
+)
+
+
+def _normalize_project_name(project_name: str) -> str:
+    if not isinstance(project_name, str):
+        return ""
+    cleaned = re.sub(r"[^\w\-. ]+", "_", project_name.strip())
+    return cleaned[:80].strip()
+
+
+def _validate_required_project_name(project_name: str) -> tuple[str, str | None]:
+    cleaned = _normalize_project_name(project_name)
+    if not cleaned:
+        return "", PROJECT_NAME_REQUIRED_MESSAGE
+    if cleaned.lower() in INVALID_GENERATION_PROJECT_NAMES:
+        return "", PROJECT_NAME_REQUIRED_MESSAGE
+    return cleaned, None
+
+
+# ===== MODEL STATE PLACEHOLDERS =====
+# These must be declared early to avoid forward reference issues in conversation generation functions
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+CHATTERBOX_MODEL = None
+CHATTERBOX_MULTILINGUAL_MODEL = None
+KOKORO_PIPELINES = {}
+FISH_SPEECH_ENGINE = None
+FISH_SPEECH_LLAMA_QUEUE = None
+INDEXTTS_MODEL = None
+loaded_voices = {}
+
+MODEL_STATUS = {
+    "chatterbox": {"loaded": False, "loading": False},
+    "chatterbox_multilingual": {"loaded": False, "loading": False},
+    "chatterbox_turbo": {"loaded": False, "loading": False},
+    "kokoro": {"loaded": False, "loading": False},
+    "vibevoice": {"loaded": False, "loading": False},
+    "fish_speech": {"loaded": False, "loading": False},
+    "indextts": {"loaded": False, "loading": False},
+    "indextts2": {"loaded": False, "loading": False},
+    "f5_tts": {"loaded": False, "loading": False, "models": {}},
+    "higgs_audio": {"loaded": False, "loading": False},
+    "kitten_tts": {"loaded": False, "loading": False},
+    "qwen_tts": {"loaded": False, "loading": False},
+    "voxcpm": {"loaded": False, "loading": False},
+}
+
 
 try:
     with suppress_specific_warnings():
         from higgs_audio_handler import generate_higgs_audio_tts, get_higgs_audio_handler
     HIGGS_AUDIO_AVAILABLE = True
-    print("✅ Higgs Audio handler loaded")
+    print("SUCCESS: Higgs Audio handler loaded")
 except Exception as error:
     HIGGS_AUDIO_AVAILABLE = False
     get_higgs_audio_handler = _get_higgs_audio_handler_placeholder
-    print(f"⚠️ Higgs Audio not available. Some features will be disabled. Error: {error}")
+    print(f"WARNING: Higgs Audio not available. Some features will be disabled. Error: {error}")
 
 # KittenTTS imports
 try:
@@ -308,10 +360,10 @@ try:
             KITTEN_VOICES,
         )
     KITTEN_TTS_AVAILABLE = True
-    print("✅ KittenTTS handler loaded")
+    print("SUCCESS: KittenTTS handler loaded")
 except Exception as error:
     KITTEN_TTS_AVAILABLE = False
-    print(f"⚠️ KittenTTS not available. Some features will be disabled. Error: {error}")
+    print(f"WARNING: KittenTTS not available. Some features will be disabled. Error: {error}")
 
 # VibeVoice imports
 try:
@@ -327,16 +379,16 @@ try:
             download_vibevoice_model,
         )
     VIBEVOICE_AVAILABLE = True
-    print("✅ VibeVoice handler loaded")
+    print("SUCCESS: VibeVoice handler loaded")
 except Exception as error:
     VIBEVOICE_AVAILABLE = False
-    print(f"⚠️ VibeVoice not available. Some features will be disabled. Error: {error}")
+    print(f"WARNING: VibeVoice not available. Some features will be disabled. Error: {error}")
 
 
 # VoxCPM imports
 def _unload_voxcpm_placeholder():
     """Placeholder for unload_voxcpm when handler is unavailable"""
-    return "⚠️ VoxCPM not available"
+    return "WARNING: VoxCPM not available"
 
 
 try:
@@ -350,11 +402,11 @@ try:
             transcribe_voxcpm_audio,
         )
     VOXCPM_AVAILABLE = True
-    print("✅ VoxCPM handler loaded")
+    print("SUCCESS: VoxCPM handler loaded")
 except Exception as error:
     VOXCPM_AVAILABLE = False
     unload_voxcpm = _unload_voxcpm_placeholder
-    print(f"⚠️ VoxCPM not available. Some features will be disabled. Error: {error}")
+    print(f"WARNING: VoxCPM not available. Some features will be disabled. Error: {error}")
 
 # Chatterbox Turbo imports
 try:
@@ -368,10 +420,12 @@ try:
             CHATTERBOX_TURBO_AVAILABLE as _TURBO_AVAILABLE,
         )
     CHATTERBOX_TURBO_AVAILABLE = _TURBO_AVAILABLE
-    print("✅ Chatterbox Turbo handler loaded")
+    print("SUCCESS: Chatterbox Turbo handler loaded")
 except Exception as error:
     CHATTERBOX_TURBO_AVAILABLE = False
-    print(f"⚠️ Chatterbox Turbo not available. Some features will be disabled. Error: {error}")
+    print(
+        f"WARNING: Chatterbox Turbo not available. Some features will be disabled. Error: {error}"
+    )
 
 # Qwen TTS imports
 try:
@@ -391,13 +445,13 @@ try:
             QWEN_LANGUAGES,
         )
     QWEN_TTS_AVAILABLE = _QWEN_AVAILABLE
-    print("✅ Qwen TTS handler loaded")
+    print("SUCCESS: Qwen TTS handler loaded")
 except Exception as error:
     QWEN_TTS_AVAILABLE = False
     QWEN_TTS_MODELS = {}
     QWEN_SPEAKERS = []
     QWEN_LANGUAGES = []
-    print(f"⚠️ Qwen TTS not available. Some features will be disabled. Error: {error}")
+    print(f"WARNING: Qwen TTS not available. Some features will be disabled. Error: {error}")
 
 try:
     from ebook_converter import (
@@ -421,7 +475,7 @@ except Exception as error:
     def get_supported_formats() -> dict[str, Any]:
         return {}
 
-    print(f"⚠️ eBook converter not available. Error: {error}")
+    print(f"WARNING: eBook converter not available. Error: {error}")
 
 from narration_transform import (
     CONTENT_TYPE_PRESETS,
@@ -526,26 +580,26 @@ def download_indextts_models_auto() -> bool:
     try:
         downloader_path = Path(__file__).resolve().parent / "tools" / "download_indextts_models.py"
         if not downloader_path.exists():
-            print(f"❌ IndexTTS downloader not found: {downloader_path}")
+            print(f"ERROR: IndexTTS downloader not found: {downloader_path}")
             return False
 
         spec = importlib_util.spec_from_file_location(
             "download_indextts_models", str(downloader_path)
         )
         if spec is None or spec.loader is None:
-            print("❌ Failed to load IndexTTS downloader module spec")
+            print("ERROR: Failed to load IndexTTS downloader module spec")
             return False
 
         module = importlib_util.module_from_spec(spec)
         spec.loader.exec_module(module)
         downloader = getattr(module, "download_indextts_models", None)
         if downloader is None:
-            print("❌ download_indextts_models function not found")
+            print("ERROR: download_indextts_models function not found")
             return False
 
         return bool(downloader())
     except Exception as error:
-        print(f"❌ IndexTTS auto-download failed: {error}")
+        print(f"ERROR: IndexTTS auto-download failed: {error}")
         return False
 
 
@@ -563,20 +617,20 @@ def detect_language(text: str) -> str:
 def init_higgs_audio() -> tuple[bool, str]:
     """Compatibility wrapper for model manager handlers."""
     if not HIGGS_AUDIO_AVAILABLE:
-        return False, "❌ Higgs Audio not available"
+        return False, "ERROR: Higgs Audio not available"
 
     try:
         handler = get_higgs_audio_handler()
         if handler is None:
-            return False, "❌ Higgs Audio handler unavailable"
+            return False, "ERROR: Higgs Audio handler unavailable"
         success = bool(handler.initialize_engine())
         return (
-            (True, "✅ Higgs Audio loaded successfully")
+            (True, "SUCCESS: Higgs Audio loaded successfully")
             if success
-            else (False, "❌ Failed to initialize Higgs Audio")
+            else (False, "ERROR: Failed to initialize Higgs Audio")
         )
     except Exception as error:
-        return False, f"❌ Error loading Higgs Audio: {error}"
+        return False, f"ERROR: Error loading Higgs Audio: {error}"
 
 
 def unload_higgs_audio() -> str:
@@ -584,7 +638,7 @@ def unload_higgs_audio() -> str:
     try:
         handler = get_higgs_audio_handler()
         if handler is None:
-            return "⚠️ Higgs Audio handler unavailable"
+            return "WARNING: Higgs Audio handler unavailable"
         if getattr(handler, "engine", None) is not None:
             handler.engine = None
 
@@ -594,9 +648,9 @@ def unload_higgs_audio() -> str:
         if DEVICE == "cuda":
             torch.cuda.empty_cache()
 
-        return "✅ Higgs Audio unloaded"
+        return "SUCCESS: Higgs Audio unloaded"
     except Exception as error:
-        return f"⚠️ Error unloading Higgs Audio: {error}"
+        return f"WARNING: Error unloading Higgs Audio: {error}"
 
 
 def init_voxcpm_model() -> tuple[bool, str]:
@@ -605,9 +659,11 @@ def init_voxcpm_model() -> tuple[bool, str]:
         return bool(result[0]), str(result[1])
     if isinstance(result, bool):
         return result, (
-            "✅ VoxCPM models loaded successfully" if result else "❌ VoxCPM not available"
+            "SUCCESS: VoxCPM models loaded successfully"
+            if result
+            else "ERROR: VoxCPM not available"
         )
-    return False, "❌ VoxCPM initialization failed"
+    return False, "ERROR: VoxCPM initialization failed"
 
 
 def unload_voxcpm_model() -> str:
@@ -666,7 +722,7 @@ def generate_conversation_audio_simple(
 ):
     """Generate a complete conversation with multiple voices - Simplified version."""
     try:
-        print("🎭 Starting conversation generation...")
+        print("[THEATER] Starting conversation generation...")
 
         resolved_project, project_error = _validate_required_project_name(project_name)
         if project_error:
@@ -675,16 +731,16 @@ def generate_conversation_audio_simple(
         # Parse the conversation script
         conversation, parse_error = parse_conversation_script(conversation_script)
         if parse_error:
-            return None, f"❌ Script parsing error: {parse_error}"
+            return None, f"ERROR: Script parsing error: {parse_error}"
 
         if not conversation:
-            return None, "❌ No valid conversation found in script"
+            return None, "ERROR: No valid conversation found in script"
 
-        print(f"📝 Parsed {len(conversation)} conversation lines")
+        print(f"[MEMO] Parsed {len(conversation)} conversation lines")
 
         # Get unique speakers and map them to voice samples
         speakers = get_speaker_names_from_script(conversation_script)
-        print(f"🎤 Found speakers: {speakers}")
+        print(f"[MIC] Found speakers: {speakers}")
 
         # Initialize ref_texts if not provided
         if ref_texts is None:
@@ -697,7 +753,7 @@ def generate_conversation_audio_simple(
         for i, speaker in enumerate(speakers):
             if i < len(voice_samples) and voice_samples[i] is not None:
                 speaker_voice_map[speaker] = voice_samples[i]
-                print(f"🎤 {speaker} -> {voice_samples[i]}")
+                print(f"[MIC] {speaker} -> {voice_samples[i]}")
             else:
                 speaker_voice_map[speaker] = None
                 print(f"� {speaker} -> No voice sample")
@@ -706,10 +762,10 @@ def generate_conversation_audio_simple(
             ref_text_value = ref_texts[i] if i < len(ref_texts) else None
             if isinstance(ref_text_value, str) and ref_text_value.strip():
                 speaker_ref_text_map[speaker] = ref_text_value.strip()
-                print(f"📝 {speaker} -> ref_text: {ref_text_value[:30]}...")
+                print(f"[MEMO] {speaker} -> ref_text: {ref_text_value[:30]}...")
             else:
                 speaker_ref_text_map[speaker] = None
-                print(f"📝 {speaker} -> No reference text")
+                print(f"[MEMO] {speaker} -> No reference text")
 
             # Generate a consistent seed for each speaker
             speaker_seed_map[speaker] = np.random.randint(0, 2147483647)
@@ -724,7 +780,9 @@ def generate_conversation_audio_simple(
             speaker = line["speaker"]
             text = line["text"]
 
-            print(f'🗣️ Generating line {i+1}/{len(conversation)}: {speaker} - "{text[:30]}..."')
+            print(
+                f'[SPEAKING] Generating line {i+1}/{len(conversation)}: {speaker} - "{text[:30]}..."'
+            )
 
             ref_audio = speaker_voice_map.get(speaker)
 
@@ -764,7 +822,7 @@ def generate_conversation_audio_simple(
                         skip_file_saving=True,
                     )
                 elif selected_engine == "Chatterbox Turbo":
-                    print(f"🚀 Using Chatterbox Turbo for {speaker}")
+                    print(f"[ROCKET] Using Chatterbox Turbo for {speaker}")
                     result = generate_chatterbox_turbo_tts(
                         text,
                         ref_audio or "",
@@ -781,18 +839,18 @@ def generate_conversation_audio_simple(
                         skip_file_saving=True,
                     )
                 elif selected_engine == "kokoro" or selected_engine == "Kokoro TTS":
-                    print(f"🗣️ Using Kokoro TTS for speaker '{speaker}'")
+                    print(f"[SPEAKING] Using Kokoro TTS for speaker '{speaker}'")
                     result = generate_kokoro_conversation_tts(
                         text, speaker, speakers, effects_settings, audio_format
                     )
                 elif selected_engine == "Fish Speech":
-                    print(f"🐟 Using Fish Speech for {speaker}")
+                    print(f"[FISH] Using Fish Speech for {speaker}")
                     # Simplified Fish Speech call
                     result = generate_fish_speech_simple(
                         text, ref_audio, effects_settings, audio_format
                     )
                 elif selected_engine == "IndexTTS":
-                    print(f"🎯 Using IndexTTS for {speaker}")
+                    print(f"[TARGET] Using IndexTTS for {speaker}")
                     result = generate_indextts_tts(
                         text,
                         ref_audio,
@@ -803,7 +861,7 @@ def generate_conversation_audio_simple(
                         skip_file_saving=True,
                     )
                 elif selected_engine == "IndexTTS2":
-                    print(f"🎯 Using IndexTTS2 for {speaker}")
+                    print(f"[TARGET] Using IndexTTS2 for {speaker}")
                     result = generate_indextts2_tts(
                         text,
                         ref_audio,
@@ -824,7 +882,7 @@ def generate_conversation_audio_simple(
                         skip_file_saving=True,
                     )
                 elif selected_engine == "F5-TTS":
-                    print(f"🎵 Using F5-TTS for {speaker}")
+                    print(f"[MUSIC] Using F5-TTS for {speaker}")
                     result = generate_f5_tts(
                         text,
                         ref_audio,
@@ -838,7 +896,7 @@ def generate_conversation_audio_simple(
                         skip_file_saving=True,
                     )
                 elif selected_engine == "Higgs Audio":
-                    print(f"🎙️ Using Higgs Audio for {speaker}")
+                    print(f"[MIC2] Using Higgs Audio for {speaker}")
                     result = generate_higgs_audio_tts(
                         text,
                         ref_audio,
@@ -857,7 +915,7 @@ def generate_conversation_audio_simple(
                         skip_file_saving=True,
                     )
                 elif selected_engine == "KittenTTS":
-                    print(f"🐱 Using KittenTTS for {speaker}")
+                    print(f"[CAT] Using KittenTTS for {speaker}")
                     # For conversation mode, assign different voices to different speakers
                     available_voices = [
                         "expr-voice-2-f",
@@ -871,25 +929,25 @@ def generate_conversation_audio_simple(
                     ]
                     speaker_index = speakers.index(speaker) if speaker in speakers else 0
                     kitten_voice = available_voices[speaker_index % len(available_voices)]
-                    print(f"🎤 Assigned voice '{kitten_voice}' to speaker '{speaker}'")
+                    print(f"[MIC] Assigned voice '{kitten_voice}' to speaker '{speaker}'")
                     result = generate_kitten_tts(
                         text, kitten_voice, effects_settings, audio_format, skip_file_saving=True
                     )
                 elif selected_engine == "VoxCPM":
-                    print(f"🎤 Using VoxCPM for {speaker}")
+                    print(f"[MIC] Using VoxCPM for {speaker}")
 
                     # Auto-transcribe reference audio if provided
                     ref_text = None
                     if ref_audio and VOXCPM_AVAILABLE:
                         try:
-                            print(f"🎤 Auto-transcribing reference audio for {speaker}...")
+                            print(f"[MIC] Auto-transcribing reference audio for {speaker}...")
                             ref_text = transcribe_voxcpm_audio(ref_audio)
                             if ref_text:
-                                print(f"📝 Transcribed: {ref_text[:50]}...")
+                                print(f"[MEMO] Transcribed: {ref_text[:50]}...")
                             else:
-                                print("⚠️ No transcription result, using default voice")
+                                print("WARNING: No transcription result, using default voice")
                         except Exception as e:
-                            print(f"⚠️ Transcription failed for {speaker}: {e}")
+                            print(f"WARNING: Transcription failed for {speaker}: {e}")
                             ref_text = None
 
                     # Use consistent seed for this speaker
@@ -912,7 +970,7 @@ def generate_conversation_audio_simple(
                         audio_format,
                     )
                 elif selected_engine == "Qwen Voice Clone":
-                    print(f"🎙️ Using Qwen Voice Clone for {speaker}")
+                    print(f"[MIC2] Using Qwen Voice Clone for {speaker}")
 
                     # Get pre-provided reference text for this speaker (from UI transcribe button)
                     ref_text = speaker_ref_text_map.get(speaker)
@@ -920,17 +978,19 @@ def generate_conversation_audio_simple(
                     # If no pre-provided ref_text, try auto-transcribe as fallback
                     if not ref_text and ref_audio and QWEN_TTS_AVAILABLE:
                         try:
-                            print(f"🎤 Auto-transcribing reference audio for {speaker}...")
+                            print(f"[MIC] Auto-transcribing reference audio for {speaker}...")
                             ref_text = transcribe_qwen_audio(ref_audio)
                             if ref_text:
-                                print(f"📝 Transcribed: {ref_text[:50]}...")
+                                print(f"[MEMO] Transcribed: {ref_text[:50]}...")
                             else:
-                                print("⚠️ No transcription result, using x-vector only mode")
+                                print("WARNING: No transcription result, using x-vector only mode")
                         except Exception as e:
-                            print(f"⚠️ Transcription failed for {speaker}: {e}")
+                            print(f"WARNING: Transcription failed for {speaker}: {e}")
                             ref_text = None
                     elif ref_text:
-                        print(f"📝 Using pre-provided ref_text for {speaker}: {ref_text[:50]}...")
+                        print(
+                            f"[MEMO] Using pre-provided ref_text for {speaker}: {ref_text[:50]}..."
+                        )
 
                     # Use consistent seed for this speaker
                     speaker_seed = speaker_seed_map.get(speaker, None)
@@ -940,7 +1000,7 @@ def generate_conversation_audio_simple(
                     qwen_model_size = "0.6B"  # Default to smaller model
                     if MODEL_STATUS.get("qwen_tts", {}).get("loaded"):
                         qwen_model_size = MODEL_STATUS["qwen_tts"].get("model_size", "0.6B")
-                    print(f"🎭 Using Qwen model size: {qwen_model_size}")
+                    print(f"[THEATER] Using Qwen model size: {qwen_model_size}")
 
                     result = generate_qwen_voice_clone_tts(
                         text,
@@ -957,20 +1017,20 @@ def generate_conversation_audio_simple(
                         skip_file_saving=True,
                     )
                 else:
-                    return None, f"❌ Unsupported TTS engine: {selected_engine}"
+                    return None, f"ERROR: Unsupported TTS engine: {selected_engine}"
 
                 if result[0] is None:
-                    return None, f"❌ Error generating audio for {speaker}: {result[1]}"
+                    return None, f"ERROR: Error generating audio for {speaker}: {result[1]}"
 
                 audio_data, info_text = result
                 if audio_data is None:
-                    return None, f"❌ No audio generated for {speaker}"
+                    return None, f"ERROR: No audio generated for {speaker}"
 
                 # Extract audio array from tuple
                 if isinstance(audio_data, tuple):
                     sample_rate, line_audio = audio_data
                 else:
-                    return None, f"❌ Invalid audio format for {speaker}"
+                    return None, f"ERROR: Invalid audio format for {speaker}"
 
                 conversation_audio_chunks.append(line_audio)
                 conversation_info.append(
@@ -982,16 +1042,16 @@ def generate_conversation_audio_simple(
                     }
                 )
 
-                print(f"✅ Generated {len(line_audio)} samples for {speaker}")
+                print(f"SUCCESS: Generated {len(line_audio)} samples for {speaker}")
 
             except Exception as gen_error:
                 import traceback
 
                 traceback.print_exc()
-                return None, f"❌ Error generating audio for {speaker}: {str(gen_error)}"
+                return None, f"ERROR: Error generating audio for {speaker}: {str(gen_error)}"
 
         # Combine all audio with proper timing
-        print("🎵 Combining conversation audio with proper timing...")
+        print("[MUSIC] Combining conversation audio with proper timing...")
 
         # Calculate pause durations in samples
         conversation_pause_samples = int(sample_rate * conversation_pause_duration)
@@ -999,7 +1059,7 @@ def generate_conversation_audio_simple(
 
         # Handle negative pauses (overlapping audio)
         if conversation_pause_samples < 0 or transition_pause_samples < 0:
-            print("🔄 Using overlapping audio mode for negative pauses...")
+            print("[ARROWS] Using overlapping audio mode for negative pauses...")
 
             # For negative pauses, we'll need to overlap the audio chunks
             final_conversation_audio = None
@@ -1105,7 +1165,7 @@ def generate_conversation_audio_simple(
                 project_output_dir,
                 filename_base,
             )
-            print(f"💾 Conversation saved as: {filename}")
+            print(f"[DISK] Conversation saved as: {filename}")
         except Exception as save_error:
             print(f"Warning: Could not save conversation file: {save_error}")
             filename = "conversation_audio"
@@ -1142,7 +1202,7 @@ def generate_conversation_audio_simple(
         summary["saved_audio_path"] = filepath
 
         print(
-            f"✅ Conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
+            f"SUCCESS: Conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
         )
 
         return (sample_rate, final_conversation_audio), summary
@@ -1151,7 +1211,7 @@ def generate_conversation_audio_simple(
         import traceback
 
         traceback.print_exc()
-        return None, f"❌ Conversation generation error: {str(e)}"
+        return None, f"ERROR: Conversation generation error: {str(e)}"
 
 
 def generate_conversation_audio_kokoro(
@@ -1166,7 +1226,7 @@ def generate_conversation_audio_kokoro(
 ):
     """Generate a complete conversation with Kokoro TTS using selected voices for each speaker."""
     try:
-        print("🎭 Starting Kokoro conversation generation...")
+        print("[THEATER] Starting Kokoro conversation generation...")
 
         resolved_project, project_error = _validate_required_project_name(project_name)
         if project_error:
@@ -1175,23 +1235,23 @@ def generate_conversation_audio_kokoro(
         # Parse the conversation script
         conversation, parse_error = parse_conversation_script(conversation_script)
         if parse_error:
-            return None, f"❌ Script parsing error: {parse_error}"
+            return None, f"ERROR: Script parsing error: {parse_error}"
 
         if not conversation:
-            return None, "❌ No valid conversation found in script"
+            return None, "ERROR: No valid conversation found in script"
 
-        print(f"📝 Parsed {len(conversation)} conversation lines")
+        print(f"[MEMO] Parsed {len(conversation)} conversation lines")
 
         # Get unique speakers and map them to selected Kokoro voices
         speakers = get_speaker_names_from_script(conversation_script)
-        print(f"🎤 Found speakers: {speakers}")
+        print(f"[MIC] Found speakers: {speakers}")
 
         # Map speakers to selected Kokoro voices
         speaker_voice_map = {}
         for i, speaker in enumerate(speakers):
             if i < len(kokoro_voices) and kokoro_voices[i] is not None:
                 speaker_voice_map[speaker] = kokoro_voices[i]
-                print(f"🗣️ {speaker} -> {kokoro_voices[i]}")
+                print(f"[SPEAKING] {speaker} -> {kokoro_voices[i]}")
             else:
                 # Fallback to default voices if not enough selections
                 default_voices = [
@@ -1204,7 +1264,7 @@ def generate_conversation_audio_kokoro(
                 ]
                 fallback_voice = default_voices[i % len(default_voices)]
                 speaker_voice_map[speaker] = fallback_voice
-                print(f"🗣️ {speaker} -> {fallback_voice} (fallback)")
+                print(f"[SPEAKING] {speaker} -> {fallback_voice} (fallback)")
 
         conversation_audio_chunks = []
         conversation_info = []
@@ -1215,7 +1275,9 @@ def generate_conversation_audio_kokoro(
             speaker = line["speaker"]
             text = line["text"]
 
-            print(f'🗣️ Generating line {i+1}/{len(conversation)}: {speaker} - "{text[:30]}..."')
+            print(
+                f'[SPEAKING] Generating line {i+1}/{len(conversation)}: {speaker} - "{text[:30]}..."'
+            )
 
             selected_voice = speaker_voice_map.get(speaker)
 
@@ -1231,17 +1293,17 @@ def generate_conversation_audio_kokoro(
                 )
 
                 if result[0] is None:
-                    return None, f"❌ Error generating audio for {speaker}: {result[1]}"
+                    return None, f"ERROR: Error generating audio for {speaker}: {result[1]}"
 
                 audio_data, info_text = result
                 if audio_data is None:
-                    return None, f"❌ No audio generated for {speaker}"
+                    return None, f"ERROR: No audio generated for {speaker}"
 
                 # Extract audio array from tuple
                 if isinstance(audio_data, tuple):
                     sample_rate, line_audio = audio_data
                 else:
-                    return None, f"❌ Invalid audio format for {speaker}"
+                    return None, f"ERROR: Invalid audio format for {speaker}"
 
                 conversation_audio_chunks.append(line_audio)
                 conversation_info.append(
@@ -1255,17 +1317,17 @@ def generate_conversation_audio_kokoro(
                 )
 
                 print(
-                    f"✅ Generated {len(line_audio)} samples for {speaker} using voice {selected_voice}"
+                    f"SUCCESS: Generated {len(line_audio)} samples for {speaker} using voice {selected_voice}"
                 )
 
             except Exception as gen_error:
                 import traceback
 
                 traceback.print_exc()
-                return None, f"❌ Error generating audio for {speaker}: {str(gen_error)}"
+                return None, f"ERROR: Error generating audio for {speaker}: {str(gen_error)}"
 
         # Combine all audio with proper timing
-        print("🎵 Combining conversation audio with proper timing...")
+        print("[MUSIC] Combining conversation audio with proper timing...")
 
         # Calculate pause durations in samples
         conversation_pause_samples = int(sample_rate * conversation_pause_duration)
@@ -1273,7 +1335,7 @@ def generate_conversation_audio_kokoro(
 
         # Handle negative pauses (overlapping audio)
         if conversation_pause_samples < 0 or transition_pause_samples < 0:
-            print("🔄 Using overlapping audio mode for negative pauses...")
+            print("[ARROWS] Using overlapping audio mode for negative pauses...")
 
             # For negative pauses, we'll need to overlap the audio chunks
             final_conversation_audio = None
@@ -1379,7 +1441,7 @@ def generate_conversation_audio_kokoro(
                 project_output_dir,
                 filename_base,
             )
-            print(f"💾 Conversation saved as: {filename}")
+            print(f"[DISK] Conversation saved as: {filename}")
         except Exception as save_error:
             print(f"Warning: Could not save conversation file: {save_error}")
             filename = "conversation_kokoro_audio"
@@ -1416,7 +1478,7 @@ def generate_conversation_audio_kokoro(
         summary["saved_audio_path"] = filepath
 
         print(
-            f"✅ Kokoro conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
+            f"SUCCESS: Kokoro conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
         )
 
         return (sample_rate, final_conversation_audio), summary
@@ -1425,7 +1487,7 @@ def generate_conversation_audio_kokoro(
         import traceback
 
         traceback.print_exc()
-        return None, f"❌ Kokoro conversation generation error: {str(e)}"
+        return None, f"ERROR: Kokoro conversation generation error: {str(e)}"
 
 
 def generate_kokoro_conversation_tts(
@@ -1433,10 +1495,10 @@ def generate_kokoro_conversation_tts(
 ):
     """Generate TTS audio using Kokoro TTS with speaker-specific voice assignment for conversation mode."""
     if not KOKORO_AVAILABLE:
-        return None, "❌ Kokoro TTS not available - check installation"
+        return None, "ERROR: Kokoro TTS not available - check installation"
 
     if not MODEL_STATUS["kokoro"]["loaded"] or not KOKORO_PIPELINES:
-        return None, "❌ Kokoro TTS not loaded - please load the model first"
+        return None, "ERROR: Kokoro TTS not loaded - please load the model first"
 
     try:
         # Voice assignment logic for conversation mode
@@ -1444,7 +1506,9 @@ def generate_kokoro_conversation_tts(
         speaker_index = speakers_list.index(speaker) if speaker in speakers_list else 0
         assigned_voice = available_voices[speaker_index % len(available_voices)]
 
-        print(f"🗣️ Generating Kokoro TTS for speaker '{speaker}' using voice '{assigned_voice}'")
+        print(
+            f"[SPEAKING] Generating Kokoro TTS for speaker '{speaker}' using voice '{assigned_voice}'"
+        )
 
         # Generate using the assigned voice
         result = generate_kokoro_tts(
@@ -1459,7 +1523,7 @@ def generate_kokoro_conversation_tts(
         return result
 
     except Exception as e:
-        return None, f"❌ Kokoro conversation error: {str(e)}"
+        return None, f"ERROR: Kokoro conversation error: {str(e)}"
 
 
 def generate_conversation_audio_kitten(
@@ -1474,7 +1538,7 @@ def generate_conversation_audio_kitten(
 ):
     """Generate a complete conversation with KittenTTS using selected voices for each speaker."""
     try:
-        print("🐱 Starting KittenTTS conversation generation...")
+        print("[CAT] Starting KittenTTS conversation generation...")
 
         resolved_project, project_error = _validate_required_project_name(project_name)
         if project_error:
@@ -1483,23 +1547,23 @@ def generate_conversation_audio_kitten(
         # Parse the conversation script
         conversation, parse_error = parse_conversation_script(conversation_script)
         if parse_error:
-            return None, f"❌ Script parsing error: {parse_error}"
+            return None, f"ERROR: Script parsing error: {parse_error}"
 
         if not conversation:
-            return None, "❌ No valid conversation found in script"
+            return None, "ERROR: No valid conversation found in script"
 
-        print(f"📝 Parsed {len(conversation)} conversation lines")
+        print(f"[MEMO] Parsed {len(conversation)} conversation lines")
 
         # Get unique speakers and map them to selected KittenTTS voices
         speakers = get_speaker_names_from_script(conversation_script)
-        print(f"🎤 Found speakers: {speakers}")
+        print(f"[MIC] Found speakers: {speakers}")
 
         # Map speakers to selected KittenTTS voices
         speaker_voice_map = {}
         for i, speaker in enumerate(speakers):
             if i < len(kitten_voices) and kitten_voices[i] is not None:
                 speaker_voice_map[speaker] = kitten_voices[i]
-                print(f"🐱 {speaker} -> {kitten_voices[i]}")
+                print(f"[CAT] {speaker} -> {kitten_voices[i]}")
             else:
                 # Fallback to default voices if not enough selections
                 available_voices = [
@@ -1514,7 +1578,7 @@ def generate_conversation_audio_kitten(
                 ]
                 fallback_voice = available_voices[i % len(available_voices)]
                 speaker_voice_map[speaker] = fallback_voice
-                print(f"🐱 {speaker} -> {fallback_voice} (fallback)")
+                print(f"[CAT] {speaker} -> {fallback_voice} (fallback)")
 
         conversation_audio_chunks = []
         conversation_info = []
@@ -1525,7 +1589,7 @@ def generate_conversation_audio_kitten(
             speaker = line["speaker"]
             text = line["text"]
 
-            print(f'🐱 Generating line {i+1}/{len(conversation)}: {speaker} - "{text[:30]}..."')
+            print(f'[CAT] Generating line {i+1}/{len(conversation)}: {speaker} - "{text[:30]}..."')
 
             kitten_voice = speaker_voice_map.get(speaker, "expr-voice-2-f")
 
@@ -1536,17 +1600,17 @@ def generate_conversation_audio_kitten(
                 )
 
                 if result[0] is None:
-                    return None, f"❌ Error generating audio for {speaker}: {result[1]}"
+                    return None, f"ERROR: Error generating audio for {speaker}: {result[1]}"
 
                 audio_data, info_text = result
                 if audio_data is None:
-                    return None, f"❌ No audio generated for {speaker}"
+                    return None, f"ERROR: No audio generated for {speaker}"
 
                 # Extract audio array from tuple
                 if isinstance(audio_data, tuple):
                     sample_rate, line_audio = audio_data
                 else:
-                    return None, f"❌ Invalid audio format for {speaker}"
+                    return None, f"ERROR: Invalid audio format for {speaker}"
 
                 conversation_audio_chunks.append(line_audio)
                 conversation_info.append(
@@ -1559,16 +1623,18 @@ def generate_conversation_audio_kitten(
                     }
                 )
 
-                print(f"✅ Generated {len(line_audio)} samples for {speaker} using {kitten_voice}")
+                print(
+                    f"SUCCESS: Generated {len(line_audio)} samples for {speaker} using {kitten_voice}"
+                )
 
             except Exception as gen_error:
                 import traceback
 
                 traceback.print_exc()
-                return None, f"❌ Error generating audio for {speaker}: {str(gen_error)}"
+                return None, f"ERROR: Error generating audio for {speaker}: {str(gen_error)}"
 
         # Combine all audio with proper timing (same logic as other conversation functions)
-        print("🎵 Combining conversation audio with proper timing...")
+        print("[MUSIC] Combining conversation audio with proper timing...")
 
         # Calculate pause durations in samples
         conversation_pause_samples = int(sample_rate * conversation_pause_duration)
@@ -1615,7 +1681,7 @@ def generate_conversation_audio_kitten(
                 project_output_dir,
                 filename_base,
             )
-            print(f"💾 KittenTTS conversation saved as: {filename}")
+            print(f"[DISK] KittenTTS conversation saved as: {filename}")
         except Exception as save_error:
             print(f"Warning: Could not save conversation file: {save_error}")
             filename = "kitten_conversation_audio"
@@ -1652,7 +1718,7 @@ def generate_conversation_audio_kitten(
         summary["saved_audio_path"] = filepath
 
         print(
-            f"✅ KittenTTS conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
+            f"SUCCESS: KittenTTS conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
         )
 
         return (sample_rate, final_conversation_audio), summary
@@ -1661,7 +1727,7 @@ def generate_conversation_audio_kitten(
         import traceback
 
         traceback.print_exc()
-        return None, f"❌ KittenTTS conversation error: {str(e)}"
+        return None, f"ERROR: KittenTTS conversation error: {str(e)}"
 
 
 def generate_conversation_audio_indextts2(
@@ -1680,7 +1746,7 @@ def generate_conversation_audio_indextts2(
 ):
     """Generate a complete conversation with IndexTTS2 using emotion controls for each speaker."""
     try:
-        print("🎯 Starting IndexTTS2 conversation generation...")
+        print("[TARGET] Starting IndexTTS2 conversation generation...")
 
         resolved_project, project_error = _validate_required_project_name(project_name)
         if project_error:
@@ -1689,16 +1755,16 @@ def generate_conversation_audio_indextts2(
         # Parse the conversation script
         conversation, parse_error = parse_conversation_script(conversation_script)
         if parse_error:
-            return None, f"❌ Script parsing error: {parse_error}"
+            return None, f"ERROR: Script parsing error: {parse_error}"
 
         if not conversation:
-            return None, "❌ No valid conversation found in script"
+            return None, "ERROR: No valid conversation found in script"
 
-        print(f"📝 Parsed {len(conversation)} conversation lines")
+        print(f"[MEMO] Parsed {len(conversation)} conversation lines")
 
         # Get unique speakers and map them to voice samples and emotion settings
         speakers = get_speaker_names_from_script(conversation_script)
-        print(f"🎤 Found speakers: {speakers}")
+        print(f"[MIC] Found speakers: {speakers}")
 
         # Map speakers to voice samples and emotion settings
         speaker_voice_map = {}
@@ -1708,10 +1774,10 @@ def generate_conversation_audio_indextts2(
             # Voice sample mapping
             if i < len(voice_samples) and voice_samples[i] is not None:
                 speaker_voice_map[speaker] = voice_samples[i]
-                print(f"🎤 {speaker} -> {voice_samples[i]}")
+                print(f"[MIC] {speaker} -> {voice_samples[i]}")
             else:
                 speaker_voice_map[speaker] = None
-                print(f"🎤 {speaker} -> No voice sample")
+                print(f"[MIC] {speaker} -> No voice sample")
 
             # Emotion settings mapping
             emotion_settings = {
@@ -1721,7 +1787,7 @@ def generate_conversation_audio_indextts2(
                 "vectors": emotion_vectors[i] if i < len(emotion_vectors) else {},
             }
             speaker_emotion_map[speaker] = emotion_settings
-            print(f"🎭 {speaker} emotion mode: {emotion_settings['mode']}")
+            print(f"[THEATER] {speaker} emotion mode: {emotion_settings['mode']}")
 
         conversation_audio_chunks = []
         conversation_info = []
@@ -1732,13 +1798,15 @@ def generate_conversation_audio_indextts2(
             speaker = line["speaker"]
             text = line["text"]
 
-            print(f'🎯 Generating line {i+1}/{len(conversation)}: {speaker} - "{text[:30]}..."')
+            print(
+                f'[TARGET] Generating line {i+1}/{len(conversation)}: {speaker} - "{text[:30]}..."'
+            )
 
             ref_audio = speaker_voice_map.get(speaker)
             emotion_settings = speaker_emotion_map.get(speaker, {})
 
             if not ref_audio:
-                print(f"⚠️ No voice sample for {speaker}, skipping line")
+                print(f"WARNING: No voice sample for {speaker}, skipping line")
                 continue
 
             # Generate audio using IndexTTS2 with emotion controls
@@ -1774,11 +1842,11 @@ def generate_conversation_audio_indextts2(
                 )
 
                 if result[0] is None:
-                    print(f"❌ Failed to generate audio for {speaker}: {result[1]}")
+                    print(f"ERROR: Failed to generate audio for {speaker}: {result[1]}")
 
                     # Try with even more conservative settings as fallback
                     if "tensor" in result[1].lower() or "dimension" in result[1].lower():
-                        print(f"   🔄 Attempting fallback with minimal parameters...")
+                        print(f"   [ARROWS] Attempting fallback with minimal parameters...")
                         try:
                             fallback_result = generate_indextts2_tts(
                                 (
@@ -1803,13 +1871,13 @@ def generate_conversation_audio_indextts2(
                             )
 
                             if fallback_result[0] is not None:
-                                print(f"   ✅ Fallback successful for {speaker}")
+                                print(f"   SUCCESS: Fallback successful for {speaker}")
                                 result = fallback_result
                             else:
-                                print(f"   ❌ Fallback also failed for {speaker}")
+                                print(f"   ERROR: Fallback also failed for {speaker}")
                                 continue
                         except Exception as fallback_error:
-                            print(f"   ❌ Fallback error for {speaker}: {fallback_error}")
+                            print(f"   ERROR: Fallback error for {speaker}: {fallback_error}")
                             continue
                     else:
                         continue
@@ -1841,14 +1909,14 @@ def generate_conversation_audio_indextts2(
                     }
                 )
 
-                print(f"✅ Generated {len(audio_data)} samples for {speaker}")
+                print(f"SUCCESS: Generated {len(audio_data)} samples for {speaker}")
 
             except Exception as e:
-                print(f"❌ Error generating audio for {speaker}: {e}")
+                print(f"ERROR: Error generating audio for {speaker}: {e}")
                 continue
 
         if not conversation_audio_chunks:
-            return None, "❌ No audio generated for any speakers"
+            return None, "ERROR: No audio generated for any speakers"
 
         # Combine all audio chunks with appropriate pauses
         print("🔗 Combining audio chunks...")
@@ -1897,7 +1965,7 @@ def generate_conversation_audio_indextts2(
                 project_output_dir,
                 filename_base,
             )
-            print(f"💾 Conversation saved as: {filename}")
+            print(f"[DISK] Conversation saved as: {filename}")
         except Exception as save_error:
             print(f"Warning: Could not save conversation file: {save_error}")
             filename = "conversation_audio"
@@ -1936,7 +2004,7 @@ def generate_conversation_audio_indextts2(
         summary["saved_audio_path"] = filepath
 
         print(
-            f"✅ IndexTTS2 conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
+            f"SUCCESS: IndexTTS2 conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
         )
 
         return (sample_rate, final_conversation_audio), summary
@@ -1945,28 +2013,28 @@ def generate_conversation_audio_indextts2(
         import traceback
 
         traceback.print_exc()
-        return None, f"❌ IndexTTS2 conversation error: {str(e)}"
+        return None, f"ERROR: IndexTTS2 conversation error: {str(e)}"
 
 
 def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, audio_format="wav"):
     """Simplified Fish Speech generation for conversation mode."""
     if not FISH_SPEECH_AVAILABLE:
-        return None, "❌ Fish Speech not available"
+        return None, "ERROR: Fish Speech not available"
 
     if not MODEL_STATUS["fish_speech"]["loaded"] or FISH_SPEECH_ENGINE is None:
-        return None, "❌ Fish Speech not loaded"
+        return None, "ERROR: Fish Speech not loaded"
 
     try:
         cleaned_text = _sanitize_fish_speech_text(text)
         if not cleaned_text:
-            return None, "❌ Fish Speech input is empty after text cleanup"
+            return None, "ERROR: Fish Speech input is empty after text cleanup"
 
-        print(f"🐟 Fish Speech generating: {cleaned_text[:50]}...")
+        print(f"[FISH] Fish Speech generating: {cleaned_text[:50]}...")
 
         # Prepare reference audio if provided
         references = []
         if ref_audio and os.path.exists(ref_audio):
-            print(f"🎤 Using reference audio: {ref_audio}")
+            print(f"[MIC] Using reference audio: {ref_audio}")
             ref_audio_bytes = audio_to_bytes(ref_audio)
             references.append(ServeReferenceAudio(audio=ref_audio_bytes, text=""))  # type: ignore
 
@@ -1976,7 +2044,7 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
             import time
 
             seed = int(time.time()) % 1000000
-            print(f"🐟 Using seed {seed} for voice consistency")
+            print(f"[FISH] Using seed {seed} for voice consistency")
 
         # Create simple TTS request
         request = ServeTTSRequest(
@@ -1995,7 +2063,7 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
             normalize=False,
         )
 
-        print("🐟 Calling Fish Speech inference...")
+        print("[FISH] Calling Fish Speech inference...")
 
         # Generate audio
         results = list(FISH_SPEECH_ENGINE.inference(request))
@@ -2007,11 +2075,11 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
                 final_result = result
                 break
             elif result.code == "error":
-                return None, f"❌ Fish Speech error: {str(result.error)}"
+                return None, f"ERROR: Fish Speech error: {str(result.error)}"
 
         if final_result is None or final_result.error is not None:
             error_msg = str(final_result.error) if final_result else "No audio generated"
-            return None, f"❌ Fish Speech error: {error_msg}"
+            return None, f"ERROR: Fish Speech error: {error_msg}"
 
         # Extract audio data
         sample_rate, audio_data = final_result.audio
@@ -2025,9 +2093,9 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
         if peak > 1.0:
             audio_data = audio_data / peak
 
-        print(f"✅ Fish Speech generated: {len(audio_data)} samples")
+        print(f"SUCCESS: Fish Speech generated: {len(audio_data)} samples")
 
-        return (sample_rate, audio_data), "✅ Generated with Fish Speech"
+        return (sample_rate, audio_data), "SUCCESS: Generated with Fish Speech"
 
     except Exception as e:
         import traceback
@@ -2036,11 +2104,11 @@ def generate_fish_speech_simple(text, ref_audio=None, effects_settings=None, aud
         message = str(e)
         if "device-side assert" in message or "index out of bounds" in message:
             return None, (
-                "❌ Fish Speech CUDA index error. Text was auto-cleaned but GPU context is now unstable. "
+                "ERROR: Fish Speech CUDA index error. Text was auto-cleaned but GPU context is now unstable. "
                 "Please unload/reload Fish Speech (or restart app), then retry with plain narration text "
                 "without style tags like (calm)/(break)."
             )
-        return None, f"❌ Fish Speech error: {str(e)}"
+        return None, f"ERROR: Fish Speech error: {str(e)}"
 
 
 def _sanitize_fish_speech_text(text_input: str) -> str:
@@ -2174,9 +2242,7 @@ def save_audio_with_format(
 
 
 # ===== GLOBAL CONFIGURATION =====
-with suppress_specific_warnings():
-    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"🚀 Running on device: {DEVICE}")
+print(f"[ROCKET] Running on device: {DEVICE}")
 
 # Cache configuration for Kokoro
 cache_base = os.path.abspath(os.path.join(os.getcwd(), "cache"))
@@ -2323,10 +2389,10 @@ def load_app_state_settings() -> dict:
                         with open(APP_STATE_SETTINGS_FILE, "w", encoding="utf-8") as settings_file:
                             json.dump(merged, settings_file, indent=2, ensure_ascii=False)
                     except Exception as write_error:
-                        print(f"⚠️ Failed to persist settings migration: {write_error}")
+                        print(f"WARNING: Failed to persist settings migration: {write_error}")
                 return merged
     except Exception as error:
-        print(f"⚠️ Failed to load app_state settings: {error}")
+        print(f"WARNING: Failed to load app_state settings: {error}")
     return dict(DEFAULT_AUTOSAVE_SETTINGS)
 
 
@@ -2345,7 +2411,7 @@ def resolve_output_storage_settings(settings: dict | None = None):
         try:
             os.makedirs(custom_base, exist_ok=True)
         except Exception as error:
-            print(f"⚠️ Could not access custom output storage '{custom_base}': {error}")
+            print(f"WARNING: Could not access custom output storage '{custom_base}': {error}")
             mode = "project"
             custom_base = ""
 
@@ -2465,12 +2531,12 @@ def build_history_audio_proxy_url(
 def register_history_audio_proxy_route(demo: gr.Blocks) -> None:
     """Register a local validated playback proxy for History audio preview."""
     if HTTPException is None or FileResponse is None:
-        print("⚠️ History audio proxy unavailable: FastAPI response dependencies not loaded")
+        print("WARNING: History audio proxy unavailable: FastAPI response dependencies not loaded")
         return
 
     app = getattr(demo, "app", None)
     if app is None:
-        print("⚠️ History audio proxy unavailable: Gradio app instance not ready")
+        print("WARNING: History audio proxy unavailable: Gradio app instance not ready")
         return
 
     existing_paths = {getattr(route, "path", None) for route in getattr(app, "routes", [])}
@@ -2772,7 +2838,7 @@ def save_llm_panel_settings(
             content_type_name=content_type_name,
         )
     except Exception as error:
-        print(f"⚠️ Failed to save LLM settings: {error}")
+        print(f"WARNING: Failed to save LLM settings: {error}")
 
 
 def save_conversation_llm_prompt_settings(content_type_name: str, system_prompt: str) -> None:
@@ -2790,7 +2856,7 @@ def save_conversation_llm_prompt_settings(content_type_name: str, system_prompt:
             }
         )
     except Exception as error:
-        print(f"⚠️ Failed to save conversation LLM prompt settings: {error}")
+        print(f"WARNING: Failed to save conversation LLM prompt settings: {error}")
 
 
 def save_assistant_llm_settings(
@@ -2813,7 +2879,7 @@ def save_assistant_llm_settings(
             default_system_prompt="",
         )
     except Exception as error:
-        print(f"⚠️ Failed to save assistant LLM settings: {error}")
+        print(f"WARNING: Failed to save assistant LLM settings: {error}")
 
 
 def _build_voice_preset_entry(
@@ -2893,7 +2959,7 @@ def delete_voice_preset_entry(preset_name: str) -> tuple[bool, str, bool]:
     store = load_voice_preset_store()
     presets = store.get("presets", {})
     if normalized_name not in presets:
-        return False, f"⚠️ Preset **{normalized_name}** not found", False
+        return False, f"WARNING: Preset **{normalized_name}** not found", False
 
     preset_entry = presets.pop(normalized_name)
     deleted_audio = False
@@ -2906,12 +2972,12 @@ def delete_voice_preset_entry(preset_name: str) -> tuple[bool, str, bool]:
                 os.remove(abs_audio)
                 deleted_audio = True
     except Exception as error:
-        print(f"⚠️ Failed to remove preset audio file: {error}")
+        print(f"WARNING: Failed to remove preset audio file: {error}")
 
     save_voice_preset_store(store)
     if deleted_audio:
-        return True, f"✅ Preset **{normalized_name}** deleted (audio file removed)", True
-    return True, f"✅ Preset **{normalized_name}** deleted", False
+        return True, f"SUCCESS: Preset **{normalized_name}** deleted (audio file removed)", True
+    return True, f"SUCCESS: Preset **{normalized_name}** deleted", False
 
 
 def build_assistant_provider_help_markdown(provider_name: str) -> str:
@@ -2939,7 +3005,7 @@ def save_output_storage_settings(mode_label: str, custom_path: str):
     normalized_path = str(custom_path or "").strip()
 
     if mode == "custom" and not normalized_path:
-        return "❌ Custom output mode requires a base path"
+        return "ERROR: Custom output mode requires a base path"
 
     try:
         updates = {
@@ -2952,14 +3018,14 @@ def save_output_storage_settings(mode_label: str, custom_path: str):
 
         mode_text = "Custom Path" if mode == "custom" else "Project Folders"
         return (
-            f"✅ Output storage updated\n"
+            f"SUCCESS: Output storage updated\n"
             f"Mode: {mode_text}\n"
             f"Outputs: {os.path.abspath(active_outputs)}\n"
             f"Audiobooks: {os.path.abspath(active_audiobooks)}\n"
             f"Autosave: {os.path.abspath(active_autosave)}"
         )
     except Exception as error:
-        return f"❌ Failed to save output storage settings: {error}"
+        return f"ERROR: Failed to save output storage settings: {error}"
 
 
 def choose_custom_output_storage_path(mode_label: str, current_path: str):
@@ -2990,7 +3056,7 @@ def choose_custom_output_storage_path(mode_label: str, current_path: str):
 
         return gr.update(value=current_path), "ℹ️ Custom output path selection canceled"
     except Exception as error:
-        return gr.update(value=current_path), f"⚠️ Could not open folder picker: {error}"
+        return gr.update(value=current_path), f"WARNING: Could not open folder picker: {error}"
 
 
 def open_active_output_folder():
@@ -3007,7 +3073,7 @@ def open_active_output_folder():
 
         return f"📂 Opened output folder:\n{folder_path}"
     except Exception as error:
-        return f"❌ Failed to open output folder: {error}"
+        return f"ERROR: Failed to open output folder: {error}"
 
 
 def open_active_autosave_folder():
@@ -3024,7 +3090,7 @@ def open_active_autosave_folder():
 
         return f"📂 Opened autosave folder:\n{folder_path}"
     except Exception as error:
-        return f"❌ Failed to open autosave folder: {error}"
+        return f"ERROR: Failed to open autosave folder: {error}"
 
 
 def _list_audio_files(folder_path: str):
@@ -3307,57 +3373,30 @@ from history_index_scheduler import HistoryIndexScheduler
 _HISTORY_SCHEDULER = HistoryIndexScheduler()
 
 
-# ===== MODEL INITIALIZATION =====
-CHATTERBOX_MODEL = None
-CHATTERBOX_MULTILINGUAL_MODEL = None
-KOKORO_PIPELINES = {}
-FISH_SPEECH_ENGINE = None
-FISH_SPEECH_LLAMA_QUEUE = None
-INDEXTTS_MODEL = None
-loaded_voices = {}
-
-# Model loading status
-MODEL_STATUS = {
-    "chatterbox": {"loaded": False, "loading": False},
-    "chatterbox_multilingual": {"loaded": False, "loading": False},
-    "chatterbox_turbo": {"loaded": False, "loading": False},
-    "kokoro": {"loaded": False, "loading": False},
-    "vibevoice": {"loaded": False, "loading": False},
-    "fish_speech": {"loaded": False, "loading": False},
-    "indextts": {"loaded": False, "loading": False},
-    "indextts2": {"loaded": False, "loading": False},
-    "f5_tts": {"loaded": False, "loading": False, "models": {}},
-    "higgs_audio": {"loaded": False, "loading": False},
-    "kitten_tts": {"loaded": False, "loading": False},
-    "qwen_tts": {"loaded": False, "loading": False},
-    "voxcpm": {"loaded": False, "loading": False},
-}
-
-
 def init_chatterbox():
     """Initialize ChatterboxTTS model."""
     global CHATTERBOX_MODEL, MODEL_STATUS
     if not CHATTERBOX_AVAILABLE:
-        return False, "❌ ChatterboxTTS not available - check installation"
+        return False, "ERROR: ChatterboxTTS not available - check installation"
 
     if MODEL_STATUS["chatterbox"]["loaded"]:
-        return True, "✅ ChatterboxTTS already loaded"
+        return True, "SUCCESS: ChatterboxTTS already loaded"
 
     if MODEL_STATUS["chatterbox"]["loading"]:
         return False, "⏳ ChatterboxTTS is currently loading..."
 
     try:
         MODEL_STATUS["chatterbox"]["loading"] = True
-        print("🔄 Loading ChatterboxTTS...")
+        print("[ARROWS] Loading ChatterboxTTS...")
         with suppress_specific_warnings():
             CHATTERBOX_MODEL = ChatterboxTTS.from_pretrained(DEVICE)
         MODEL_STATUS["chatterbox"]["loaded"] = True
         MODEL_STATUS["chatterbox"]["loading"] = False
-        print("✅ ChatterboxTTS loaded successfully")
-        return True, "✅ ChatterboxTTS loaded successfully"
+        print("SUCCESS: ChatterboxTTS loaded successfully")
+        return True, "SUCCESS: ChatterboxTTS loaded successfully"
     except Exception as e:
         MODEL_STATUS["chatterbox"]["loading"] = False
-        error_msg = f"❌ Failed to load ChatterboxTTS: {e}"
+        error_msg = f"ERROR: Failed to load ChatterboxTTS: {e}"
         print(error_msg)
         return False, error_msg
 
@@ -3378,10 +3417,10 @@ def unload_chatterbox():
             torch.cuda.empty_cache()
 
         MODEL_STATUS["chatterbox"]["loaded"] = False
-        print("✅ ChatterboxTTS unloaded successfully")
-        return "✅ ChatterboxTTS unloaded - memory freed"
+        print("SUCCESS: ChatterboxTTS unloaded successfully")
+        return "SUCCESS: ChatterboxTTS unloaded - memory freed"
     except Exception as e:
-        error_msg = f"❌ Error unloading ChatterboxTTS: {e}"
+        error_msg = f"ERROR: Error unloading ChatterboxTTS: {e}"
         print(error_msg)
         return error_msg
 
@@ -3390,28 +3429,28 @@ def init_chatterbox_multilingual():
     """Initialize ChatterboxMultilingualTTS model."""
     global CHATTERBOX_MULTILINGUAL_MODEL, MODEL_STATUS
     if not CHATTERBOX_MULTILINGUAL_AVAILABLE:
-        return False, "❌ ChatterboxMultilingualTTS not available - check installation"
+        return False, "ERROR: ChatterboxMultilingualTTS not available - check installation"
 
     if MODEL_STATUS["chatterbox_multilingual"]["loaded"]:
-        return True, "✅ ChatterboxMultilingualTTS already loaded"
+        return True, "SUCCESS: ChatterboxMultilingualTTS already loaded"
 
     if MODEL_STATUS["chatterbox_multilingual"]["loading"]:
         return False, "⏳ ChatterboxMultilingualTTS is currently loading..."
 
     try:
         MODEL_STATUS["chatterbox_multilingual"]["loading"] = True
-        print("🔄 Loading ChatterboxMultilingualTTS...")
+        print("[ARROWS] Loading ChatterboxMultilingualTTS...")
         with suppress_specific_warnings():
             CHATTERBOX_MULTILINGUAL_MODEL = ChatterboxMultilingualTTS.from_pretrained(
                 torch.device(DEVICE)
             )
         MODEL_STATUS["chatterbox_multilingual"]["loaded"] = True
         MODEL_STATUS["chatterbox_multilingual"]["loading"] = False
-        print("✅ ChatterboxMultilingualTTS loaded successfully")
-        return True, "✅ ChatterboxMultilingualTTS loaded successfully"
+        print("SUCCESS: ChatterboxMultilingualTTS loaded successfully")
+        return True, "SUCCESS: ChatterboxMultilingualTTS loaded successfully"
     except Exception as e:
         MODEL_STATUS["chatterbox_multilingual"]["loading"] = False
-        error_msg = f"❌ Failed to load ChatterboxMultilingualTTS: {e}"
+        error_msg = f"ERROR: Failed to load ChatterboxMultilingualTTS: {e}"
         print(error_msg)
         return False, error_msg
 
@@ -3432,10 +3471,10 @@ def unload_chatterbox_multilingual():
             torch.cuda.empty_cache()
 
         MODEL_STATUS["chatterbox_multilingual"]["loaded"] = False
-        print("✅ ChatterboxMultilingualTTS unloaded successfully")
-        return "✅ ChatterboxMultilingualTTS unloaded - memory freed"
+        print("SUCCESS: ChatterboxMultilingualTTS unloaded successfully")
+        return "SUCCESS: ChatterboxMultilingualTTS unloaded - memory freed"
     except Exception as e:
-        error_msg = f"❌ Error unloading ChatterboxMultilingualTTS: {e}"
+        error_msg = f"ERROR: Error unloading ChatterboxMultilingualTTS: {e}"
         print(error_msg)
         return error_msg
 
@@ -3444,29 +3483,29 @@ def init_chatterbox_turbo_model():
     """Initialize Chatterbox Turbo model."""
     global MODEL_STATUS
     if not CHATTERBOX_TURBO_AVAILABLE:
-        return False, "❌ Chatterbox Turbo not available - check installation"
+        return False, "ERROR: Chatterbox Turbo not available - check installation"
 
     if MODEL_STATUS["chatterbox_turbo"]["loaded"]:
-        return True, "✅ Chatterbox Turbo already loaded"
+        return True, "SUCCESS: Chatterbox Turbo already loaded"
 
     if MODEL_STATUS["chatterbox_turbo"]["loading"]:
         return False, "⏳ Chatterbox Turbo is currently loading..."
 
     try:
         MODEL_STATUS["chatterbox_turbo"]["loading"] = True
-        print("🔄 Loading Chatterbox Turbo...")
+        print("[ARROWS] Loading Chatterbox Turbo...")
         success, message = init_chatterbox_turbo()
         if success:
             MODEL_STATUS["chatterbox_turbo"]["loaded"] = True
             MODEL_STATUS["chatterbox_turbo"]["loading"] = False
-            print("✅ Chatterbox Turbo loaded successfully")
-            return True, "✅ Chatterbox Turbo loaded successfully"
+            print("SUCCESS: Chatterbox Turbo loaded successfully")
+            return True, "SUCCESS: Chatterbox Turbo loaded successfully"
         else:
             MODEL_STATUS["chatterbox_turbo"]["loading"] = False
             return False, message
     except Exception as e:
         MODEL_STATUS["chatterbox_turbo"]["loading"] = False
-        error_msg = f"❌ Failed to load Chatterbox Turbo: {e}"
+        error_msg = f"ERROR: Failed to load Chatterbox Turbo: {e}"
         print(error_msg)
         return False, error_msg
 
@@ -3477,10 +3516,10 @@ def unload_chatterbox_turbo_model():
     try:
         message = unload_chatterbox_turbo()
         MODEL_STATUS["chatterbox_turbo"]["loaded"] = False
-        print("✅ Chatterbox Turbo unloaded successfully")
+        print("SUCCESS: Chatterbox Turbo unloaded successfully")
         return message
     except Exception as e:
-        error_msg = f"❌ Error unloading Chatterbox Turbo: {e}"
+        error_msg = f"ERROR: Error unloading Chatterbox Turbo: {e}"
         print(error_msg)
         return error_msg
 
@@ -3489,17 +3528,17 @@ def init_kokoro():
     """Initialize Kokoro TTS models and pipelines."""
     global KOKORO_PIPELINES, MODEL_STATUS
     if not KOKORO_AVAILABLE:
-        return False, "❌ Kokoro TTS not available - check installation"
+        return False, "ERROR: Kokoro TTS not available - check installation"
 
     if MODEL_STATUS["kokoro"]["loaded"]:
-        return True, "✅ Kokoro TTS already loaded"
+        return True, "SUCCESS: Kokoro TTS already loaded"
 
     if MODEL_STATUS["kokoro"]["loading"]:
         return False, "⏳ Kokoro TTS is currently loading..."
 
     try:
         MODEL_STATUS["kokoro"]["loading"] = True
-        print("🔄 Loading Kokoro TTS...")
+        print("[ARROWS] Loading Kokoro TTS...")
 
         # Check if first run
         if not os.path.exists(os.path.join(cache_base, "HF_HOME/hub/models--hexgrad--Kokoro-82M")):
@@ -3530,12 +3569,12 @@ def init_kokoro():
 
         MODEL_STATUS["kokoro"]["loaded"] = True
         MODEL_STATUS["kokoro"]["loading"] = False
-        print("✅ Kokoro TTS loaded successfully")
-        return True, "✅ Kokoro TTS loaded successfully"
+        print("SUCCESS: Kokoro TTS loaded successfully")
+        return True, "SUCCESS: Kokoro TTS loaded successfully"
 
     except Exception as e:
         MODEL_STATUS["kokoro"]["loading"] = False
-        error_msg = f"❌ Failed to load Kokoro TTS: {e}"
+        error_msg = f"ERROR: Failed to load Kokoro TTS: {e}"
         print(error_msg)
         return False, error_msg
 
@@ -3560,10 +3599,10 @@ def unload_kokoro():
             torch.cuda.empty_cache()
 
         MODEL_STATUS["kokoro"]["loaded"] = False
-        print("✅ Kokoro TTS unloaded successfully")
-        return "✅ Kokoro TTS unloaded - memory freed"
+        print("SUCCESS: Kokoro TTS unloaded successfully")
+        return "SUCCESS: Kokoro TTS unloaded - memory freed"
     except Exception as e:
-        error_msg = f"❌ Error unloading Kokoro TTS: {e}"
+        error_msg = f"ERROR: Error unloading Kokoro TTS: {e}"
         print(error_msg)
         return error_msg
 
@@ -3572,23 +3611,23 @@ def init_fish_speech():
     """Initialize Fish Speech TTS engine."""
     global FISH_SPEECH_ENGINE, FISH_SPEECH_LLAMA_QUEUE, MODEL_STATUS
     if not FISH_SPEECH_AVAILABLE:
-        return False, "❌ Fish Speech not available - check installation"
+        return False, "ERROR: Fish Speech not available - check installation"
 
     if MODEL_STATUS["fish_speech"]["loaded"]:
-        return True, "✅ Fish Speech already loaded"
+        return True, "SUCCESS: Fish Speech already loaded"
 
     if MODEL_STATUS["fish_speech"]["loading"]:
         return False, "⏳ Fish Speech is currently loading..."
 
     try:
         MODEL_STATUS["fish_speech"]["loading"] = True
-        print("🔄 Loading Fish Speech...")
+        print("[ARROWS] Loading Fish Speech...")
 
         # Check for model checkpoints
         checkpoint_path = "checkpoints/openaudio-s1-mini"
         if not os.path.exists(checkpoint_path):
             MODEL_STATUS["fish_speech"]["loading"] = False
-            error_msg = "❌ Fish Speech checkpoints not found. Please download them first:\nhf download cocktailpeanut/oa --local-dir ./checkpoints/openaudio-s1-mini"
+            error_msg = "ERROR: Fish Speech checkpoints not found. Please download them first:\nhf download cocktailpeanut/oa --local-dir ./checkpoints/openaudio-s1-mini"
             print(error_msg)
             return False, error_msg
 
@@ -3619,12 +3658,12 @@ def init_fish_speech():
 
         MODEL_STATUS["fish_speech"]["loaded"] = True
         MODEL_STATUS["fish_speech"]["loading"] = False
-        print("✅ Fish Speech loaded successfully")
-        return True, "✅ Fish Speech loaded successfully"
+        print("SUCCESS: Fish Speech loaded successfully")
+        return True, "SUCCESS: Fish Speech loaded successfully"
 
     except Exception as e:
         MODEL_STATUS["fish_speech"]["loading"] = False
-        error_msg = f"❌ Failed to load Fish Speech: {e}"
+        error_msg = f"ERROR: Failed to load Fish Speech: {e}"
         print(error_msg)
         return False, error_msg
 
@@ -3649,10 +3688,10 @@ def unload_fish_speech():
             torch.cuda.empty_cache()
 
         MODEL_STATUS["fish_speech"]["loaded"] = False
-        print("✅ Fish Speech unloaded successfully")
-        return "✅ Fish Speech unloaded - memory freed"
+        print("SUCCESS: Fish Speech unloaded successfully")
+        return "SUCCESS: Fish Speech unloaded - memory freed"
     except Exception as e:
-        error_msg = f"❌ Error unloading Fish Speech: {e}"
+        error_msg = f"ERROR: Error unloading Fish Speech: {e}"
         print(error_msg)
         return error_msg
 
@@ -3661,35 +3700,35 @@ def init_indextts():
     """Initialize IndexTTS model."""
     global INDEXTTS_MODEL, MODEL_STATUS, INDEXTTS_MODELS_AVAILABLE
     if not INDEXTTS_AVAILABLE:
-        return False, "❌ IndexTTS not available - check installation"
+        return False, "ERROR: IndexTTS not available - check installation"
 
     if MODEL_STATUS["indextts"]["loaded"]:
-        return True, "✅ IndexTTS already loaded"
+        return True, "SUCCESS: IndexTTS already loaded"
 
     if MODEL_STATUS["indextts"]["loading"]:
         return False, "⏳ IndexTTS is currently loading..."
 
     try:
         MODEL_STATUS["indextts"]["loading"] = True
-        print("🔄 Loading IndexTTS...")
+        print("[ARROWS] Loading IndexTTS...")
 
         # Lazy import IndexTTS class only when initializing model
         indextts_class, import_error = load_indextts_class()
         if indextts_class is None:
             MODEL_STATUS["indextts"]["loading"] = False
-            error_msg = f"❌ IndexTTS import failed: {import_error}"
+            error_msg = f"ERROR: IndexTTS import failed: {import_error}"
             print(error_msg)
             return False, error_msg
 
         # Check if models are available, try to download if not
         if not INDEXTTS_MODELS_AVAILABLE:
-            print("🎯 IndexTTS models not found - attempting download...")
+            print("[TARGET] IndexTTS models not found - attempting download...")
             if download_indextts_models_auto():
                 INDEXTTS_MODELS_AVAILABLE = True
-                print("✅ IndexTTS models downloaded successfully")
+                print("SUCCESS: IndexTTS models downloaded successfully")
             else:
                 MODEL_STATUS["indextts"]["loading"] = False
-                error_msg = "❌ IndexTTS models not available and download failed.\nRun: python tools/download_indextts_models.py"
+                error_msg = "ERROR: IndexTTS models not available and download failed.\nRun: python tools/download_indextts_models.py"
                 print(error_msg)
                 return False, error_msg
 
@@ -3699,7 +3738,7 @@ def init_indextts():
 
         if not os.path.exists(config_path):
             MODEL_STATUS["indextts"]["loading"] = False
-            error_msg = "❌ IndexTTS config not found after download attempt."
+            error_msg = "ERROR: IndexTTS config not found after download attempt."
             print(error_msg)
             return False, error_msg
 
@@ -3715,12 +3754,12 @@ def init_indextts():
 
         MODEL_STATUS["indextts"]["loaded"] = True
         MODEL_STATUS["indextts"]["loading"] = False
-        print("✅ IndexTTS loaded successfully")
-        return True, "✅ IndexTTS loaded successfully"
+        print("SUCCESS: IndexTTS loaded successfully")
+        return True, "SUCCESS: IndexTTS loaded successfully"
 
     except Exception as e:
         MODEL_STATUS["indextts"]["loading"] = False
-        error_msg = f"❌ Failed to load IndexTTS: {e}"
+        error_msg = f"ERROR: Failed to load IndexTTS: {e}"
         print(error_msg)
         return False, error_msg
 
@@ -3741,10 +3780,10 @@ def unload_indextts():
             torch.cuda.empty_cache()
 
         MODEL_STATUS["indextts"]["loaded"] = False
-        print("✅ IndexTTS unloaded successfully")
-        return "✅ IndexTTS unloaded - memory freed"
+        print("SUCCESS: IndexTTS unloaded successfully")
+        return "SUCCESS: IndexTTS unloaded - memory freed"
     except Exception as e:
-        error_msg = f"❌ Error unloading IndexTTS: {e}"
+        error_msg = f"ERROR: Error unloading IndexTTS: {e}"
         print(error_msg)
         return error_msg
 
@@ -3880,12 +3919,14 @@ def clear_gradio_temp_files():
             size_str = f"{deleted_size} bytes"
 
         if deleted_count > 0:
-            return f"✅ Successfully deleted {deleted_count} temporary files ({size_str} freed)"
+            return (
+                f"SUCCESS: Successfully deleted {deleted_count} temporary files ({size_str} freed)"
+            )
         else:
             return "ℹ️ No Gradio temporary files found to delete"
 
     except Exception as e:
-        return f"❌ Error clearing temp files: {str(e)}"
+        return f"ERROR: Error clearing temp files: {str(e)}"
 
 
 def get_model_status():
@@ -3895,106 +3936,106 @@ def get_model_status():
     # ChatterboxTTS status
     if CHATTERBOX_AVAILABLE:
         if MODEL_STATUS["chatterbox"]["loading"]:
-            status_text += "🎤 **ChatterboxTTS:** ⏳ Loading...\n"
+            status_text += "[MIC] **ChatterboxTTS:** ⏳ Loading...\n"
         elif MODEL_STATUS["chatterbox"]["loaded"]:
-            status_text += "🎤 **ChatterboxTTS:** ✅ Loaded\n"
+            status_text += "[MIC] **ChatterboxTTS:** SUCCESS: Loaded\n"
         else:
-            status_text += "🎤 **ChatterboxTTS:** ⭕ Not loaded\n"
+            status_text += "[MIC] **ChatterboxTTS:** ⭕ Not loaded\n"
     else:
-        status_text += "🎤 **ChatterboxTTS:** ❌ Not available\n"
+        status_text += "[MIC] **ChatterboxTTS:** ERROR: Not available\n"
 
     # Kokoro TTS status
     if KOKORO_AVAILABLE:
         if MODEL_STATUS["kokoro"]["loading"]:
-            status_text += "🗣️ **Kokoro TTS:** ⏳ Loading...\n"
+            status_text += "[SPEAKING] **Kokoro TTS:** ⏳ Loading...\n"
         elif MODEL_STATUS["kokoro"]["loaded"]:
-            status_text += "🗣️ **Kokoro TTS:** ✅ Loaded\n"
+            status_text += "[SPEAKING] **Kokoro TTS:** SUCCESS: Loaded\n"
         else:
-            status_text += "🗣️ **Kokoro TTS:** ⭕ Not loaded\n"
+            status_text += "[SPEAKING] **Kokoro TTS:** ⭕ Not loaded\n"
     else:
-        status_text += "🗣️ **Kokoro TTS:** ❌ Not available\n"
+        status_text += "[SPEAKING] **Kokoro TTS:** ERROR: Not available\n"
 
     # Fish Speech status
     if FISH_SPEECH_AVAILABLE:
         if MODEL_STATUS["fish_speech"]["loading"]:
-            status_text += "🐟 **Fish Speech:** ⏳ Loading...\n"
+            status_text += "[FISH] **Fish Speech:** ⏳ Loading...\n"
         elif MODEL_STATUS["fish_speech"]["loaded"]:
-            status_text += "🐟 **Fish Speech:** ✅ Loaded\n"
+            status_text += "[FISH] **Fish Speech:** SUCCESS: Loaded\n"
         else:
-            status_text += "🐟 **Fish Speech:** ⭕ Not loaded\n"
+            status_text += "[FISH] **Fish Speech:** ⭕ Not loaded\n"
     else:
-        status_text += "🐟 **Fish Speech:** ❌ Not available\n"
+        status_text += "[FISH] **Fish Speech:** ERROR: Not available\n"
 
     # IndexTTS status
     if INDEXTTS_AVAILABLE:
         if MODEL_STATUS["indextts"]["loading"]:
-            status_text += "🎯 **IndexTTS:** ⏳ Loading...\n"
+            status_text += "[TARGET] **IndexTTS:** ⏳ Loading...\n"
         elif MODEL_STATUS["indextts"]["loaded"]:
-            status_text += "🎯 **IndexTTS:** ✅ Loaded\n"
+            status_text += "[TARGET] **IndexTTS:** SUCCESS: Loaded\n"
         else:
             if INDEXTTS_MODELS_AVAILABLE:
-                status_text += "🎯 **IndexTTS:** ⭕ Not loaded (Models ready)\n"
+                status_text += "[TARGET] **IndexTTS:** ⭕ Not loaded (Models ready)\n"
             else:
-                status_text += "🎯 **IndexTTS:** ⭕ Not loaded (Models will auto-download)\n"
+                status_text += "[TARGET] **IndexTTS:** ⭕ Not loaded (Models will auto-download)\n"
     else:
-        status_text += "🎯 **IndexTTS:** ❌ Not available\n"
+        status_text += "[TARGET] **IndexTTS:** ERROR: Not available\n"
 
     # F5-TTS status
     if F5_TTS_AVAILABLE:
         if MODEL_STATUS["f5_tts"]["loading"]:
-            status_text += "🎵 **F5-TTS:** ⏳ Loading...\n"
+            status_text += "[MUSIC] **F5-TTS:** ⏳ Loading...\n"
         elif MODEL_STATUS["f5_tts"]["loaded"]:
             handler = get_f5_tts_handler()
             model_info = handler.get_model_info()
-            status_text += f"🎵 **F5-TTS:** ✅ Loaded ({model_info['model']})\n"
+            status_text += f"[MUSIC] **F5-TTS:** SUCCESS: Loaded ({model_info['model']})\n"
         else:
-            status_text += "🎵 **F5-TTS:** ⭕ Not loaded\n"
+            status_text += "[MUSIC] **F5-TTS:** ⭕ Not loaded\n"
     else:
-        status_text += "🎵 **F5-TTS:** ❌ Not available\n"
+        status_text += "[MUSIC] **F5-TTS:** ERROR: Not available\n"
 
     # Higgs Audio status
     if HIGGS_AUDIO_AVAILABLE:
         if MODEL_STATUS["higgs_audio"]["loading"]:
-            status_text += "🎙️ **Higgs Audio:** ⏳ Loading...\n"
+            status_text += "[MIC2] **Higgs Audio:** ⏳ Loading...\n"
         elif MODEL_STATUS["higgs_audio"]["loaded"]:
-            status_text += "🎙️ **Higgs Audio:** ✅ Loaded\n"
+            status_text += "[MIC2] **Higgs Audio:** SUCCESS: Loaded\n"
         else:
-            status_text += "🎙️ **Higgs Audio:** ⭕ Not loaded\n"
+            status_text += "[MIC2] **Higgs Audio:** ⭕ Not loaded\n"
     else:
-        status_text += "🎙️ **Higgs Audio:** ❌ Not available\n"
+        status_text += "[MIC2] **Higgs Audio:** ERROR: Not available\n"
 
     # VoxCPM status
     if VOXCPM_AVAILABLE:
         if MODEL_STATUS.get("voxcpm", {}).get("loading", False):
-            status_text += "🎤 **VoxCPM:** ⏳ Loading...\n"
+            status_text += "[MIC] **VoxCPM:** ⏳ Loading...\n"
         elif MODEL_STATUS.get("voxcpm", {}).get("loaded", False):
-            status_text += "🎤 **VoxCPM:** ✅ Loaded\n"
+            status_text += "[MIC] **VoxCPM:** SUCCESS: Loaded\n"
         else:
-            status_text += "🎤 **VoxCPM:** ⭕ Not loaded\n"
+            status_text += "[MIC] **VoxCPM:** ⭕ Not loaded\n"
     else:
-        status_text += "🎤 **VoxCPM:** ❌ Not available\n"
+        status_text += "[MIC] **VoxCPM:** ERROR: Not available\n"
 
     # KittenTTS status
     if KITTEN_TTS_AVAILABLE:
         if MODEL_STATUS["kitten_tts"]["loading"]:
-            status_text += "🐱 **KittenTTS:** ⏳ Loading...\n"
+            status_text += "[CAT] **KittenTTS:** ⏳ Loading...\n"
         elif MODEL_STATUS["kitten_tts"]["loaded"]:
-            status_text += "🐱 **KittenTTS:** ✅ Loaded\n"
+            status_text += "[CAT] **KittenTTS:** SUCCESS: Loaded\n"
         else:
-            status_text += "🐱 **KittenTTS:** ⭕ Not loaded\n"
+            status_text += "[CAT] **KittenTTS:** ⭕ Not loaded\n"
     else:
-        status_text += "🐱 **KittenTTS:** ❌ Not available\n"
+        status_text += "[CAT] **KittenTTS:** ERROR: Not available\n"
 
     return status_text
 
 
 # Don't initialize models at startup - they will be loaded on demand
-print("🚀 TTS models ready for on-demand loading...")
+print("[ROCKET] TTS models ready for on-demand loading...")
 
 # ===== KOKORO VOICE DEFINITIONS =====
 KOKORO_CHOICES = {
     "🇺🇸 🚺 Heart ❤️": "af_heart",
-    "🇺🇸 🚺 Bella 🔥": "af_bella",
+    "🇺🇸 🚺 Bella [FIRE]": "af_bella",
     "🇺🇸 🚺 Nicole 🎧": "af_nicole",
     "🇺🇸 🚺 Aoede": "af_aoede",
     "🇺🇸 🚺 Kore": "af_kore",
@@ -4294,10 +4335,10 @@ def generate_chatterbox_tts(
 ):
     """Generate TTS audio using ChatterboxTTS."""
     if not CHATTERBOX_AVAILABLE:
-        return None, "❌ ChatterboxTTS not available - check installation"
+        return None, "ERROR: ChatterboxTTS not available - check installation"
 
     if not MODEL_STATUS["chatterbox"]["loaded"] or CHATTERBOX_MODEL is None:
-        return None, "❌ ChatterboxTTS not loaded - please load the model first"
+        return None, "ERROR: ChatterboxTTS not loaded - please load the model first"
 
     try:
         if seed_num_input != 0:
@@ -4308,13 +4349,13 @@ def generate_chatterbox_tts(
         audio_chunks = []
 
         # Generate audio chunks with progress information
-        print(f"🎙️ Generating ChatterboxTTS audio for {len(text_chunks)} chunk(s)...")
+        print(f"[MIC2] Generating ChatterboxTTS audio for {len(text_chunks)} chunk(s)...")
         if len(text_chunks) == 1:
             print("📊 Progress information will appear below during generation...")
 
         for i, chunk in enumerate(text_chunks):
             if len(text_chunks) > 1:
-                print(f"📝 Processing chunk {i+1}/{len(text_chunks)}: {chunk[:50]}...")
+                print(f"[MEMO] Processing chunk {i+1}/{len(text_chunks)}: {chunk[:50]}...")
 
             # Only suppress specific warnings, not all output (to allow tqdm progress bars)
             with warnings.catch_warnings():
@@ -4333,7 +4374,7 @@ def generate_chatterbox_tts(
                 audio_chunks.append(wav.squeeze(0).numpy())
 
             if len(text_chunks) > 1:
-                print(f"✅ Chunk {i+1}/{len(text_chunks)} completed")
+                print(f"SUCCESS: Chunk {i+1}/{len(text_chunks)} completed")
 
         # Concatenate chunks
         if len(audio_chunks) == 1:
@@ -4356,7 +4397,7 @@ def generate_chatterbox_tts(
 
         # Save audio file in specified format (skip if requested, e.g., for audiobook chunks)
         if skip_file_saving:
-            status_message = "✅ Generated with ChatterboxTTS"
+            status_message = "SUCCESS: Generated with ChatterboxTTS"
         else:
             try:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -4364,15 +4405,15 @@ def generate_chatterbox_tts(
                 filepath, filename = save_audio_with_format(
                     final_audio, CHATTERBOX_MODEL.sr, audio_format, output_folder, filename_base
                 )
-                status_message = f"✅ Generated with ChatterboxTTS - Saved as: {filename}"
+                status_message = f"SUCCESS: Generated with ChatterboxTTS - Saved as: {filename}"
             except Exception as e:
                 print(f"Warning: Could not save audio file: {e}")
-                status_message = "✅ Generated with ChatterboxTTS (file saving failed)"
+                status_message = "SUCCESS: Generated with ChatterboxTTS (file saving failed)"
 
         return (CHATTERBOX_MODEL.sr, final_audio), status_message
 
     except Exception as e:
-        return None, f"❌ ChatterboxTTS error: {str(e)}"
+        return None, f"ERROR: ChatterboxTTS error: {str(e)}"
 
 
 def generate_chatterbox_multilingual_tts(
@@ -4393,13 +4434,13 @@ def generate_chatterbox_multilingual_tts(
 ):
     """Generate TTS audio using ChatterboxMultilingualTTS."""
     if not CHATTERBOX_MULTILINGUAL_AVAILABLE:
-        return None, "❌ ChatterboxMultilingualTTS not available - check installation"
+        return None, "ERROR: ChatterboxMultilingualTTS not available - check installation"
 
     if (
         not MODEL_STATUS["chatterbox_multilingual"]["loaded"]
         or CHATTERBOX_MULTILINGUAL_MODEL is None
     ):
-        return None, "❌ ChatterboxMultilingualTTS not loaded - please load the model first"
+        return None, "ERROR: ChatterboxMultilingualTTS not loaded - please load the model first"
 
     try:
         print(
@@ -4414,14 +4455,14 @@ def generate_chatterbox_multilingual_tts(
 
         # Generate audio chunks with progress information
         print(
-            f"🎙️ Generating ChatterboxMultilingualTTS audio for {len(text_chunks)} chunk(s) in {language_id}..."
+            f"[MIC2] Generating ChatterboxMultilingualTTS audio for {len(text_chunks)} chunk(s) in {language_id}..."
         )
         if len(text_chunks) == 1:
             print("📊 Progress information will appear below during generation...")
 
         for i, chunk in enumerate(text_chunks):
             if len(text_chunks) > 1:
-                print(f"📝 Processing chunk {i+1}/{len(text_chunks)}: {chunk[:50]}...")
+                print(f"[MEMO] Processing chunk {i+1}/{len(text_chunks)}: {chunk[:50]}...")
 
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning)
@@ -4443,7 +4484,7 @@ def generate_chatterbox_multilingual_tts(
                 audio_chunks.append(wav.squeeze(0).numpy())
 
             if len(text_chunks) > 1:
-                print(f"✅ Chunk {i+1}/{len(text_chunks)} completed")
+                print(f"SUCCESS: Chunk {i+1}/{len(text_chunks)} completed")
 
         # Concatenate chunks
         if len(audio_chunks) == 1:
@@ -4468,7 +4509,7 @@ def generate_chatterbox_multilingual_tts(
 
         # Save audio file in specified format (skip if requested, e.g., for audiobook chunks)
         if skip_file_saving:
-            status_message = f"✅ Generated with ChatterboxMultilingualTTS ({language_id})"
+            status_message = f"SUCCESS: Generated with ChatterboxMultilingualTTS ({language_id})"
         else:
             try:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -4480,15 +4521,15 @@ def generate_chatterbox_multilingual_tts(
                     output_folder,
                     filename_base,
                 )
-                status_message = f"✅ Generated with ChatterboxMultilingualTTS ({language_id}) - Saved as: {filename}"
+                status_message = f"SUCCESS: Generated with ChatterboxMultilingualTTS ({language_id}) - Saved as: {filename}"
             except Exception as e:
                 print(f"Warning: Could not save audio file: {e}")
-                status_message = f"✅ Generated with ChatterboxMultilingualTTS ({language_id}) (file saving failed)"
+                status_message = f"SUCCESS: Generated with ChatterboxMultilingualTTS ({language_id}) (file saving failed)"
 
         return (CHATTERBOX_MULTILINGUAL_MODEL.sr, final_audio), status_message
 
     except Exception as e:
-        return None, f"❌ ChatterboxMultilingualTTS error: {str(e)}"
+        return None, f"ERROR: ChatterboxMultilingualTTS error: {str(e)}"
 
 
 # ===== FISH SPEECH TTS FUNCTIONS =====
@@ -4704,17 +4745,17 @@ def generate_fish_speech_tts(
 ):
     """Generate TTS audio using Fish Speech - Proper implementation with chunking support."""
     if not FISH_SPEECH_AVAILABLE:
-        return None, "❌ Fish Speech not available - check installation"
+        return None, "ERROR: Fish Speech not available - check installation"
 
     if not MODEL_STATUS["fish_speech"]["loaded"] or FISH_SPEECH_ENGINE is None:
-        return None, "❌ Fish Speech not loaded - please load the model first"
+        return None, "ERROR: Fish Speech not loaded - please load the model first"
 
     try:
         from fish_speech.text.spliter import split_text
 
         cleaned_text = _sanitize_fish_speech_text(text_input)
         if not cleaned_text:
-            return None, "❌ Fish Speech input is empty after text cleanup"
+            return None, "ERROR: Fish Speech input is empty after text cleanup"
 
         # Prepare reference audio if provided
         references = []
@@ -4729,7 +4770,7 @@ def generate_fish_speech_tts(
         text_chunks = split_text(cleaned_text, chunk_length)
 
         if not text_chunks:
-            return None, "❌ No valid text chunks generated"
+            return None, "ERROR: No valid text chunks generated"
 
         print(f"Fish Speech - Processing {len(text_chunks)} text chunks")
         for i, chunk in enumerate(text_chunks):
@@ -4786,7 +4827,7 @@ def generate_fish_speech_tts(
                     chunk_final_result = result
                     break
                 elif result.code == "error":
-                    return None, f"❌ Fish Speech error in chunk {i+1}: {str(result.error)}"
+                    return None, f"ERROR: Fish Speech error in chunk {i+1}: {str(result.error)}"
 
             if chunk_final_result is None or chunk_final_result.error is not None:
                 error_msg = (
@@ -4794,7 +4835,7 @@ def generate_fish_speech_tts(
                     if chunk_final_result
                     else f"No audio generated for chunk {i+1}"
                 )
-                return None, f"❌ Fish Speech error: {error_msg}"
+                return None, f"ERROR: Fish Speech error: {error_msg}"
 
             # Extract audio data for this chunk
             sample_rate, chunk_audio_data = chunk_final_result.audio
@@ -4877,7 +4918,9 @@ def generate_fish_speech_tts(
 
         # Save audio file in specified format (skip if requested, e.g., for audiobook chunks)
         if skip_file_saving:
-            status_message = f"✅ Generated with Fish Speech ({len(text_chunks)} chunks processed)"
+            status_message = (
+                f"SUCCESS: Generated with Fish Speech ({len(text_chunks)} chunks processed)"
+            )
         else:
             try:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -4885,10 +4928,10 @@ def generate_fish_speech_tts(
                 filepath, filename = save_audio_with_format(
                     final_audio, sample_rate, audio_format, output_folder, filename_base
                 )
-                status_message = f"✅ Generated with Fish Speech ({len(text_chunks)} chunks processed) - Saved as: {filename}"
+                status_message = f"SUCCESS: Generated with Fish Speech ({len(text_chunks)} chunks processed) - Saved as: {filename}"
             except Exception as e:
                 print(f"Warning: Could not save audio file: {e}")
-                status_message = f"✅ Generated with Fish Speech ({len(text_chunks)} chunks processed) (file saving failed)"
+                status_message = f"SUCCESS: Generated with Fish Speech ({len(text_chunks)} chunks processed) (file saving failed)"
 
         return (sample_rate, final_audio), status_message
 
@@ -4899,10 +4942,10 @@ def generate_fish_speech_tts(
         message = str(e)
         if "device-side assert" in message or "index out of bounds" in message:
             return None, (
-                "❌ Fish Speech CUDA index error. Try narration text without style tags "
+                "ERROR: Fish Speech CUDA index error. Try narration text without style tags "
                 "(for example remove '(calm)'/'(break)') and reload Fish Speech before retrying."
             )
-        return None, f"❌ Fish Speech error: {str(e)}"
+        return None, f"ERROR: Fish Speech error: {str(e)}"
 
 
 # ===== KOKORO TTS FUNCTIONS =====
@@ -5051,13 +5094,13 @@ def load_manual_custom_voices():
                     # Verify that the voice pack is usable
                     if isinstance(voice_pack, (torch.Tensor, list, tuple)):
                         loaded_voices[voice_id] = voice_pack
-                        print(f"✅ Loaded manually added custom voice: {voice_name}")
+                        print(f"SUCCESS: Loaded manually added custom voice: {voice_name}")
                     else:
-                        print(f"⚠️ Invalid voice format for {voice_name}")
+                        print(f"WARNING: Invalid voice format for {voice_name}")
                 else:
-                    print(f"⚠️ Voice file not found: {voice_path}")
+                    print(f"WARNING: Voice file not found: {voice_path}")
             except Exception as e:
-                print(f"❌ Error loading custom voice {voice_name}: {str(e)}")
+                print(f"ERROR: Error loading custom voice {voice_name}: {str(e)}")
 
 
 def refresh_kokoro_voice_list():
@@ -5120,10 +5163,10 @@ def generate_kokoro_tts(
 ):
     """Generate TTS audio using Kokoro TTS."""
     if not KOKORO_AVAILABLE:
-        return None, "❌ Kokoro TTS not available - check installation"
+        return None, "ERROR: Kokoro TTS not available - check installation"
 
     if not MODEL_STATUS["kokoro"]["loaded"] or not KOKORO_PIPELINES:
-        return None, "❌ Kokoro TTS not loaded - please load the model first"
+        return None, "ERROR: Kokoro TTS not loaded - please load the model first"
 
     try:
         # Remove hard character limit and implement chunking instead
@@ -5151,16 +5194,16 @@ def generate_kokoro_tts(
                         # Verify that the voice pack is usable
                         if isinstance(voice_pack, (torch.Tensor, list, tuple)):
                             loaded_voices[voice] = voice_pack
-                            print(f"✅ Auto-loaded custom voice: {voice}")
+                            print(f"SUCCESS: Auto-loaded custom voice: {voice}")
                         else:
-                            return None, f"❌ Invalid voice format for {voice}"
+                            return None, f"ERROR: Invalid voice format for {voice}"
                     else:
-                        return None, f"❌ Custom voice file not found: {voice_file}"
+                        return None, f"ERROR: Custom voice file not found: {voice_file}"
                 except Exception as e:
-                    return None, f"❌ Error loading custom voice {voice}: {str(e)}"
+                    return None, f"ERROR: Error loading custom voice {voice}: {str(e)}"
 
             if voice_pack is None:
-                return None, f"❌ Custom voice {voice} not found"
+                return None, f"ERROR: Custom voice {voice} not found"
             # Use American English pipeline for custom voices
             pipeline = KOKORO_PIPELINES["a"]
         else:
@@ -5225,7 +5268,7 @@ def generate_kokoro_tts(
 
         # Save audio file in specified format (skip if requested, e.g., for audiobook chunks)
         if skip_file_saving:
-            status_message = f"✅ Generated with Kokoro TTS ({len(text_chunks)} chunks)"
+            status_message = f"SUCCESS: Generated with Kokoro TTS ({len(text_chunks)} chunks)"
         else:
             try:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -5233,17 +5276,15 @@ def generate_kokoro_tts(
                 filepath, filename = save_audio_with_format(
                     final_audio, 24000, audio_format, output_folder, filename_base
                 )
-                status_message = f"✅ Generated with Kokoro TTS ({len(text_chunks)} chunks) - Saved as: {filename}"
+                status_message = f"SUCCESS: Generated with Kokoro TTS ({len(text_chunks)} chunks) - Saved as: {filename}"
             except Exception as e:
                 print(f"Warning: Could not save audio file: {e}")
-                status_message = (
-                    f"✅ Generated with Kokoro TTS ({len(text_chunks)} chunks) (file saving failed)"
-                )
+                status_message = f"SUCCESS: Generated with Kokoro TTS ({len(text_chunks)} chunks) (file saving failed)"
 
         return (24000, final_audio), status_message
 
     except Exception as e:
-        return None, f"❌ Kokoro error: {str(e)}"
+        return None, f"ERROR: Kokoro error: {str(e)}"
 
 
 def generate_indextts_tts(
@@ -5258,28 +5299,28 @@ def generate_indextts_tts(
     """Generate speech using IndexTTS model."""
 
     if not INDEXTTS_AVAILABLE:
-        return None, "❌ IndexTTS not available - check installation"
+        return None, "ERROR: IndexTTS not available - check installation"
 
     if not MODEL_STATUS["indextts"]["loaded"] or INDEXTTS_MODEL is None:
-        return None, "❌ IndexTTS model not loaded. Please load the model first."
+        return None, "ERROR: IndexTTS model not loaded. Please load the model first."
 
     model = INDEXTTS_MODEL
     if model is None:
-        return None, "❌ IndexTTS model not loaded. Please load the model first."
+        return None, "ERROR: IndexTTS model not loaded. Please load the model first."
 
     if not text_input.strip():
-        return None, "❌ Please enter text to synthesize"
+        return None, "ERROR: Please enter text to synthesize"
 
     # Use sample audio as fallback if no reference audio provided
     if not indextts_ref_audio or not os.path.exists(indextts_ref_audio):
         sample_audio_path = os.path.join("sample", "Sample.wav")
         if os.path.exists(sample_audio_path):
             indextts_ref_audio = sample_audio_path
-            print(f"🎯 Using default sample audio: {sample_audio_path}")
+            print(f"[TARGET] Using default sample audio: {sample_audio_path}")
         else:
             return (
                 None,
-                "❌ Please provide a valid reference audio file or ensure sample/Sample.wav exists",
+                "ERROR: Please provide a valid reference audio file or ensure sample/Sample.wav exists",
             )
 
     try:
@@ -5297,9 +5338,9 @@ def generate_indextts_tts(
         }
 
         # Generate speech using IndexTTS
-        print(f"🎯 Generating speech with IndexTTS...")
-        print(f"   📝 Text: {text_input.strip()[:100]}...")
-        print(f"   🎵 Reference audio: {indextts_ref_audio}")
+        print(f"[TARGET] Generating speech with IndexTTS...")
+        print(f"   [MEMO] Text: {text_input.strip()[:100]}...")
+        print(f"   [MUSIC] Reference audio: {indextts_ref_audio}")
         print(f"   📁 Output path: {temp_output_path}")
 
         # Add timeout to prevent hanging (cross-platform)
@@ -5331,15 +5372,18 @@ def generate_indextts_tts(
         thread.join(timeout=120)  # 2 minute timeout
 
         if thread.is_alive():
-            return None, "❌ IndexTTS generation timed out after 2 minutes. The model may be stuck."
+            return (
+                None,
+                "ERROR: IndexTTS generation timed out after 2 minutes. The model may be stuck.",
+            )
 
         if generation_error[0]:
-            return None, f"❌ IndexTTS generation failed: {generation_error[0]}"
+            return None, f"ERROR: IndexTTS generation failed: {generation_error[0]}"
 
         if generation_result[0] != "success":
-            return None, "❌ IndexTTS generation failed for unknown reason"
+            return None, "ERROR: IndexTTS generation failed for unknown reason"
 
-        print(f"✅ IndexTTS generation completed")
+        print(f"SUCCESS: IndexTTS generation completed")
 
         # Load the generated audio
         if os.path.exists(temp_output_path):
@@ -5376,23 +5420,23 @@ def generate_indextts_tts(
                     duration = len(audio_data) / sample_rate
 
                     # Create enhanced status message
-                    status_message = f"✅ IndexTTS synthesis completed\n"
+                    status_message = f"SUCCESS: IndexTTS synthesis completed\n"
                     status_message += f"📁 Saved as: {filename}\n"
                     status_message += f"⏱️ Duration: {duration:.2f}s\n"
                     status_message += f"📊 Sample Rate: {sample_rate}Hz"
 
                 except Exception as save_error:
-                    print(f"⚠️ Warning: Could not save IndexTTS audio file: {save_error}")
-                    status_message = "✅ IndexTTS synthesis completed (file saving failed)"
+                    print(f"WARNING: Warning: Could not save IndexTTS audio file: {save_error}")
+                    status_message = "SUCCESS: IndexTTS synthesis completed (file saving failed)"
             else:
-                status_message = "✅ IndexTTS synthesis completed"
+                status_message = "SUCCESS: IndexTTS synthesis completed"
 
             return (sample_rate, audio_data), status_message
         else:
-            return None, "❌ Failed to generate audio - output file not created"
+            return None, "ERROR: Failed to generate audio - output file not created"
 
     except Exception as e:
-        error_msg = f"❌ IndexTTS generation failed: {str(e)}"
+        error_msg = f"ERROR: IndexTTS generation failed: {str(e)}"
         print(error_msg)
         return None, error_msg
 
@@ -5426,19 +5470,19 @@ def generate_indextts2_unified_tts(
 ):
     """Generate TTS audio using IndexTTS2 with advanced emotion control."""
     if not INDEXTTS2_AVAILABLE:
-        return None, "❌ IndexTTS2 not available - check installation"
+        return None, "ERROR: IndexTTS2 not available - check installation"
 
     if not MODEL_STATUS["indextts2"]["loaded"]:
-        return None, "❌ IndexTTS2 model not loaded - please load the model first"
+        return None, "ERROR: IndexTTS2 model not loaded - please load the model first"
 
     if not text_input or not text_input.strip():
-        return None, "❌ Please enter text to synthesize"
+        return None, "ERROR: Please enter text to synthesize"
 
     if not indextts2_ref_audio:
-        return None, "❌ Reference audio is required for IndexTTS2"
+        return None, "ERROR: Reference audio is required for IndexTTS2"
 
     try:
-        print(f"🎯 Starting IndexTTS2 synthesis...")
+        print(f"[TARGET] Starting IndexTTS2 synthesis...")
         print(f"   Text: {text_input[:50]}...")
         print(f"   Emotion mode: {indextts2_emotion_mode}")
 
@@ -5494,14 +5538,14 @@ def generate_indextts2_unified_tts(
                 try:
                     audio_data = apply_audio_effects(audio_data, sample_rate, effects_settings)
                 except Exception as e:
-                    print(f"⚠️ Error applying effects: {e}")
+                    print(f"WARNING: Error applying effects: {e}")
 
             return (sample_rate, audio_data), status_message
         else:
-            return None, "❌ Unexpected audio format returned"
+            return None, "ERROR: Unexpected audio format returned"
 
     except Exception as e:
-        error_msg = f"❌ IndexTTS2 generation failed: {str(e)}"
+        error_msg = f"ERROR: IndexTTS2 generation failed: {str(e)}"
         print(error_msg)
         import traceback
 
@@ -5524,20 +5568,20 @@ def generate_f5_tts(
 ):
     """Generate TTS audio using F5-TTS."""
     if not F5_TTS_AVAILABLE:
-        return None, "❌ F5-TTS not available - check installation"
+        return None, "ERROR: F5-TTS not available - check installation"
 
     handler = get_f5_tts_handler()
 
     # Check if model is loaded
     if handler.model is None:
-        return None, "❌ F5-TTS not loaded - please load a model first"
+        return None, "ERROR: F5-TTS not loaded - please load a model first"
 
     print(
         f"F5-TTS generate called - Model loaded: {handler.model is not None}, Current model: {handler.current_model}"
     )
 
     try:
-        print(f"🎵 Generating F5-TTS audio...")
+        print(f"[MUSIC] Generating F5-TTS audio...")
 
         # Generate audio
         result = handler.generate_speech(
@@ -5566,9 +5610,9 @@ def generate_f5_tts(
             filepath, filename = save_audio_with_format(
                 audio_data, sample_rate, audio_format, output_folder, filename_base
             )
-            status_message = f"✅ Generated with F5-TTS - Saved as: {filename}"
+            status_message = f"SUCCESS: Generated with F5-TTS - Saved as: {filename}"
         else:
-            status_message = f"✅ Generated with F5-TTS"
+            status_message = f"SUCCESS: Generated with F5-TTS"
 
         return (sample_rate, audio_data), status_message
 
@@ -5576,7 +5620,7 @@ def generate_f5_tts(
         import traceback
 
         traceback.print_exc()
-        return None, f"❌ F5-TTS error: {str(e)}"
+        return None, f"ERROR: F5-TTS error: {str(e)}"
 
 
 # ===== VOICE PRESET FUNCTIONS =====
@@ -5633,10 +5677,10 @@ def migrate_legacy_presets_if_needed() -> bool:
                 }
 
         save_voice_preset_store(migrated)
-        print("✅ Migrated legacy voice_presets.json to app_state/presets.json")
+        print("SUCCESS: Migrated legacy voice_presets.json to app_state/presets.json")
         return True
     except Exception as error:
-        print(f"⚠️ Failed to migrate legacy presets: {error}")
+        print(f"WARNING: Failed to migrate legacy presets: {error}")
         return False
 
 
@@ -5658,7 +5702,7 @@ def load_voice_preset_store() -> dict:
                                 preset_entry.setdefault("speaker_name", "")
                         return data
     except Exception as error:
-        print(f"⚠️ Error loading app_state presets: {error}")
+        print(f"WARNING: Error loading app_state presets: {error}")
 
     return _preset_store_template()
 
@@ -5670,7 +5714,7 @@ def save_voice_preset_store(store: dict) -> bool:
             json.dump(store, file, indent=2, ensure_ascii=False)
         return True
     except Exception as error:
-        print(f"⚠️ Error saving app_state presets: {error}")
+        print(f"WARNING: Error saving app_state presets: {error}")
         return False
 
 
@@ -6091,7 +6135,7 @@ def _copy_preset_audio_into_app_state(preset_name: str, source_audio_path: str) 
 
 def on_refresh_presets():
     choices = get_voice_preset_choices()
-    return gr.update(choices=choices), "✅ Preset list refreshed"
+    return gr.update(choices=choices), "SUCCESS: Preset list refreshed"
 
 
 def on_select_preset(selected_name: str):
@@ -6108,10 +6152,15 @@ def on_select_preset(selected_name: str):
 
     if audio_path:
         audio_values = [audio_path for _ in range(10)]
-        return normalized, f"✅ Selected preset **{normalized}**", speaker_name_guess, *audio_values
+        return (
+            normalized,
+            f"SUCCESS: Selected preset **{normalized}**",
+            speaker_name_guess,
+            *audio_values,
+        )
     return (
         normalized,
-        f"⚠️ Selected preset **{normalized}**, but audio path is missing",
+        f"WARNING: Selected preset **{normalized}**, but audio path is missing",
         speaker_name_guess,
         *clear_audio_values,
     )
@@ -6126,12 +6175,12 @@ def on_save_preset(
 ):
     normalized_name = _normalize_preset_name(preset_name)
     if not normalized_name:
-        return gr.update(), "❌ Please enter a preset name", gr.update(value="")
+        return gr.update(), "ERROR: Please enter a preset name", gr.update(value="")
 
     if not audio_path or not os.path.exists(audio_path):
         return (
             gr.update(),
-            "❌ Please upload a valid reference audio file",
+            "ERROR: Please upload a valid reference audio file",
             gr.update(value=normalized_name),
         )
 
@@ -6146,16 +6195,20 @@ def on_save_preset(
             reference_text=reference_text,
             speaker_name=speaker_name,
         ):
-            return gr.update(), "❌ Failed to save preset", gr.update(value=normalized_name)
+            return gr.update(), "ERROR: Failed to save preset", gr.update(value=normalized_name)
 
         choices = get_voice_preset_choices()
         return (
             gr.update(choices=choices, value=normalized_name),
-            f"✅ Preset **{normalized_name}** saved",
+            f"SUCCESS: Preset **{normalized_name}** saved",
             gr.update(value=normalized_name),
         )
     except Exception as error:
-        return gr.update(), f"❌ Failed to save preset: {error}", gr.update(value=normalized_name)
+        return (
+            gr.update(),
+            f"ERROR: Failed to save preset: {error}",
+            gr.update(value=normalized_name),
+        )
 
 
 def on_delete_preset(selected_name: str):
@@ -6213,7 +6266,7 @@ def apply_preset_to_selected_conversation_character(
             *ref_text_values,
             gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
             gr.update(value=build_character_preset_preview_text(normalized_preset)),
-            gr.update(value="❌ Select a character before applying a preset."),
+            gr.update(value="ERROR: Select a character before applying a preset."),
         )
 
     if not normalized_preset:
@@ -6224,7 +6277,7 @@ def apply_preset_to_selected_conversation_character(
             *ref_text_values,
             gr.update(choices=get_voice_preset_choices(), value=""),
             gr.update(value=""),
-            gr.update(value="❌ Select a preset voice before applying it."),
+            gr.update(value="ERROR: Select a preset voice before applying it."),
         )
 
     preset_entry = get_voice_preset_entry(normalized_preset)
@@ -6237,7 +6290,7 @@ def apply_preset_to_selected_conversation_character(
             *ref_text_values,
             gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
             gr.update(value=build_character_preset_preview_text(normalized_preset)),
-            gr.update(value=f"❌ Preset '{normalized_preset}' is missing its audio file."),
+            gr.update(value=f"ERROR: Preset '{normalized_preset}' is missing its audio file."),
         )
 
     selected_settings = updated_state.setdefault(selected_speaker_name, {})
@@ -6259,7 +6312,9 @@ def apply_preset_to_selected_conversation_character(
         gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
         gr.update(value=build_character_preset_preview_text(normalized_preset)),
         gr.update(
-            value=(f"✅ Applied preset **{normalized_preset}** to **{selected_speaker_name}**.")
+            value=(
+                f"SUCCESS: Applied preset **{normalized_preset}** to **{selected_speaker_name}**."
+            )
         ),
     )
 
@@ -6286,7 +6341,7 @@ def save_selected_conversation_character_as_preset(
         return (
             gr.update(choices=get_voice_preset_choices()),
             gr.update(value=""),
-            gr.update(value="❌ Select a character before saving a preset."),
+            gr.update(value="ERROR: Select a character before saving a preset."),
             gr.update(value=normalized_preset),
         )
 
@@ -6294,7 +6349,7 @@ def save_selected_conversation_character_as_preset(
         return (
             gr.update(choices=get_voice_preset_choices()),
             gr.update(value=""),
-            gr.update(value="❌ Enter a preset name before saving."),
+            gr.update(value="ERROR: Enter a preset name before saving."),
             gr.update(value=""),
         )
 
@@ -6309,7 +6364,7 @@ def save_selected_conversation_character_as_preset(
             gr.update(value=""),
             gr.update(
                 value=(
-                    f"❌ {selected_speaker_name} needs a valid reference audio sample before it can be saved as a preset."
+                    f"ERROR: {selected_speaker_name} needs a valid reference audio sample before it can be saved as a preset."
                 )
             ),
             gr.update(value=normalized_preset),
@@ -6330,7 +6385,7 @@ def save_selected_conversation_character_as_preset(
         return (
             gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
             gr.update(value=""),
-            gr.update(value=f"❌ Failed to save preset **{normalized_preset}**."),
+            gr.update(value=f"ERROR: Failed to save preset **{normalized_preset}**."),
             gr.update(value=normalized_preset),
         )
 
@@ -6338,7 +6393,7 @@ def save_selected_conversation_character_as_preset(
         gr.update(choices=get_voice_preset_choices(), value=normalized_preset),
         gr.update(value=str(selected_settings.get("fish_ref_text", "") or "")),
         gr.update(
-            value=(f"✅ Saved **{selected_speaker_name}** as preset **{normalized_preset}**.")
+            value=(f"SUCCESS: Saved **{selected_speaker_name}** as preset **{normalized_preset}**.")
         ),
         gr.update(value=""),
     )
@@ -6385,7 +6440,7 @@ def save_current_preset(preset_name, tts_engine, **settings):
     """Legacy API shim: store a preset using available reference audio from settings."""
     normalized_name = _normalize_preset_name(preset_name)
     if not normalized_name:
-        return "❌ Please enter a preset name", gr.update()
+        return "ERROR: Please enter a preset name", gr.update()
 
     candidate_audio = (
         settings.get("chatterbox_ref_audio")
@@ -6400,7 +6455,7 @@ def save_current_preset(preset_name, tts_engine, **settings):
     )
 
     if not candidate_audio:
-        return "❌ No reference audio found in current settings", gr.update()
+        return "ERROR: No reference audio found in current settings", gr.update()
 
     dropdown_update, message, _ = on_save_preset(normalized_name, candidate_audio, True)
     return message, dropdown_update
@@ -6417,7 +6472,7 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
         return (
             current_state,
             gr.update(),
-            _speaker_profile_status_update("❌ Please enter a profile name"),
+            _speaker_profile_status_update("ERROR: Please enter a profile name"),
         )
 
     if not isinstance(speaker_settings_state, dict) or not speaker_settings_state:
@@ -6425,7 +6480,7 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
             current_state,
             gr.update(),
             _speaker_profile_status_update(
-                "❌ No conversation speaker settings are available to save"
+                "ERROR: No conversation speaker settings are available to save"
             ),
         )
 
@@ -6464,7 +6519,7 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
                 current_state,
                 gr.update(),
                 _speaker_profile_status_update(
-                    "❌ No valid speaker settings were found to save in this profile"
+                    "ERROR: No valid speaker settings were found to save in this profile"
                 ),
             )
 
@@ -6479,7 +6534,7 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
             return (
                 current_state,
                 gr.update(),
-                _speaker_profile_status_update("❌ Failed to save speaker profile"),
+                _speaker_profile_status_update("ERROR: Failed to save speaker profile"),
             )
 
         _sync_speaker_profile_voice_library(normalized_name, saved_speakers)
@@ -6488,7 +6543,7 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
             current_state,
             gr.update(choices=get_speaker_profile_choices(), value=normalized_name),
             _speaker_profile_status_update(
-                f"✅ Speaker profile '{normalized_name}' saved ({len(saved_speakers)} speakers)"
+                f"SUCCESS: Speaker profile '{normalized_name}' saved ({len(saved_speakers)} speakers)"
             ),
         )
     except Exception as error:
@@ -6496,7 +6551,7 @@ def on_save_speaker_profile(profile_name: str, speaker_settings_state: dict):
         return (
             current_state,
             gr.update(),
-            _speaker_profile_status_update(f"❌ Failed to save speaker profile: {error}"),
+            _speaker_profile_status_update(f"ERROR: Failed to save speaker profile: {error}"),
         )
 
 
@@ -6539,7 +6594,9 @@ def on_load_speaker_profile(
             updated_state,
             *[gr.update() for _ in range(10)],
             gr.update(value=""),
-            _speaker_profile_status_update(f"⚠️ Speaker profile '{normalized_name}' not found"),
+            _speaker_profile_status_update(
+                f"WARNING: Speaker profile '{normalized_name}' not found"
+            ),
         )
 
     normalized_profile_entry = _normalize_speaker_profile_entry(normalized_name, profile_entry)
@@ -6597,7 +6654,7 @@ def on_load_speaker_profile(
                 *[gr.update() for _ in range(10)],
                 gr.update(value=""),
                 _speaker_profile_status_update(
-                    f"⚠️ Speaker profile '{normalized_name}' was not applied because no roster names matched"
+                    f"WARNING: Speaker profile '{normalized_name}' was not applied because no roster names matched"
                 ),
             )
 
@@ -6625,7 +6682,7 @@ def on_load_speaker_profile(
 
     audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
 
-    status_message = f"✅ Loaded speaker profile '{normalized_name}'"
+    status_message = f"SUCCESS: Loaded speaker profile '{normalized_name}'"
     if unmatched_speakers:
         status_message += f" ({len(unmatched_speakers)} roster name(s) left unassigned)"
     if missing_audio_count:
@@ -6660,7 +6717,9 @@ def on_delete_speaker_profile(profile_name: str, current_settings_state: dict | 
         return (
             current_state,
             gr.update(choices=get_speaker_profile_choices(), value=None),
-            _speaker_profile_status_update(f"⚠️ Speaker profile '{normalized_name}' not found"),
+            _speaker_profile_status_update(
+                f"WARNING: Speaker profile '{normalized_name}' not found"
+            ),
         )
 
     deleted_audio_count = 0
@@ -6691,12 +6750,12 @@ def on_delete_speaker_profile(profile_name: str, current_settings_state: dict | 
         return (
             current_state,
             gr.update(),
-            _speaker_profile_status_update("❌ Failed to delete speaker profile"),
+            _speaker_profile_status_update("ERROR: Failed to delete speaker profile"),
         )
 
     _delete_speaker_profile_voice_library_mirror(normalized_name, deleted_audio_paths)
 
-    status_message = f"✅ Speaker profile '{normalized_name}' deleted"
+    status_message = f"SUCCESS: Speaker profile '{normalized_name}' deleted"
     if deleted_audio_count:
         status_message += f" ({deleted_audio_count} audio file(s) removed)"
 
@@ -6853,17 +6912,17 @@ def convert_ebook_to_audiobook(
 ):
     """Convert eBook to audiobook using selected TTS engine."""
     if not EBOOK_CONVERTER_AVAILABLE:
-        return None, "❌ eBook converter not available"
+        return None, "ERROR: eBook converter not available"
 
     if not file_path:
-        return None, "❌ No eBook file provided"
+        return None, "ERROR: No eBook file provided"
 
     try:
         # Convert eBook to text chunks with VoxCPM-specific optimization
         if tts_engine == "VoxCPM":
             # Use smaller chunks for VoxCPM to avoid badcase issues
             voxcpm_optimized_chunk_length = min(max_chunk_length, 350)
-            print(f"🎤 Using VoxCPM-optimized chunk length: {voxcpm_optimized_chunk_length}")
+            print(f"[MIC] Using VoxCPM-optimized chunk length: {voxcpm_optimized_chunk_length}")
             text_chunks, metadata = convert_ebook_to_text_chunks(
                 file_path, voxcpm_optimized_chunk_length
             )
@@ -6871,7 +6930,7 @@ def convert_ebook_to_audiobook(
             text_chunks, metadata = convert_ebook_to_text_chunks(file_path, max_chunk_length)
 
         if not text_chunks:
-            return None, "❌ No text content found in eBook"
+            return None, "ERROR: No text content found in eBook"
 
         # Filter chunks based on selected chapters if specified
         if selected_chapters:
@@ -6882,7 +6941,7 @@ def convert_ebook_to_audiobook(
             ]
 
         if not text_chunks:
-            return None, "❌ No chapters selected for conversion"
+            return None, "ERROR: No chapters selected for conversion"
 
         # Prepare effects settings
         effects_settings = (
@@ -6917,7 +6976,7 @@ def convert_ebook_to_audiobook(
 
             audiobook_fish_seed = int(time.time()) % 1000000
             print(
-                f"🐟 Using consistent seed {audiobook_fish_seed} for entire audiobook voice consistency"
+                f"[FISH] Using consistent seed {audiobook_fish_seed} for entire audiobook voice consistency"
             )
 
         # For maintaining voice consistency across chunks in Fish Speech
@@ -6931,7 +6990,7 @@ def convert_ebook_to_audiobook(
 
             audiobook_qwen_seed = random.randint(0, 2147483647)
             print(
-                f"🎭 Using consistent seed {audiobook_qwen_seed} for entire audiobook voice consistency"
+                f"[THEATER] Using consistent seed {audiobook_qwen_seed} for entire audiobook voice consistency"
             )
 
         for i, chunk in enumerate(text_chunks):
@@ -6956,7 +7015,7 @@ def convert_ebook_to_audiobook(
                     f"🌍 Using Chatterbox Multilingual with ref audio: {chatterbox_mtl_ref_audio}"
                 )
                 if not chatterbox_mtl_ref_audio:
-                    print("⚠️ No reference audio provided - using default voice")
+                    print("WARNING: No reference audio provided - using default voice")
                 audio_result, status = generate_chatterbox_multilingual_tts(
                     chunk["content"],
                     chatterbox_mtl_language,
@@ -6974,9 +7033,11 @@ def convert_ebook_to_audiobook(
                     skip_file_saving=True,
                 )
             elif tts_engine == "Chatterbox Turbo":
-                print(f"🚀 Using Chatterbox Turbo with ref audio: {chatterbox_turbo_ref_audio}")
+                print(
+                    f"[ROCKET] Using Chatterbox Turbo with ref audio: {chatterbox_turbo_ref_audio}"
+                )
                 if not chatterbox_turbo_ref_audio:
-                    print("⚠️ No reference audio provided - using default voice")
+                    print("WARNING: No reference audio provided - using default voice")
                 audio_result, status = generate_chatterbox_turbo_tts(
                     chunk["content"],
                     chatterbox_turbo_ref_audio,
@@ -7106,10 +7167,10 @@ def convert_ebook_to_audiobook(
                     skip_file_saving=True,
                 )
             else:
-                return None, f"❌ Invalid TTS engine: {tts_engine}"
+                return None, f"ERROR: Invalid TTS engine: {tts_engine}"
 
             if audio_result is None:
-                return None, f"❌ Failed to generate audio for chunk {i+1}: {status}"
+                return None, f"ERROR: Failed to generate audio for chunk {i+1}: {status}"
 
             sample_rate, audio_data = audio_result
             audio_segments.append((sample_rate, audio_data, chunk["title"]))
@@ -7144,7 +7205,9 @@ def convert_ebook_to_audiobook(
                         fish_chunk_reference_text = chunk["content"][
                             :200
                         ]  # First 200 chars as reference text
-                        print(f"🐟 Using first audiobook chunk as reference for voice consistency")
+                        print(
+                            f"[FISH] Using first audiobook chunk as reference for voice consistency"
+                        )
 
                     except Exception as e:
                         print(f"Warning: Could not create reference from first chunk: {e}")
@@ -7160,7 +7223,7 @@ def convert_ebook_to_audiobook(
 
         # Concatenate all audio segments
         if not audio_segments:
-            return None, "❌ No audio generated"
+            return None, "ERROR: No audio generated"
 
         # Clean up temporary reference file if it was created
         if (
@@ -7260,20 +7323,20 @@ def convert_ebook_to_audiobook(
             transformed_text=ebook_script_text,
         )
 
-        status_message = f"✅ Audiobook generated successfully!\n"
+        status_message = f"SUCCESS: Audiobook generated successfully!\n"
         status_message += f"📖 Book: {metadata['title']}\n"
         status_message += f"📊 Chapters processed: {len(audio_segments)}\n"
         status_message += f"⏱️ Total duration: {total_duration:.1f} minutes\n"
         status_message += f"📁 File size: {file_size_mb:.1f} MB\n"
         status_message += f"🔇 Chunk gap: {chunk_gap}s | Chapter gap: {chapter_gap}s\n"
-        status_message += f"💾 Saved as: {filename}\n"
+        status_message += f"[DISK] Saved as: {filename}\n"
         status_message += f"📂 Location: {os.path.abspath(filepath)}\n\n"
         if metadata_path:
             status_message += f"🧾 Metadata: {os.path.abspath(metadata_path)}\n\n"
 
         # For large files (>50MB or >30 minutes), don't return the audio data to avoid browser issues
         if file_size_mb > 50 or total_duration > 30:
-            status_message += "⚠️ Large audiobook detected!\n"
+            status_message += "WARNING: Large audiobook detected!\n"
             status_message += "🎧 File too large for browser playback - please use the download link or check the audiobooks folder.\n"
             status_message += (
                 "💡 You can play the file with any audio player (VLC, Windows Media Player, etc.)"
@@ -7287,13 +7350,13 @@ def convert_ebook_to_audiobook(
         import traceback
 
         traceback.print_exc()
-        return None, f"❌ Error converting eBook: {str(e)}"
+        return None, f"ERROR: Error converting eBook: {str(e)}"
 
 
 def get_ebook_info_display(analysis_result):
     """Format eBook analysis result for display."""
     if not analysis_result["success"]:
-        return f"❌ Error: {analysis_result['error']}"
+        return f"ERROR: Error: {analysis_result['error']}"
 
     metadata = analysis_result["metadata"]
     chapters = analysis_result["chapters"]
@@ -7302,7 +7365,7 @@ def get_ebook_info_display(analysis_result):
     info_text += f"📄 Format: {metadata['format'].upper()}\n"
     info_text += f"📊 File size: {metadata['file_size'] / 1024 / 1024:.1f} MB\n"
     info_text += f"📚 Total chapters: {metadata['total_chapters']}\n"
-    info_text += f"📝 Total words: {metadata['total_words']:,}\n"
+    info_text += f"[MEMO] Total words: {metadata['total_words']:,}\n"
     info_text += (
         f"⏱️ Estimated duration: {analysis_result['total_estimated_duration']:.1f} minutes\n\n"
     )
@@ -7335,13 +7398,13 @@ def generate_voxcpm_unified_tts(
 ):
     """Generate TTS audio using VoxCPM with voice cloning capabilities."""
     if not VOXCPM_AVAILABLE:
-        return None, "❌ VoxCPM not available"
+        return None, "ERROR: VoxCPM not available"
 
     if not text_input.strip():
-        return None, "❌ Please enter text to synthesize"
+        return None, "ERROR: Please enter text to synthesize"
 
     try:
-        print(f"🎯 Generating VoxCPM TTS...")
+        print(f"[TARGET] Generating VoxCPM TTS...")
         print(f"   Text: {text_input[:50]}...")
 
         # Generate speech using VoxCPM handler
@@ -7372,7 +7435,7 @@ def generate_voxcpm_unified_tts(
                 print("🎛️ Applying audio effects...")
                 audio_array = apply_audio_effects(audio_array, sample_rate, effects_settings)
             except Exception as e:
-                print(f"⚠️ Error applying effects: {e}")
+                print(f"WARNING: Error applying effects: {e}")
                 # Continue without effects
 
         # Convert format if needed
@@ -7381,7 +7444,7 @@ def generate_voxcpm_unified_tts(
                 from pydub import AudioSegment
                 import tempfile
 
-                print("🔄 Converting to MP3...")
+                print("[ARROWS] Converting to MP3...")
 
                 # Create temporary WAV file
                 temp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -7437,7 +7500,7 @@ def generate_voxcpm_unified_tts(
                         pass
 
             except Exception as e:
-                print(f"⚠️ MP3 conversion failed: {e}")
+                print(f"WARNING: MP3 conversion failed: {e}")
                 print("   Falling back to WAV format")
                 # Fall back to WAV - no format change needed
 
@@ -7491,14 +7554,14 @@ def generate_voxcpm_unified_tts(
             # Calculate duration
             duration = len(audio_array) / sample_rate
 
-            success_message = f"✅ VoxCPM TTS generated successfully\n"
+            success_message = f"SUCCESS: VoxCPM TTS generated successfully\n"
             success_message += f"📁 Saved as: {filename}\n"
             success_message += f"⏱️ Duration: {duration:.2f}s\n"
             success_message += f"📊 Sample Rate: {sample_rate}Hz"
 
         except Exception as save_error:
-            print(f"⚠️ Warning: Could not save audio file: {save_error}")
-            success_message = "✅ VoxCPM TTS generated successfully (file saving failed)"
+            print(f"WARNING: Warning: Could not save audio file: {save_error}")
+            success_message = "SUCCESS: VoxCPM TTS generated successfully (file saving failed)"
 
         # Return in the format expected by the conversation handler: (sample_rate, audio_array)
         return (sample_rate, audio_array), success_message
@@ -7507,7 +7570,7 @@ def generate_voxcpm_unified_tts(
         import traceback
 
         traceback.print_exc()
-        error_msg = f"❌ VoxCPM TTS generation error: {str(e)}"
+        error_msg = f"ERROR: VoxCPM TTS generation error: {str(e)}"
         print(error_msg)
         return None, error_msg
 
@@ -7953,7 +8016,7 @@ def fetch_provider_models(
     cfg = _get_provider_config(provider_name)
     clean_base = (base_url or "").strip().rstrip("/")
     if not clean_base:
-        return [], "❌ Base URL is required to fetch models."
+        return [], "ERROR: Base URL is required to fetch models."
 
     if "/openai" in clean_base:
         base_without_openai = clean_base.rsplit("/openai", 1)[0]
@@ -8009,14 +8072,14 @@ def fetch_provider_models(
                     models.append(model_id)
 
         if models:
-            return models, f"✅ Found {len(models)} model(s)"
+            return models, f"SUCCESS: Found {len(models)} model(s)"
         return [], "⚠ API responded but no models were listed. Load a model first."
     except urllib.error.HTTPError as error:
-        return [], f"❌ HTTP {error.code}: {error.reason}"
+        return [], f"ERROR: HTTP {error.code}: {error.reason}"
     except (urllib.error.URLError, TimeoutError):
-        return [], f"❌ Cannot reach {provider_name} API at {clean_base}"
+        return [], f"ERROR: Cannot reach {provider_name} API at {clean_base}"
     except Exception as error:
-        return [], f"❌ Error fetching models: {error}"
+        return [], f"ERROR: Error fetching models: {error}"
 
 
 def try_start_lm_studio() -> str:
@@ -8028,7 +8091,7 @@ def try_start_lm_studio() -> str:
         req = urllib.request.Request(url="http://localhost:1234/v1/models", method="GET")
         with urllib.request.urlopen(req, timeout=2.0) as response:
             if response.status in (200, 204):
-                return "✅ LM Studio already running"
+                return "SUCCESS: LM Studio already running"
     except Exception:
         pass
 
@@ -8050,7 +8113,7 @@ def try_start_lm_studio() -> str:
                 continue
 
     if not launched:
-        return "❌ LM Studio not found. Install it or start it manually."
+        return "ERROR: LM Studio not found. Install it or start it manually."
 
     deadline = time.time() + 25.0
     while time.time() < deadline:
@@ -8058,7 +8121,7 @@ def try_start_lm_studio() -> str:
             req = urllib.request.Request(url="http://localhost:1234/v1/models", method="GET")
             with urllib.request.urlopen(req, timeout=2.0) as response:
                 if response.status in (200, 204):
-                    return "✅ LM Studio started successfully"
+                    return "SUCCESS: LM Studio started successfully"
         except Exception:
             pass
         time.sleep(1.5)
@@ -8394,7 +8457,7 @@ def generate_unified_tts(
     """Unified TTS generation function."""
 
     if not text_input.strip():
-        return None, "❌ Please enter text to synthesize"
+        return None, "ERROR: Please enter text to synthesize"
 
     # Prepare effects settings
     effects_settings = (
@@ -8595,7 +8658,7 @@ def generate_unified_tts(
             audio_format,
         )
     else:
-        return None, "❌ Invalid TTS engine selected"
+        return None, "ERROR: Invalid TTS engine selected"
 
 
 def _is_seed_empty(seed_value, tts_engine: str) -> bool:
@@ -8693,29 +8756,6 @@ def _build_generation_reload_snapshot(
         "control_values": control_values,
         "excluded_controls": excluded_controls,
     }
-
-
-INVALID_GENERATION_PROJECT_NAMES = {"default"}
-PROJECT_NAME_REQUIRED_MESSAGE = (
-    "❌ Enter a real project name before generating. Blank names and 'default' are not allowed. "
-    "Use Workspace Controls -> Project Name."
-)
-
-
-def _normalize_project_name(project_name: str) -> str:
-    if not isinstance(project_name, str):
-        return ""
-    cleaned = re.sub(r"[^\w\-. ]+", "_", project_name.strip())
-    return cleaned[:80].strip()
-
-
-def _validate_required_project_name(project_name: str) -> tuple[str, str | None]:
-    cleaned = _normalize_project_name(project_name)
-    if not cleaned:
-        return "", PROJECT_NAME_REQUIRED_MESSAGE
-    if cleaned.lower() in INVALID_GENERATION_PROJECT_NAMES:
-        return "", PROJECT_NAME_REQUIRED_MESSAGE
-    return cleaned, None
 
 
 def _safe_project_name(project_name: str) -> str:
@@ -8906,7 +8946,12 @@ def generate_unified_tts_wrapped(*all_args):
     signature_params = list(inspect.signature(generate_unified_tts).parameters.keys())
     base_count = len(signature_params)
     if len(all_args) < base_count:
-        return None, "❌ Internal error: incomplete generation arguments", "🎲 Last Seed: N/A", None
+        return (
+            None,
+            "ERROR: Internal error: incomplete generation arguments",
+            "🎲 Last Seed: N/A",
+            None,
+        )
 
     base_args = list(all_args[:base_count])
     extra_args = list(all_args[base_count:])
@@ -9118,12 +9163,12 @@ def generate_unified_tts_wrapped(*all_args):
                     _HISTORY_SCHEDULER.submit(autosave_paths["meta_path"])
                     status_lines.append("History index: queued for background indexing")
                 except Exception as history_error:
-                    status_lines.append(f"⚠️ History index update failed: {history_error}")
+                    status_lines.append(f"WARNING: History index update failed: {history_error}")
         except Exception as error:
             autosave_error = str(error)
 
     if autosave_error:
-        status_lines.append(f"⚠️ Autosave failed: {autosave_error}")
+        status_lines.append(f"WARNING: Autosave failed: {autosave_error}")
 
     if (
         autosave_enabled
@@ -9139,7 +9184,7 @@ def generate_unified_tts_wrapped(*all_args):
                 os.remove(generated_audio_abs)
                 status_lines.append(f"Legacy output removed: {generated_audio_abs}")
             except Exception as error:
-                status_lines.append(f"⚠️ Failed to remove legacy output copy: {error}")
+                status_lines.append(f"WARNING: Failed to remove legacy output copy: {error}")
         elif generated_audio_abs == autosave_audio_abs:
             status_lines.append("ℹ️ Legacy output cleanup skipped (autosave references same file)")
 
@@ -9212,14 +9257,14 @@ def create_gradio_interface():
         try:
             protected_terms, overrides = load_lexicon(lexicon_path)
         except (FileNotFoundError, ValueError, OSError) as error:
-            return [], [], f"❌ Failed to load glossary: {error}"
+            return [], [], f"ERROR: Failed to load glossary: {error}"
 
         protected_rows = _lexicon_terms_to_rows(protected_terms)
         override_rows = _lexicon_overrides_to_rows(overrides)
         return (
             protected_rows,
             override_rows,
-            f"✅ Loaded glossary from {lexicon_path.name} ({len(protected_rows)} terms, {len(override_rows)} overrides)",
+            f"SUCCESS: Loaded glossary from {lexicon_path.name} ({len(protected_rows)} terms, {len(override_rows)} overrides)",
         )
 
     glossary_protected_rows, glossary_override_rows, glossary_status_message = _load_glossary_rows()
@@ -9269,6 +9314,11 @@ def create_gradio_interface():
         }
         """,
         css="""
+        /* Base font stack to prevent Times New Roman fallback */
+        body, .gradio-container, .wrap, .contain, * {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+        }
+
         /* CSS Variables for Theme Support */
         :root {
             --text-primary: rgba(241, 245, 249, 0.96);
@@ -10892,7 +10942,7 @@ def create_gradio_interface():
                         f5_model_select = gr.Dropdown(
                             choices=f5_model_choices,
                             value="F5-TTS Base",
-                            label="🎯 Select Model",
+                            label="[TARGET] Select Model",
                             elem_classes=["fade-in"],
                         )
 
@@ -10915,7 +10965,7 @@ def create_gradio_interface():
                     )
                 else:
                     gr.Markdown(
-                        "⚠️ F5-TTS not available - please install with: `pip install f5-tts`"
+                        "WARNING: F5-TTS not available - please install with: `pip install f5-tts`"
                     )
                     # Create dummy components for F5-TTS model management
                     f5_model_select = gr.Dropdown(visible=False, value="F5-TTS Base", choices=[])
@@ -10936,7 +10986,7 @@ def create_gradio_interface():
                         qwen_model_type = gr.Dropdown(
                             choices=["Base", "VoiceDesign", "CustomVoice"],
                             value="Base",
-                            label="🎯 Model Type",
+                            label="[TARGET] Model Type",
                             info="Base=Voice Clone, VoiceDesign=Create voices, CustomVoice=Predefined speakers",
                             elem_classes=["fade-in"],
                         )
@@ -10970,7 +11020,7 @@ def create_gradio_interface():
                     <div style='margin-top: 10px; padding: 10px; background: rgba(102, 126, 234, 0.05); border-radius: 8px; border-left: 3px solid #667eea;'>
                         <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
                             <strong>📋 Model Info:</strong><br/>
-                            • <strong>Base (Voice Clone):</strong> 0.6B or 1.7B - Clone voices from reference audio ✅ Supports chunking<br/>
+                            • <strong>Base (Voice Clone):</strong> 0.6B or 1.7B - Clone voices from reference audio SUCCESS: Supports chunking<br/>
                             • <strong>VoiceDesign:</strong> 1.7B only - Create voices from text descriptions<br/>
                             • <strong>CustomVoice:</strong> 0.6B or 1.7B - Use predefined speakers (Aiden, Dylan, Eric, etc.)
                         </p>
@@ -10978,7 +11028,7 @@ def create_gradio_interface():
                     """)
                 else:
                     gr.Markdown(
-                        "⚠️ Qwen TTS not available - check qwen_tts module and transformers version"
+                        "WARNING: Qwen TTS not available - check qwen_tts module and transformers version"
                     )
                     # Create dummy components
                     qwen_model_type = gr.Dropdown(visible=False, value="Base", choices=["Base"])
@@ -10988,7 +11038,7 @@ def create_gradio_interface():
                     unload_qwen_btn = gr.Button(visible=False)
                     qwen_model_status = gr.Markdown(visible=False, value="")
                     qwen_download_status = gr.Textbox(visible=False, value="")
-                    qwen_status = gr.Markdown(visible=False, value="❌ Not available")
+                    qwen_status = gr.Markdown(visible=False, value="ERROR: Not available")
 
             with gr.Row():
                 # ChatterboxTTS Management - Compact
@@ -11208,14 +11258,14 @@ def create_gradio_interface():
                 # VoxCPM Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🎤 **VoxCPM 1.5**", elem_classes=["fade-in"])
+                        gr.Markdown("[MIC] **VoxCPM 1.5**", elem_classes=["fade-in"])
                         voxcpm_status = gr.Markdown(
-                            value="⭕ Not loaded" if VOXCPM_AVAILABLE else "❌ Not available",
+                            value="⭕ Not loaded" if VOXCPM_AVAILABLE else "ERROR: Not available",
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_voxcpm_btn = gr.Button(
-                            "🔄 Load",
+                            "[ARROWS] Load",
                             variant="primary",
                             size="sm",
                             visible=VOXCPM_AVAILABLE,
@@ -11234,14 +11284,16 @@ def create_gradio_interface():
                 # KittenTTS Management - Compact
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("🐱 **KittenTTS**", elem_classes=["fade-in"])
+                        gr.Markdown("[CAT] **KittenTTS**", elem_classes=["fade-in"])
                         kitten_status = gr.Markdown(
-                            value="⭕ Not loaded" if KITTEN_TTS_AVAILABLE else "❌ Not available",
+                            value=(
+                                "⭕ Not loaded" if KITTEN_TTS_AVAILABLE else "ERROR: Not available"
+                            ),
                             elem_classes=["fade-in"],
                         )
                     with gr.Row():
                         load_kitten_btn = gr.Button(
-                            "🔄 Load",
+                            "[ARROWS] Load",
                             variant="primary",
                             size="sm",
                             visible=KITTEN_TTS_AVAILABLE,
@@ -11264,7 +11316,7 @@ def create_gradio_interface():
                     with gr.Row():
                         gr.Markdown("🧹 **System Cleanup**", elem_classes=["fade-in"])
                         cleanup_status = gr.Markdown(
-                            value="💾 Temp files ready", elem_classes=["fade-in"]
+                            value="[DISK] Temp files ready", elem_classes=["fade-in"]
                         )
                     with gr.Row():
                         clear_temp_btn = gr.Button(
@@ -11288,7 +11340,9 @@ def create_gradio_interface():
                 # Tabs for different input modes
                 with gr.Tabs(elem_classes=["fade-in"]) as input_tabs:
                     # Single Voice Tab
-                    with gr.TabItem("📝 TEXT TO SYNTHESIZE", id="single_voice") as single_voice_tab:
+                    with gr.TabItem(
+                        "[MEMO] TEXT TO SYNTHESIZE", id="single_voice"
+                    ) as single_voice_tab:
                         # Text input with enhanced styling
                         text = gr.Textbox(
                             value="Hello! This is a demonstration of the ultimate TTS studio. You can choose between Chatterbox TTS. Fish Speech, VoxCPM, Index TTS and Index TTS 2, Higgs audio TTS and F5 TTS for custom voice cloning or Kitten TTS and Kokoro TTS for high-quality pre-trained voices and VibeVoice for podcast.",
@@ -11480,7 +11534,9 @@ def create_gradio_interface():
                                     placeholder="Enter a name to save current prompt...",
                                     scale=3,
                                 )
-                                prompt_save_btn = gr.Button("💾 Save", variant="secondary", scale=1)
+                                prompt_save_btn = gr.Button(
+                                    "[DISK] Save", variant="secondary", scale=1
+                                )
                                 prompt_delete_btn = gr.Button(
                                     "🗑️ Delete Selected", variant="stop", scale=1
                                 )
@@ -11630,7 +11686,7 @@ def create_gradio_interface():
 
                                 with gr.Row():
                                     save_glossary_btn = gr.Button(
-                                        "💾 Save Glossary",
+                                        "[DISK] Save Glossary",
                                         variant="primary",
                                         elem_classes=["fade-in"],
                                     )
@@ -11655,7 +11711,7 @@ def create_gradio_interface():
 
                     # Conversation Mode Tab
                     with gr.TabItem(
-                        "🎭 CONVERSATION MODE", id="conversation_mode"
+                        "[THEATER] CONVERSATION MODE", id="conversation_mode"
                     ) as conversation_mode_tab:
                         conversation_speakers_state = gr.State(value=[])
                         conversation_rows_state = gr.State(value=[])
@@ -11704,7 +11760,7 @@ def create_gradio_interface():
 
                                 with gr.Row():
                                     conversation_llm_refresh_models_btn = gr.Button(
-                                        "🔄 Refresh Models",
+                                        "[ARROWS] Refresh Models",
                                         variant="secondary",
                                         scale=1,
                                     )
@@ -11757,7 +11813,7 @@ def create_gradio_interface():
                                 )
 
                             conversation_script = gr.Textbox(
-                                label="📝 Conversation Script",
+                                label="[MEMO] Conversation Script",
                                 placeholder="""Enter conversation in this format:
 
 Alice: Hello there! How are you doing today?
@@ -11806,7 +11862,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 scale=3,
                                             )
                                             save_speaker_profile_btn = gr.Button(
-                                                "💾 Save Bank",
+                                                "[DISK] Save Bank",
                                                 scale=1,
                                             )
                                             delete_speaker_profile_btn = gr.Button(
@@ -11814,7 +11870,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 scale=1,
                                             )
                                             cast_characters_btn = gr.Button(
-                                                "🎭 Cast Characters",
+                                                "[THEATER] Cast Characters",
                                                 variant="secondary",
                                                 scale=1,
                                                 elem_classes=["fade-in"],
@@ -11885,7 +11941,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 "conversation-preset-bank-panel",
                                             ]
                                         ):
-                                            gr.Markdown("**🎙️ Preset Voice Bank**")
+                                            gr.Markdown("**[MIC2] Preset Voice Bank**")
                                             with gr.Row():
                                                 character_preset_selector = gr.Dropdown(
                                                     label="Preset Voice",
@@ -11916,7 +11972,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                     scale=3,
                                                 )
                                                 save_character_as_preset_btn = gr.Button(
-                                                    "💾 Save Character As Preset",
+                                                    "[DISK] Save Character As Preset",
                                                     variant="secondary",
                                                     scale=2,
                                                 )
@@ -11937,7 +11993,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         with gr.Group(
                                             visible=False, elem_classes=["fade-in"]
                                         ) as speaker_1_group:
-                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
                                             speaker_1_audio = gr.Audio(
                                                 sources=["upload", "microphone"],
                                                 type="filepath",
@@ -11945,7 +12001,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_1_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm"
+                                                "[MEMO] Transcribe", size="sm"
                                             )
                                             speaker_1_ref_text = gr.Textbox(
                                                 label="Reference Text",
@@ -11957,7 +12013,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         with gr.Group(
                                             visible=False, elem_classes=["fade-in"]
                                         ) as speaker_2_group:
-                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
                                             speaker_2_audio = gr.Audio(
                                                 sources=["upload", "microphone"],
                                                 type="filepath",
@@ -11965,7 +12021,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_2_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm"
+                                                "[MEMO] Transcribe", size="sm"
                                             )
                                             speaker_2_ref_text = gr.Textbox(
                                                 label="Reference Text",
@@ -11977,7 +12033,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         with gr.Group(
                                             visible=False, elem_classes=["fade-in"]
                                         ) as speaker_3_group:
-                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
                                             speaker_3_audio = gr.Audio(
                                                 sources=["upload", "microphone"],
                                                 type="filepath",
@@ -11985,7 +12041,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_3_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm"
+                                                "[MEMO] Transcribe", size="sm"
                                             )
                                             speaker_3_ref_text = gr.Textbox(
                                                 label="Reference Text",
@@ -11997,7 +12053,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         with gr.Group(
                                             visible=False, elem_classes=["fade-in"]
                                         ) as speaker_4_group:
-                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
                                             speaker_4_audio = gr.Audio(
                                                 sources=["upload", "microphone"],
                                                 type="filepath",
@@ -12005,7 +12061,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_4_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm"
+                                                "[MEMO] Transcribe", size="sm"
                                             )
                                             speaker_4_ref_text = gr.Textbox(
                                                 label="Reference Text",
@@ -12017,7 +12073,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         with gr.Group(
                                             visible=False, elem_classes=["fade-in"]
                                         ) as speaker_5_group:
-                                            gr.Markdown("**🎤 Voice Clone Setup**")
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
                                             speaker_5_audio = gr.Audio(
                                                 sources=["upload", "microphone"],
                                                 type="filepath",
@@ -12025,7 +12081,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_5_transcribe_btn = gr.Button(
-                                                "📝 Transcribe", size="sm"
+                                                "[MEMO] Transcribe", size="sm"
                                             )
                                             speaker_5_ref_text = gr.Textbox(
                                                 label="Reference Text",
@@ -12035,7 +12091,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🗣️ Speaker 1 Kokoro Voice",
+                                            "[SPEAKING] Speaker 1 Kokoro Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12052,7 +12108,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🗣️ Speaker 2 Kokoro Voice",
+                                            "[SPEAKING] Speaker 2 Kokoro Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12069,7 +12125,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🗣️ Speaker 3 Kokoro Voice",
+                                            "[SPEAKING] Speaker 3 Kokoro Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12086,7 +12142,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🗣️ Speaker 4 Kokoro Voice",
+                                            "[SPEAKING] Speaker 4 Kokoro Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12103,7 +12159,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🗣️ Speaker 5 Kokoro Voice",
+                                            "[SPEAKING] Speaker 5 Kokoro Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12120,7 +12176,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🐱 Speaker 1 KittenTTS Voice",
+                                            "[CAT] Speaker 1 KittenTTS Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12134,7 +12190,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🐱 Speaker 2 KittenTTS Voice",
+                                            "[CAT] Speaker 2 KittenTTS Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12148,7 +12204,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🐱 Speaker 3 KittenTTS Voice",
+                                            "[CAT] Speaker 3 KittenTTS Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12162,7 +12218,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🐱 Speaker 4 KittenTTS Voice",
+                                            "[CAT] Speaker 4 KittenTTS Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12176,7 +12232,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🐱 Speaker 5 KittenTTS Voice",
+                                            "[CAT] Speaker 5 KittenTTS Voice",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12190,16 +12246,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🎭 Speaker 1 IndexTTS2 Emotions",
+                                            "[THEATER] Speaker 1 IndexTTS2 Emotions",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
                                         ) as speaker_1_indextts2_accordion:
                                             speaker_1_emotion_mode = gr.Radio(
                                                 choices=[
-                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
                                                     ("🎛️ Manual Control", "vector_control"),
-                                                    ("📝 Text Description", "text_description"),
+                                                    ("[MEMO] Text Description", "text_description"),
                                                 ],
                                                 value="audio_reference",
                                                 label="Emotion Control Mode",
@@ -12208,12 +12264,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             speaker_1_emotion_audio = gr.Audio(
                                                 sources=["upload"],
                                                 type="filepath",
-                                                label="🎵 Emotion Reference Audio",
+                                                label="[MUSIC] Emotion Reference Audio",
                                                 visible=True,
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_1_emotion_description = gr.Textbox(
-                                                label="📝 Emotion Description",
+                                                label="[MEMO] Emotion Description",
                                                 placeholder="e.g., 'happy and excited', 'sad and melancholic'",
                                                 visible=False,
                                                 elem_classes=["fade-in"],
@@ -12222,7 +12278,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 visible=False, elem_classes=["fade-in"]
                                             )
                                             with speaker_1_emotion_vectors:
-                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                gr.Markdown("**Emotion Intensity Controls**")
                                                 with gr.Row():
                                                     speaker_1_happy = gr.Slider(
                                                         0, 1, 0, step=0.1, label="😊 Happy"
@@ -12246,16 +12302,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                     )
 
                                         with gr.Accordion(
-                                            "🎭 Speaker 2 IndexTTS2 Emotions",
+                                            "[THEATER] Speaker 2 IndexTTS2 Emotions",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
                                         ) as speaker_2_indextts2_accordion:
                                             speaker_2_emotion_mode = gr.Radio(
                                                 choices=[
-                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
                                                     ("🎛️ Manual Control", "vector_control"),
-                                                    ("📝 Text Description", "text_description"),
+                                                    ("[MEMO] Text Description", "text_description"),
                                                 ],
                                                 value="audio_reference",
                                                 label="Emotion Control Mode",
@@ -12264,12 +12320,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             speaker_2_emotion_audio = gr.Audio(
                                                 sources=["upload"],
                                                 type="filepath",
-                                                label="🎵 Emotion Reference Audio",
+                                                label="[MUSIC] Emotion Reference Audio",
                                                 visible=True,
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_2_emotion_description = gr.Textbox(
-                                                label="📝 Emotion Description",
+                                                label="[MEMO] Emotion Description",
                                                 placeholder="e.g., 'happy and excited', 'sad and melancholic'",
                                                 visible=False,
                                                 elem_classes=["fade-in"],
@@ -12278,7 +12334,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 visible=False, elem_classes=["fade-in"]
                                             )
                                             with speaker_2_emotion_vectors:
-                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                gr.Markdown("**Emotion Intensity Controls**")
                                                 with gr.Row():
                                                     speaker_2_happy = gr.Slider(
                                                         0, 1, 0, step=0.1, label="😊 Happy"
@@ -12302,16 +12358,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                     )
 
                                         with gr.Accordion(
-                                            "🎭 Speaker 3 IndexTTS2 Emotions",
+                                            "[THEATER] Speaker 3 IndexTTS2 Emotions",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
                                         ) as speaker_3_indextts2_accordion:
                                             speaker_3_emotion_mode = gr.Radio(
                                                 choices=[
-                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
                                                     ("🎛️ Manual Control", "vector_control"),
-                                                    ("📝 Text Description", "text_description"),
+                                                    ("[MEMO] Text Description", "text_description"),
                                                 ],
                                                 value="audio_reference",
                                                 label="Emotion Control Mode",
@@ -12320,12 +12376,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             speaker_3_emotion_audio = gr.Audio(
                                                 sources=["upload"],
                                                 type="filepath",
-                                                label="🎵 Emotion Reference Audio",
+                                                label="[MUSIC] Emotion Reference Audio",
                                                 visible=True,
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_3_emotion_description = gr.Textbox(
-                                                label="📝 Emotion Description",
+                                                label="[MEMO] Emotion Description",
                                                 placeholder="e.g., 'happy and excited', 'sad and melancholic'",
                                                 visible=False,
                                                 elem_classes=["fade-in"],
@@ -12334,7 +12390,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 visible=False, elem_classes=["fade-in"]
                                             )
                                             with speaker_3_emotion_vectors:
-                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                gr.Markdown("**Emotion Intensity Controls**")
                                                 with gr.Row():
                                                     speaker_3_happy = gr.Slider(
                                                         0, 1, 0, step=0.1, label="😊 Happy"
@@ -12358,16 +12414,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                     )
 
                                         with gr.Accordion(
-                                            "🎭 Speaker 4 IndexTTS2 Emotions",
+                                            "[THEATER] Speaker 4 IndexTTS2 Emotions",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
                                         ) as speaker_4_indextts2_accordion:
                                             speaker_4_emotion_mode = gr.Radio(
                                                 choices=[
-                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
                                                     ("🎛️ Manual Control", "vector_control"),
-                                                    ("📝 Text Description", "text_description"),
+                                                    ("[MEMO] Text Description", "text_description"),
                                                 ],
                                                 value="audio_reference",
                                                 label="Emotion Control Mode",
@@ -12376,12 +12432,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             speaker_4_emotion_audio = gr.Audio(
                                                 sources=["upload"],
                                                 type="filepath",
-                                                label="🎵 Emotion Reference Audio",
+                                                label="[MUSIC] Emotion Reference Audio",
                                                 visible=True,
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_4_emotion_description = gr.Textbox(
-                                                label="📝 Emotion Description",
+                                                label="[MEMO] Emotion Description",
                                                 placeholder="e.g., 'happy and excited', 'sad and melancholic'",
                                                 visible=False,
                                                 elem_classes=["fade-in"],
@@ -12390,7 +12446,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 visible=False, elem_classes=["fade-in"]
                                             )
                                             with speaker_4_emotion_vectors:
-                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                gr.Markdown("**Emotion Intensity Controls**")
                                                 with gr.Row():
                                                     speaker_4_happy = gr.Slider(
                                                         0, 1, 0, step=0.1, label="😊 Happy"
@@ -12414,16 +12470,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                     )
 
                                         with gr.Accordion(
-                                            "🎭 Speaker 5 IndexTTS2 Emotions",
+                                            "[THEATER] Speaker 5 IndexTTS2 Emotions",
                                             open=True,
                                             visible=False,
                                             elem_classes=["fade-in"],
                                         ) as speaker_5_indextts2_accordion:
                                             speaker_5_emotion_mode = gr.Radio(
                                                 choices=[
-                                                    ("🎵 Audio Reference", "audio_reference"),
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
                                                     ("🎛️ Manual Control", "vector_control"),
-                                                    ("📝 Text Description", "text_description"),
+                                                    ("[MEMO] Text Description", "text_description"),
                                                 ],
                                                 value="audio_reference",
                                                 label="Emotion Control Mode",
@@ -12432,12 +12488,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             speaker_5_emotion_audio = gr.Audio(
                                                 sources=["upload"],
                                                 type="filepath",
-                                                label="🎵 Emotion Reference Audio",
+                                                label="[MUSIC] Emotion Reference Audio",
                                                 visible=True,
                                                 elem_classes=["fade-in"],
                                             )
                                             speaker_5_emotion_description = gr.Textbox(
-                                                label="📝 Emotion Description",
+                                                label="[MEMO] Emotion Description",
                                                 placeholder="e.g., 'happy and excited', 'sad and melancholic'",
                                                 visible=False,
                                                 elem_classes=["fade-in"],
@@ -12446,7 +12502,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 visible=False, elem_classes=["fade-in"]
                                             )
                                             with speaker_5_emotion_vectors:
-                                                gr.Markdown("**🎛️ Emotion Intensity Controls**")
+                                                gr.Markdown("**Emotion Intensity Controls**")
                                                 with gr.Row():
                                                     speaker_5_happy = gr.Slider(
                                                         0, 1, 0, step=0.1, label="😊 Happy"
@@ -12482,7 +12538,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 with gr.Group(
                                     visible=False, elem_classes=["fade-in"]
                                 ) as line_editor_group:
-                                    gr.Markdown("### ✏️ Selected Line Editor")
+                                    gr.Markdown("### Selected Line Editor")
                                     with gr.Row():
                                         line_number_display = gr.Textbox(
                                             label="Line #",
@@ -12510,7 +12566,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     )
                                     with gr.Row():
                                         save_line_edit_btn = gr.Button(
-                                            "💾 Save Line",
+                                            "[DISK] Save Line",
                                             variant="primary",
                                             elem_classes=["fade-in"],
                                         )
@@ -12539,7 +12595,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         1.0,
                                         step=0.1,
                                         value=0.3,
-                                        label="⏸️ Same Speaker Pause (s)",
+                                        label="Same Speaker Pause (s)",
                                         info="Pause when same speaker continues (negative = overlap)",
                                         elem_classes=["fade-in"],
                                     )
@@ -12652,24 +12708,24 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                                 with gr.Column(scale=1):
                                     # Conversion settings
-                                    gr.Markdown("**⚙️ Conversion Settings**")
+                                    gr.Markdown("**Conversion Settings**")
 
                                     ebook_tts_engine = gr.Radio(
                                         choices=[
-                                            ("🎤 ChatterboxTTS", "ChatterboxTTS"),
+                                            ("[MIC] ChatterboxTTS", "ChatterboxTTS"),
                                             (
                                                 "🌍 Chatterbox Multilingual",
                                                 "Chatterbox Multilingual",
                                             ),
-                                            ("🚀 Chatterbox Turbo", "Chatterbox Turbo"),
-                                            ("🗣️ Kokoro TTS", "Kokoro TTS"),
-                                            ("🐟 Fish Speech", "Fish Speech"),
-                                            ("🎯 IndexTTS", "IndexTTS"),
-                                            ("🎯 IndexTTS2", "IndexTTS2"),
-                                            ("🎵 F5-TTS", "F5-TTS"),
-                                            ("🎙️ Higgs Audio", "Higgs Audio"),
-                                            ("🐱 KittenTTS", "KittenTTS"),
-                                            ("🎙️ Qwen Voice Clone", "Qwen Voice Clone"),
+                                            ("[ROCKET] Chatterbox Turbo", "Chatterbox Turbo"),
+                                            ("[SPEAKING] Kokoro TTS", "Kokoro TTS"),
+                                            ("[FISH] Fish Speech", "Fish Speech"),
+                                            ("[TARGET] IndexTTS", "IndexTTS"),
+                                            ("[TARGET] IndexTTS2", "IndexTTS2"),
+                                            ("[MUSIC] F5-TTS", "F5-TTS"),
+                                            ("[MIC2] Higgs Audio", "Higgs Audio"),
+                                            ("[CAT] KittenTTS", "KittenTTS"),
+                                            ("[MIC2] Qwen Voice Clone", "Qwen Voice Clone"),
                                         ],
                                         value=(
                                             "ChatterboxTTS"
@@ -12704,18 +12760,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 )
                                             )
                                         ),
-                                        label="🎯 TTS Engine for Audiobook",
+                                        label="[TARGET] TTS Engine for Audiobook",
                                         elem_classes=["fade-in"],
                                     )
 
                                     # Audio Format for eBook conversion
                                     ebook_audio_format = gr.Radio(
                                         choices=[
-                                            ("🎵 WAV - Uncompressed (High Quality)", "wav"),
+                                            ("[MUSIC] WAV - Uncompressed (High Quality)", "wav"),
                                             ("🎶 MP3 - Compressed (Smaller Size)", "mp3"),
                                         ],
                                         value="wav",
-                                        label="🎵 Audiobook Format",
+                                        label="[MUSIC] Audiobook Format",
                                         info="Choose format: WAV for best quality, MP3 for smaller file size",
                                         elem_classes=["fade-in"],
                                     )
@@ -12774,10 +12830,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 <p style='margin: 0; font-size: 0.85em; opacity: 0.8;'>
                                     <strong>📋 Supported Formats:</strong> {', '.join(supported_formats.keys()) if supported_formats else 'N/A'}<br/>
                                     <strong>💡 Best Results:</strong> .html files work best for automatic chapter detection.<br/>
-                                    <strong>⚡ Performance:</strong> Large books may take several minutes to convert depending on length and TTS engine.<br/>
+                                    <strong>[LIGHTNING] Performance:</strong> Large books may take several minutes to convert depending on length and TTS engine.<br/>
                                     <strong>📁 Large Files:</strong> Audiobooks >50MB or >30min will be saved to the audiobooks folder with a download link (browser can't play very large files).<br/>
                                     <strong>🎧 Playback:</strong> Use VLC, Windows Media Player, or any audio player for large audiobooks.<br/>
-                                    <strong>🐟 Fish Speech:</strong> Maintains consistent voice throughout the entire audiobook using smart seed management and reference cloning.
+                                    <strong>[FISH] Fish Speech:</strong> Maintains consistent voice throughout the entire audiobook using smart seed management and reference cloning.
                                 </p>
                             </div>
                             """)
@@ -12786,7 +12842,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             gr.Markdown("""
                             <div style='text-align: center; padding: 40px; opacity: 0.5;'>
                                 <h3>📚 eBook to Audiobook Converter</h3>
-                                <p>⚠️ Not available - please install required dependencies:</p>
+                                <p>WARNING: Not available - please install required dependencies:</p>
                                 <code>pip install ebooklib PyPDF2 beautifulsoup4 chardet</code>
                             </div>
                             """)
@@ -12810,12 +12866,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             ebook_chapter_gap = gr.Slider(visible=False, value=2.0)
 
                     # VibeVoice Tab
-                    with gr.TabItem("🎙️ VIBEVOICE", id="vibevoice_mode") as vibevoice_mode_tab:
+                    with gr.TabItem("[MIC2] VIBEVOICE", id="vibevoice_mode") as vibevoice_mode_tab:
                         if VIBEVOICE_AVAILABLE:
                             gr.Markdown("""
                             <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                                         padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
-                                <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>🎙️ VibeVoice Podcast Generation</h3>
+                                <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>[MIC2] VibeVoice Podcast Generation</h3>
                                 <p style='margin: 0; opacity: 0.8; font-size: 0.9em;'>
                                     Generate high-quality multi-speaker podcasts and conversations using VibeVoice's advanced TTS technology.
                                     Upload voice samples and create natural-sounding dialogues.
@@ -12827,7 +12883,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 with gr.Column(scale=2):
                                     # Script input
                                     vibevoice_script = gr.Textbox(
-                                        label="📝 Podcast Script",
+                                        label="[MEMO] Podcast Script",
                                         placeholder="Enter your podcast script here. Each line will be assigned to speakers in rotation.\n\nExample:\nWelcome to our podcast today!\nThanks for having me, it's great to be here.\nLet's dive into our topic...",
                                         lines=8,
                                         elem_classes=["fade-in"],
@@ -12839,23 +12895,23 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         maximum=4,
                                         step=1,
                                         value=2,
-                                        label="🎤 Number of Speakers",
+                                        label="[MIC] Number of Speakers",
                                         elem_classes=["fade-in"],
                                     )
 
                                     # Speaker voice selections
                                     with gr.Group():
                                         with gr.Row():
-                                            gr.Markdown("**🎭 Speaker Voice Selection**")
+                                            gr.Markdown("**[THEATER] Speaker Voice Selection**")
                                             vibevoice_refresh_voices_btn = gr.Button(
-                                                "🔄 Refresh Voices",
+                                                "[ARROWS] Refresh Voices",
                                                 variant="secondary",
                                                 size="sm",
                                                 elem_classes=["fade-in"],
                                             )
 
                                         with gr.Accordion(
-                                            "🎤 Speaker 1 Voice",
+                                            "[MIC] Speaker 1 Voice",
                                             open=False,
                                             elem_classes=["fade-in"],
                                         ) as vibevoice_speaker_1_accordion:
@@ -12869,7 +12925,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🎤 Speaker 2 Voice",
+                                            "[MIC] Speaker 2 Voice",
                                             open=False,
                                             elem_classes=["fade-in"],
                                         ) as vibevoice_speaker_2_accordion:
@@ -12883,7 +12939,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🎤 Speaker 3 Voice",
+                                            "[MIC] Speaker 3 Voice",
                                             open=False,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12898,7 +12954,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
-                                            "🎤 Speaker 4 Voice",
+                                            "[MIC] Speaker 4 Voice",
                                             open=False,
                                             visible=False,
                                             elem_classes=["fade-in"],
@@ -12914,14 +12970,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                                 with gr.Column(scale=1):
                                     # VibeVoice settings
-                                    gr.Markdown("**⚙️ VibeVoice Settings**")
+                                    gr.Markdown("**VibeVoice Settings**")
 
                                     vibevoice_cfg_scale = gr.Slider(
                                         minimum=0.1,
                                         maximum=3.0,
                                         step=0.1,
                                         value=1.3,
-                                        label="🎛️ CFG Scale",
+                                        label="CFG Scale",
                                         info="Controls generation quality vs diversity",
                                         elem_classes=["fade-in"],
                                     )
@@ -12937,7 +12993,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     vibevoice_audio_format = gr.Radio(
                                         choices=[("WAV", "wav"), ("MP3", "mp3")],
                                         value="wav",
-                                        label="🎵 Audio Format",
+                                        label="[MUSIC] Audio Format",
                                         info="Choose output audio format",
                                         elem_classes=["fade-in"],
                                     )
@@ -12948,7 +13004,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             value=(
                                                 get_vibevoice_status()
                                                 if VIBEVOICE_AVAILABLE
-                                                else "❌ VibeVoice not available"
+                                                else "ERROR: VibeVoice not available"
                                             ),
                                             elem_classes=["fade-in"],
                                         )
@@ -12982,7 +13038,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                                         # Model loading section
                                         with gr.Group():
-                                            gr.Markdown("**🔄 Load/Unload Models**")
+                                            gr.Markdown("**[ARROWS] Load/Unload Models**")
                                             # Downloaded models selector and refresh
                                             with gr.Row():
                                                 vibevoice_downloaded_models = gr.Radio(
@@ -12996,7 +13052,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                     scale=3,
                                                 )
                                                 vibevoice_refresh_models_btn = gr.Button(
-                                                    "🔄 Refresh Models",
+                                                    "[ARROWS] Refresh Models",
                                                     variant="secondary",
                                                     elem_classes=["fade-in"],
                                                     scale=1,
@@ -13008,7 +13064,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                             vibevoice_flash_attention = gr.Checkbox(
-                                                label="⚡ Use Flash Attention",
+                                                label="[LIGHTNING] Use Flash Attention",
                                                 value=False,
                                                 info="Set this BEFORE loading the model. Requires compatible GPU, may not work on all systems.",
                                                 elem_classes=["fade-in"],
@@ -13016,7 +13072,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                                             with gr.Row():
                                                 vibevoice_load_btn = gr.Button(
-                                                    "🔄 Load Model",
+                                                    "[ARROWS] Load Model",
                                                     variant="secondary",
                                                     elem_classes=["fade-in"],
                                                 )
@@ -13035,7 +13091,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                                     # Custom voice upload
                                     with gr.Accordion(
-                                        "🎤 Add Custom Voice (3 to 10 seconds)", open=False
+                                        "[MIC] Add Custom Voice (3 to 10 seconds)", open=False
                                     ):
                                         custom_voice_file = gr.File(
                                             label="📁 Upload Voice Sample",
@@ -13043,7 +13099,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             elem_classes=["fade-in"],
                                         )
                                         vibevoice_custom_voice_name = gr.Textbox(
-                                            label="🏷️ Voice Name",
+                                            label="Voice Name",
                                             placeholder="Enter a name for this voice",
                                             elem_classes=["fade-in"],
                                         )
@@ -13058,7 +13114,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                             # Generate button
                             vibevoice_generate_btn = gr.Button(
-                                "🎙️ Generate Podcast",
+                                "[MIC2] Generate Podcast",
                                 variant="primary",
                                 size="lg",
                                 elem_classes=["generate-btn", "fade-in"],
@@ -13082,8 +13138,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             # Placeholder when VibeVoice is not available
                             gr.Markdown("""
                             <div style='text-align: center; padding: 40px; opacity: 0.5;'>
-                                <h3>🎙️ VibeVoice Podcast Generator</h3>
-                                <p>⚠️ Not available - please install VibeVoice dependencies</p>
+                                <h3>[MIC2] VibeVoice Podcast Generator</h3>
+                                <p>WARNING: Not available - please install VibeVoice dependencies</p>
                             </div>
                             """)
                             # Create dummy components
@@ -13206,19 +13262,19 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     assistant_llm_settings["system_prompt"]
                                     or DEFAULT_ASSISTANT_SYSTEM_PROMPT
                                 ),
-                                label="📝 System Prompt",
+                                label="[MEMO] System Prompt",
                                 lines=4,
                                 elem_classes=["fade-in"],
                             )
 
-                            with gr.Accordion("🎛️ Generation Parameters", open=True):
+                            with gr.Accordion("Generation Parameters", open=True):
                                 with gr.Row():
                                     assistant_llm_temperature = gr.Slider(
                                         0.0,
                                         2.0,
                                         step=0.05,
                                         value=assistant_llm_settings.get("temperature", 0.7),
-                                        label="🌡️ Temperature",
+                                        label="Temperature",
                                         info="Controls creativity. 0 = deterministic. 1.5+ = highly creative. Default: 0.7",
                                         elem_classes=["fade-in"],
                                     )
@@ -13227,7 +13283,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                         1.0,
                                         step=0.05,
                                         value=assistant_llm_settings.get("top_p", 0.9),
-                                        label="🎯 Top P",
+                                        label="[TARGET] Top P",
                                         info="Controls word choice diversity. Lower = more focused. Default: 0.9",
                                         elem_classes=["fade-in"],
                                     )
@@ -13249,7 +13305,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     elem_classes=["fade-in"],
                                 )
                                 assistant_llm_save_btn = gr.Button(
-                                    "💾 Save Settings",
+                                    "[DISK] Save Settings",
                                     variant="secondary",
                                     size="sm",
                                     elem_classes=["fade-in"],
@@ -13387,7 +13443,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 elem_classes=["fade-in"],
                             )
                             history_refresh_btn = gr.Button(
-                                "🔄 Refresh",
+                                "[ARROWS] Refresh",
                                 variant="secondary",
                                 size="sm",
                                 elem_classes=["fade-in"],
@@ -13519,7 +13575,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             ],
                             datatype=["str", "str", "str", "str", "str", "str"],
                             value=[["—", "No jobs", "—", "—", "—", "—"]],
-                            label="🔄 Active & Recent Jobs",
+                            label="[ARROWS] Active & Recent Jobs",
                             interactive=False,
                             wrap=True,
                             elem_classes=["fade-in"],
@@ -13527,7 +13583,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                         with gr.Row():
                             job_refresh_btn = gr.Button(
-                                "🔄 Refresh",
+                                "[ARROWS] Refresh",
                                 variant="secondary",
                                 size="sm",
                                 elem_classes=["fade-in"],
@@ -13546,7 +13602,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 elem_classes=["fade-in"],
                             )
                             job_cancel_btn = gr.Button(
-                                "❌ Cancel Job",
+                                "ERROR: Cancel Job",
                                 variant="stop",
                                 size="sm",
                                 scale=1,
@@ -13624,7 +13680,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 elem_id="generate_speech_action", visible=True
             ) as generate_btn_container:
                 generate_btn = gr.Button(
-                    "🚀 Generate Speech",
+                    "Generate",
                     variant="primary",
                     size="lg",
                     elem_classes=["generate-btn", "fade-in"],
@@ -13633,7 +13689,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 elem_id="generate_conversation_action", visible=False
             ) as generate_conversation_btn_container:
                 generate_conversation_btn = gr.Button(
-                    "🎭 Generate Conversation",
+                    "Generate",
                     variant="primary",
                     size="lg",
                     elem_classes=["generate-btn", "fade-in"],
@@ -13829,18 +13885,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             )
                         )
                     ),
-                    label="🎯 Select TTS Engine",
+                    label="[TARGET] Select TTS Engine",
                     info="Use this only if you want to override auto-selection from loaded models",
                     elem_classes=["fade-in"],
                 )
 
                 audio_format = gr.Dropdown(
                     choices=[
-                        ("🎵 WAV - Uncompressed (High Quality)", "wav"),
+                        ("[MUSIC] WAV - Uncompressed (High Quality)", "wav"),
                         ("🎶 MP3 - Compressed (Smaller Size)", "mp3"),
                     ],
                     value="wav",
-                    label="🎵 Audio Output Format",
+                    label="[MUSIC] Audio Output Format",
                     info="WAV for quality, MP3 for smaller files",
                     elem_classes=["fade-in"],
                 )
@@ -13860,10 +13916,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         with gr.Tabs(elem_classes=["fade-in"], elem_id="engine_settings_tabs") as engine_tabs:
             # ChatterboxTTS Tab
-            with gr.TabItem("🎤 ChatterboxTTS", id="chatterbox_tab"):
+            with gr.TabItem("[MIC] ChatterboxTTS", id="chatterbox_tab"):
                 if CHATTERBOX_AVAILABLE:
                     with gr.Group() as chatterbox_controls:
-                        gr.Markdown("**🎤 ChatterboxTTS - Voice cloning from reference audio**")
+                        gr.Markdown("**[MIC] ChatterboxTTS - Voice cloning from reference audio**")
                         gr.Markdown(
                             "*💡 Try the sample file: `sample/Sample.wav`*",
                             elem_classes=["fade-in"],
@@ -13874,7 +13930,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 chatterbox_ref_audio = gr.Audio(
                                     sources=["upload", "microphone"],
                                     type="filepath",
-                                    label="🎤 Reference Audio File (Optional)",
+                                    label="[MIC] Reference Audio File (Optional)",
                                     value=None,
                                     elem_classes=["fade-in"],
                                 )
@@ -13884,7 +13940,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.25,
                                     2,
                                     step=0.05,
-                                    label="🎭 Exaggeration",
+                                    label="[THEATER] Exaggeration",
                                     value=0.5,
                                     info="Higher = more dramatic",
                                     elem_classes=["fade-in"],
@@ -13893,7 +13949,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.2,
                                     1,
                                     step=0.05,
-                                    label="⚡ CFG Weight",
+                                    label="[LIGHTNING] CFG Weight",
                                     value=0.5,
                                     info="Speed vs quality",
                                     elem_classes=["fade-in"],
@@ -13930,7 +13986,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # Placeholder when ChatterboxTTS is not available
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🎤 ChatterboxTTS** - ⚠️ Not available - please check installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[MIC] ChatterboxTTS** - WARNING: Not available - please check installation</div>"
                         )
                         # Create dummy components to maintain consistent interface
                         chatterbox_ref_audio = gr.Audio(visible=False, value=None)
@@ -13957,7 +14013,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 chatterbox_mtl_ref_audio = gr.Audio(
                                     sources=["upload", "microphone"],
                                     type="filepath",
-                                    label="🎤 Reference Audio File (Optional)",
+                                    label="[MIC] Reference Audio File (Optional)",
                                     value=None,
                                     elem_classes=["fade-in"],
                                 )
@@ -14000,7 +14056,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.25,
                                     2,
                                     step=0.05,
-                                    label="🎭 Exaggeration",
+                                    label="[THEATER] Exaggeration",
                                     value=0.5,
                                     info="Higher = more dramatic",
                                     elem_classes=["fade-in"],
@@ -14024,7 +14080,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.0,
                                     1,
                                     step=0.05,
-                                    label="⚡ CFG Weight",
+                                    label="[LIGHTNING] CFG Weight",
                                     value=0.5,
                                     info="Speed vs quality",
                                 )
@@ -14057,7 +14113,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.5,
                                     1.0,
                                     step=0.05,
-                                    label="🎯 Top P",
+                                    label="[TARGET] Top P",
                                     value=1.0,
                                     info="Nucleus sampling",
                                 )
@@ -14070,7 +14126,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # Placeholder when Chatterbox Multilingual is not available
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🌍 Chatterbox Multilingual** - ⚠️ Not available - please check installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🌍 Chatterbox Multilingual** - WARNING: Not available - please check installation</div>"
                         )
                         # Create dummy components to maintain consistent interface
                         chatterbox_mtl_ref_audio = gr.Audio(visible=False, value=None)
@@ -14087,10 +14143,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         chatterbox_mtl_seed = gr.Number(visible=False, value=0)
 
             # Chatterbox Turbo Tab
-            with gr.TabItem("🚀 Chatterbox Turbo", id="chatterbox_turbo_tab"):
+            with gr.TabItem("[ROCKET] Chatterbox Turbo", id="chatterbox_turbo_tab"):
                 if CHATTERBOX_TURBO_AVAILABLE:
                     with gr.Group() as chatterbox_turbo_controls:
-                        gr.Markdown("**🚀 Chatterbox Turbo - Fast distilled voice cloning**")
+                        gr.Markdown("**[ROCKET] Chatterbox Turbo - Fast distilled voice cloning**")
                         gr.Markdown(
                             "*💡 Faster inference with similar quality to standard Chatterbox*",
                             elem_classes=["fade-in"],
@@ -14101,7 +14157,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 chatterbox_turbo_ref_audio = gr.Audio(
                                     sources=["upload", "microphone"],
                                     type="filepath",
-                                    label="🎤 Reference Audio File (Optional)",
+                                    label="[MIC] Reference Audio File (Optional)",
                                     value=None,
                                     elem_classes=["fade-in"],
                                 )
@@ -14111,7 +14167,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.25,
                                     2,
                                     step=0.05,
-                                    label="🎭 Exaggeration",
+                                    label="[THEATER] Exaggeration",
                                     value=0.5,
                                     info="Higher = more dramatic",
                                     elem_classes=["fade-in"],
@@ -14133,7 +14189,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.0,
                                     1,
                                     step=0.05,
-                                    label="⚡ CFG Weight",
+                                    label="[LIGHTNING] CFG Weight",
                                     value=0.5,
                                     info="Speed vs quality",
                                 )
@@ -14166,7 +14222,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.5,
                                     1.0,
                                     step=0.05,
-                                    label="🎯 Top P",
+                                    label="[TARGET] Top P",
                                     value=1.0,
                                     info="Nucleus sampling",
                                 )
@@ -14179,7 +14235,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # Placeholder when Chatterbox Turbo is not available
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🚀 Chatterbox Turbo** - ⚠️ Not available - please check installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[ROCKET] Chatterbox Turbo** - WARNING: Not available - please check installation</div>"
                         )
                         # Create dummy components to maintain consistent interface
                         chatterbox_turbo_ref_audio = gr.Audio(visible=False, value=None)
@@ -14193,13 +14249,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         chatterbox_turbo_seed = gr.Number(visible=False, value=0)
 
             # Kokoro TTS Tab
-            with gr.TabItem("🗣️ Kokoro TTS", id="kokoro_tab"):
+            with gr.TabItem("[SPEAKING] Kokoro TTS", id="kokoro_tab"):
                 if KOKORO_AVAILABLE:
                     with gr.Group() as kokoro_controls:
-                        gr.Markdown("**🗣️ Kokoro TTS - High-quality pre-trained voices**")
+                        gr.Markdown("**[SPEAKING] Kokoro TTS - High-quality pre-trained voices**")
 
                         # Voice selection grid
-                        gr.Markdown("**🎭 Select Voice**")
+                        gr.Markdown("**[THEATER] Select Voice**")
                         gr.Markdown("*Choose from pre-trained voices*", elem_classes=["gr-info"])
 
                         # Create choices as (label, value) pairs
@@ -14221,7 +14277,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 0.5,
                                 2.0,
                                 step=0.1,
-                                label="⚡ Speech Speed",
+                                label="[LIGHTNING] Speech Speed",
                                 value=1.0,
                                 info="Adjust speaking speed",
                                 elem_classes=["fade-in"],
@@ -14262,7 +14318,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             elem_classes=["fade-in"],
                                         )
                                         refresh_voices_btn = gr.Button(
-                                            "🔄 Refresh Voices",
+                                            "[ARROWS] Refresh Voices",
                                             variant="secondary",
                                             elem_classes=["fade-in"],
                                         )
@@ -14298,7 +14354,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # Placeholder when Kokoro is not available
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🗣️ Kokoro TTS** - ⚠️ Not available - please check installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[SPEAKING] Kokoro TTS** - WARNING: Not available - please check installation</div>"
                         )
                         # Create dummy components
                         kokoro_voice = gr.Radio(visible=False, value=None, choices=[])
@@ -14312,10 +14368,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         custom_voice_list = gr.Dataframe(visible=False, value=[])
 
             # Fish Speech Tab
-            with gr.TabItem("🐟 Fish Speech", id="fish_tab"):
+            with gr.TabItem("[FISH] Fish Speech", id="fish_tab"):
                 if FISH_SPEECH_AVAILABLE:
                     with gr.Group() as fish_speech_controls:
-                        gr.Markdown("**🐟 Fish Speech - Natural text-to-speech synthesis**")
+                        gr.Markdown("**[FISH] Fish Speech - Natural text-to-speech synthesis**")
                         gr.Markdown(
                             "*💡 Try the sample file: `sample/Sample.wav`*",
                             elem_classes=["fade-in"],
@@ -14326,14 +14382,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 fish_ref_audio = gr.Audio(
                                     sources=["upload", "microphone"],
                                     type="filepath",
-                                    label="🎤 Reference Audio File (Optional)",
+                                    label="[MIC] Reference Audio File (Optional)",
                                     value=None,
                                     elem_classes=["fade-in"],
                                 )
 
                             with gr.Column(scale=1):
                                 fish_ref_text = gr.Textbox(
-                                    label="🗣️ Reference Text (Optional)",
+                                    label="[SPEAKING] Reference Text (Optional)",
                                     placeholder="Enter reference text here...",
                                     elem_classes=["fade-in"],
                                 )
@@ -14357,7 +14413,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.1,
                                     1.0,
                                     step=0.05,
-                                    label="🎭 Top P",
+                                    label="[THEATER] Top P",
                                     value=0.8,
                                     info="Controls diversity (0.1-1.0)",
                                 )
@@ -14365,7 +14421,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.9,
                                     2.0,
                                     step=0.05,
-                                    label="🔄 Repetition Penalty",
+                                    label="[ARROWS] Repetition Penalty",
                                     value=1.1,
                                     info="Reduces repetition (0.9-2.0)",
                                 )
@@ -14384,7 +14440,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     info="For reproducible results",
                                 )
 
-                            gr.Markdown("### 📝 Text Processing & Voice Consistency")
+                            gr.Markdown("### [MEMO] Text Processing & Voice Consistency")
                             gr.Markdown("""<p style='opacity: 0.7; margin-bottom: 10px;'>
                             • Fish Speech automatically splits long texts into chunks for better quality<br/>
                             • Without reference audio: Uses consistent seed across chunks to maintain voice<br/>
@@ -14395,7 +14451,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # Placeholder when Fish Speech is not available
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🐟 Fish Speech** - ⚠️ Not available - please check installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[FISH] Fish Speech** - WARNING: Not available - please check installation</div>"
                         )
                     # Create dummy components
                     fish_ref_audio = gr.Audio(visible=False, value=None)
@@ -14407,16 +14463,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     fish_seed = gr.Number(visible=False, value=None)
 
             # IndexTTS Tab
-            with gr.TabItem("🎯 IndexTTS", id="indextts_tab"):
+            with gr.TabItem("[TARGET] IndexTTS", id="indextts_tab"):
                 if INDEXTTS_AVAILABLE:
                     with gr.Group(
                         visible=True, elem_id="indextts_controls", elem_classes=["fade-in"]
                     ):
-                        gr.Markdown("**🎯 IndexTTS - Industrial-level controllable TTS**")
+                        gr.Markdown("**[TARGET] IndexTTS - Industrial-level controllable TTS**")
 
                         with gr.Row():
                             indextts_ref_audio = gr.Audio(
-                                label="🎤 Reference Audio", type="filepath"
+                                label="[MIC] Reference Audio", type="filepath"
                             )
 
                         with gr.Accordion(
@@ -14446,7 +14502,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 else:
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🎯 IndexTTS** - ⚠️ Not available - please check installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[TARGET] IndexTTS** - WARNING: Not available - please check installation</div>"
                         )
                         # Create dummy components
                         indextts_ref_audio = gr.Audio(visible=False, value=None)
@@ -14454,12 +14510,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         indextts_seed = gr.Number(visible=False, value=None)
 
             # IndexTTS2 Tab
-            with gr.TabItem("🎯 IndexTTS2", id="indextts2_tab"):
+            with gr.TabItem("[TARGET] IndexTTS2", id="indextts2_tab"):
                 if INDEXTTS2_AVAILABLE:
                     with gr.Group(
                         visible=True, elem_id="indextts2_controls", elem_classes=["fade-in"]
                     ):
-                        gr.Markdown("**🎯 IndexTTS2 - Advanced Emotionally Expressive TTS**")
+                        gr.Markdown("**[TARGET] IndexTTS2 - Advanced Emotionally Expressive TTS**")
                         gr.Markdown(
                             "*💡 Zero-shot voice cloning with advanced emotion control*",
                             elem_classes=["fade-in"],
@@ -14467,28 +14523,28 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
                         with gr.Row():
                             indextts2_ref_audio = gr.Audio(
-                                label="🎤 Reference Audio (Required) - Voice to clone (max 15s for optimal performance)",
+                                label="[MIC] Reference Audio (Required) - Voice to clone (max 15s for optimal performance)",
                                 type="filepath",
                             )
 
                         # Emotion Control Section
                         with gr.Accordion(
-                            "🎭 Emotion Control", open=True, elem_classes=["fade-in"]
+                            "[THEATER] Emotion Control", open=True, elem_classes=["fade-in"]
                         ):
                             indextts2_emotion_mode = gr.Radio(
                                 choices=[
-                                    ("🎵 Audio Reference", "audio_reference"),
+                                    ("[MUSIC] Audio Reference", "audio_reference"),
                                     ("🎛️ Manual Control", "vector_control"),
-                                    ("📝 Text Description", "text_description"),
+                                    ("[MEMO] Text Description", "text_description"),
                                 ],
                                 value="audio_reference",
-                                label="🎭 Emotion Control Mode - Choose how to control emotional expression",
+                                label="[THEATER] Emotion Control Mode - Choose how to control emotional expression",
                             )
 
                             # Audio Reference Mode
                             with gr.Group(visible=True) as indextts2_audio_mode:
                                 indextts2_emotion_audio = gr.Audio(
-                                    label="🎭 Emotion Reference Audio - Audio expressing the desired emotion",
+                                    label="[THEATER] Emotion Reference Audio - Audio expressing the desired emotion",
                                     type="filepath",
                                 )
                                 indextts2_emo_alpha = gr.Slider(
@@ -14496,12 +14552,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     maximum=1.0,
                                     value=1.0,
                                     step=0.1,
-                                    label="🎚️ Emotion Strength - Blend between speaker voice and emotion reference",
+                                    label="Emotion Strength - Blend between speaker voice and emotion reference",
                                 )
 
                             # Vector Control Mode
                             with gr.Group(visible=False) as indextts2_vector_mode:
-                                gr.Markdown("**🎛️ Manual Emotion Control**")
+                                gr.Markdown("**Manual Emotion Control**")
                                 with gr.Row():
                                     indextts2_happy = gr.Slider(0, 1, 0, step=0.1, label="😊 Happy")
                                     indextts2_angry = gr.Slider(0, 1, 0, step=0.1, label="😠 Angry")
@@ -14529,7 +14585,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             if INDEXTTS2_AVAILABLE
                                             else []
                                         ),
-                                        label="🎭 Emotion Presets - Quick emotion settings",
+                                        label="[THEATER] Emotion Presets - Quick emotion settings",
                                         value=None,
                                     )
                                     indextts2_apply_preset = gr.Button("Apply Preset", size="sm")
@@ -14537,7 +14593,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             # Text Description Mode
                             with gr.Group(visible=False) as indextts2_text_mode:
                                 indextts2_emotion_description = gr.Textbox(
-                                    label="📝 Emotion Description - Describe the desired emotion in natural language",
+                                    label="[MEMO] Emotion Description - Describe the desired emotion in natural language",
                                     placeholder="e.g., 'excited and happy', 'sad and melancholic', 'calm and peaceful'",
                                 )
 
@@ -14554,14 +14610,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     maximum=2.0,
                                     value=0.8,
                                     step=0.1,
-                                    label="🌡️ Temperature - Controls randomness in generation",
+                                    label="Temperature - Controls randomness in generation",
                                 )
                                 indextts2_top_p = gr.Slider(
                                     minimum=0.1,
                                     maximum=1.0,
                                     value=0.9,
                                     step=0.05,
-                                    label="🎯 Top-p - Nucleus sampling parameter",
+                                    label="[TARGET] Top-p - Nucleus sampling parameter",
                                 )
 
                             with gr.Row():
@@ -14577,7 +14633,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     maximum=2.0,
                                     value=1.1,
                                     step=0.1,
-                                    label="🔄 Repetition Penalty - Penalty for repetitive content",
+                                    label="[ARROWS] Repetition Penalty - Penalty for repetitive content",
                                 )
 
                             with gr.Row():
@@ -14603,16 +14659,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 else:
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🎯 IndexTTS2** - ⚠️ Not available - please check installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[TARGET] IndexTTS2** - WARNING: Not available - please check installation</div>"
                         )
                         # Create dummy components
                         indextts2_ref_audio = gr.Audio(visible=False, value=None)
                         indextts2_emotion_mode = gr.Radio(
                             visible=False,
                             choices=[
-                                ("🎵 Audio Reference", "audio_reference"),
+                                ("[MUSIC] Audio Reference", "audio_reference"),
                                 ("🎛️ Manual Control", "vector_control"),
-                                ("📝 Text Description", "text_description"),
+                                ("[MEMO] Text Description", "text_description"),
                             ],
                             value="audio_reference",
                         )
@@ -14641,10 +14697,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         indextts2_text_mode = gr.Group(visible=False)
 
             # F5-TTS Tab
-            with gr.TabItem("🎵 F5-TTS", id="f5_tab"):
+            with gr.TabItem("[MUSIC] F5-TTS", id="f5_tab"):
                 if F5_TTS_AVAILABLE:
                     with gr.Group() as f5_tts_controls:
-                        gr.Markdown("**🎵 F5-TTS - Flow Matching Text-to-Speech**")
+                        gr.Markdown("**[MUSIC] F5-TTS - Flow Matching Text-to-Speech**")
                         gr.Markdown(
                             "*💡 High-quality voice cloning - Load model from Model Management section above*",
                             elem_classes=["fade-in"],
@@ -14656,12 +14712,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 f5_ref_audio = gr.Audio(
                                     sources=["upload", "microphone"],
                                     type="filepath",
-                                    label="🎤 Reference Audio (Optional)",
+                                    label="[MIC] Reference Audio (Optional)",
                                     elem_classes=["fade-in"],
                                 )
 
                                 f5_ref_text = gr.Textbox(
-                                    label="📝 Reference Text (Optional)",
+                                    label="[MEMO] Reference Text (Optional)",
                                     placeholder="Text spoken in reference audio",
                                     elem_classes=["fade-in"],
                                 )
@@ -14671,7 +14727,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.5,
                                     2.0,
                                     step=0.1,
-                                    label="⚡ Speed",
+                                    label="[LIGHTNING] Speed",
                                     value=1.0,
                                     info="Speech speed multiplier",
                                     elem_classes=["fade-in"],
@@ -14681,7 +14737,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.0,
                                     0.5,
                                     step=0.05,
-                                    label="🔄 Cross-fade Duration",
+                                    label="[ARROWS] Cross-fade Duration",
                                     value=0.15,
                                     info="Smooth transitions (seconds)",
                                     elem_classes=["fade-in"],
@@ -14708,7 +14764,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # Placeholder when F5-TTS is not available
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🎵 F5-TTS** - ⚠️ Not available - please check installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[MUSIC] F5-TTS** - WARNING: Not available - please check installation</div>"
                         )
                         # Create dummy components for generation settings only
                         f5_ref_audio = gr.Audio(visible=False, value=None)
@@ -14719,10 +14775,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         f5_seed = gr.Number(visible=False, value=0)
 
             # Higgs Audio Tab
-            with gr.TabItem("🎙️ Higgs Audio", id="higgs_tab"):
+            with gr.TabItem("[MIC2] Higgs Audio", id="higgs_tab"):
                 if HIGGS_AUDIO_AVAILABLE:
                     with gr.Group() as higgs_audio_controls:
-                        gr.Markdown("**🎙️ Higgs Audio - Advanced Multimodal TTS**")
+                        gr.Markdown("**[MIC2] Higgs Audio - Advanced Multimodal TTS**")
                         gr.Markdown(
                             "*💡 State-of-the-art voice cloning with multimodal capabilities (Use wav files not mp3)*",
                             elem_classes=["fade-in"],
@@ -14734,18 +14790,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 higgs_ref_audio = gr.Audio(
                                     sources=["upload", "microphone"],
                                     type="filepath",
-                                    label="🎤 Reference Audio (Optional)",
+                                    label="[MIC] Reference Audio (Optional)",
                                     elem_classes=["fade-in"],
                                 )
 
                                 higgs_ref_text = gr.Textbox(
-                                    label="📝 Reference Text (Optional)",
+                                    label="[MEMO] Reference Text (Optional)",
                                     placeholder="Text spoken in reference audio",
                                     elem_classes=["fade-in"],
                                 )
 
                                 higgs_voice_preset = gr.Dropdown(
-                                    label="🗣️ Voice Preset",
+                                    label="[SPEAKING] Voice Preset",
                                     choices=["EMPTY"]
                                     + (
                                         get_higgs_audio_handler().get_available_voice_presets()[1:]
@@ -14772,7 +14828,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     0.1,
                                     1.0,
                                     step=0.05,
-                                    label="🎯 Top-P",
+                                    label="[TARGET] Top-P",
                                     value=0.95,
                                     info="Nucleus sampling",
                                     elem_classes=["fade-in"],
@@ -14823,7 +14879,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     1,
                                     10,
                                     step=1,
-                                    label="🔄 RAS Max Repeats",
+                                    label="[ARROWS] RAS Max Repeats",
                                     value=2,
                                     info="Max repetitions in window",
                                     elem_classes=["fade-in"],
@@ -14832,7 +14888,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # Placeholder when Higgs Audio is not available
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🎙️ Higgs Audio** - ⚠️ Not available - please check installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[MIC2] Higgs Audio** - WARNING: Not available - please check installation</div>"
                         )
                         # Create dummy components
                         higgs_ref_audio = gr.Audio(visible=False, value=None)
@@ -14849,34 +14905,34 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         higgs_ras_win_max_num_repeat = gr.Slider(visible=False, value=2)
 
             # VoxCPM Tab
-            with gr.TabItem("🎤 VoxCPM", id="voxcpm_tab"):
+            with gr.TabItem("[MIC] VoxCPM", id="voxcpm_tab"):
                 if VOXCPM_AVAILABLE:
                     with gr.Group() as voxcpm_controls:
-                        gr.Markdown("**🎤 VoxCPM - Voice Cloning TTS**")
+                        gr.Markdown("**[MIC] VoxCPM - Voice Cloning TTS**")
                         gr.Markdown(
                             "*💡 Advanced voice cloning with automatic transcription using Whisper!*",
                             elem_classes=["fade-in"],
                         )
                         gr.Markdown(
-                            "📝 **Instructions:** Upload a clear reference audio (3-10 seconds) and the text will be auto-transcribed using Whisper for voice cloning."
+                            "[MEMO] **Instructions:** Upload a clear reference audio (3-10 seconds) and the text will be auto-transcribed using Whisper for voice cloning."
                         )
 
                         # Voice cloning section
                         with gr.Row():
                             with gr.Column():
                                 voxcpm_ref_audio = gr.Audio(
-                                    label="🎤 Reference Audio (for voice cloning)",
+                                    label="[MIC] Reference Audio (for voice cloning)",
                                     type="filepath",
                                     sources=["upload"],
                                 )
                                 voxcpm_ref_text = gr.Textbox(
-                                    label="📝 Reference Text (auto-transcribed)",
+                                    label="[MEMO] Reference Text (auto-transcribed)",
                                     placeholder="Will be automatically filled when you upload audio above...",
                                     lines=2,
                                 )
 
                         # Advanced settings
-                        with gr.Accordion("⚙️ Advanced Settings", open=False):
+                        with gr.Accordion("Advanced Settings", open=False):
                             gr.Markdown(
                                 "**CFG Value:** LM guidance on LocDiT, higher for better adherence to prompt"
                             )
@@ -14926,7 +14982,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 else:
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🎤 VoxCPM** - ⚠️ Not available - please install with: `pip install voxcpm openai-whisper`</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[MIC] VoxCPM** - WARNING: Not available - please install with: `pip install voxcpm openai-whisper`</div>"
                         )
                         # Create dummy components
                         voxcpm_ref_audio = gr.Audio(visible=False)
@@ -14941,10 +14997,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         voxcpm_seed = gr.Number(visible=False, value=-1)
 
             # KittenTTS Tab
-            with gr.TabItem("🐱 KittenTTS", id="kitten_tab"):
+            with gr.TabItem("[CAT] KittenTTS", id="kitten_tab"):
                 if KITTEN_TTS_AVAILABLE:
                     with gr.Group() as kitten_tts_controls:
-                        gr.Markdown("**🐱 KittenTTS - Mini Model TTS**")
+                        gr.Markdown("**[CAT] KittenTTS - Mini Model TTS**")
                         gr.Markdown(
                             "*💡 High-quality mini model with 8 built-in voices - no reference audio needed!*",
                             elem_classes=["fade-in"],
@@ -14954,7 +15010,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         with gr.Row():
                             with gr.Column():
                                 kitten_voice = gr.Radio(
-                                    label="🗣️ Voice Selection",
+                                    label="[SPEAKING] Voice Selection",
                                     choices=(
                                         KITTEN_VOICES
                                         if KITTEN_TTS_AVAILABLE
@@ -14979,7 +15035,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # Placeholder when KittenTTS is not available
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🐱 KittenTTS** - ⚠️ Not available - please install with: `pip install https://github.com/KittenML/KittenTTS/releases/download/0.1/kittentts-0.1.0-py3-none-any.whl`</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[CAT] KittenTTS** - WARNING: Not available - please install with: `pip install https://github.com/KittenML/KittenTTS/releases/download/0.1/kittentts-0.1.0-py3-none-any.whl`</div>"
                         )
                         # Create dummy component
                         kitten_voice = gr.Dropdown(
@@ -14987,10 +15043,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         )
 
             # Qwen TTS Tab
-            with gr.TabItem("🎙️ Qwen TTS", id="qwen_tab"):
+            with gr.TabItem("[MIC2] Qwen TTS", id="qwen_tab"):
                 if QWEN_TTS_AVAILABLE:
                     with gr.Group() as qwen_tts_controls:
-                        gr.Markdown("**🎙️ Qwen3-TTS - Advanced Text-to-Speech**")
+                        gr.Markdown("**[MIC2] Qwen3-TTS - Advanced Text-to-Speech**")
                         gr.Markdown(
                             "*💡 Three modes: Voice Design (create voices from descriptions), Voice Clone (clone from audio), Custom Voice (predefined speakers)*",
                             elem_classes=["fade-in"],
@@ -14999,11 +15055,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         # Mode selection
                         with gr.Row():
                             qwen_mode = gr.Radio(
-                                label="🎯 TTS Mode",
+                                label="[TARGET] TTS Mode",
                                 choices=[
                                     ("🎨 Voice Design", "voice_design"),
-                                    ("🎭 Voice Clone", "voice_clone"),
-                                    ("🗣️ Custom Voice", "custom_voice"),
+                                    ("[THEATER] Voice Clone", "voice_clone"),
+                                    ("[SPEAKING] Custom Voice", "custom_voice"),
                                 ],
                                 value="voice_clone",
                                 info="Voice Clone supports chunking, conversation mode, and ebook mode",
@@ -15021,9 +15077,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             gr.Markdown(
                                 "**🎨 Voice Design Mode** - Create unique voices from natural language descriptions"
                             )
-                            gr.Markdown("*⚠️ Only works in Text to Speech mode (no chunking)*")
+                            gr.Markdown(
+                                "*WARNING: Only works in Text to Speech mode (no chunking)*"
+                            )
                             qwen_voice_description = gr.Textbox(
-                                label="🎭 Voice Description",
+                                label="[THEATER] Voice Description",
                                 placeholder="Describe the voice you want, e.g., 'Speak in an incredulous tone, but with a hint of panic beginning to creep into your voice.'",
                                 lines=3,
                                 elem_classes=["fade-in"],
@@ -15032,26 +15090,28 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         # Voice Clone controls (visible when voice_clone mode selected)
                         with gr.Group(visible=True) as qwen_voice_clone_group:
                             gr.Markdown(
-                                "**🎭 Voice Clone Mode** - Clone voice from reference audio"
+                                "**[THEATER] Voice Clone Mode** - Clone voice from reference audio"
                             )
-                            gr.Markdown("*✅ Supports chunking, conversation mode, and ebook mode*")
+                            gr.Markdown(
+                                "*SUCCESS: Supports chunking, conversation mode, and ebook mode*"
+                            )
                             with gr.Row():
                                 qwen_ref_audio = gr.Audio(
-                                    label="🎤 Reference Audio",
+                                    label="[MIC] Reference Audio",
                                     type="filepath",
                                     sources=["upload", "microphone"],
                                     elem_classes=["fade-in"],
                                 )
                             with gr.Row():
                                 qwen_ref_text = gr.Textbox(
-                                    label="📝 Reference Text",
+                                    label="[MEMO] Reference Text",
                                     placeholder="Transcript of the reference audio (or click Transcribe)...",
                                     lines=2,
                                     scale=3,
                                     elem_classes=["fade-in"],
                                 )
                                 qwen_transcribe_btn = gr.Button(
-                                    "🎤 Transcribe", scale=1, elem_classes=["fade-in"]
+                                    "[MIC] Transcribe", scale=1, elem_classes=["fade-in"]
                                 )
                             qwen_xvector_only = gr.Checkbox(
                                 label="X-vector only (no text needed, lower quality)",
@@ -15085,9 +15145,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         # Custom Voice controls (visible when custom_voice mode selected)
                         with gr.Group(visible=False) as qwen_custom_voice_group:
                             gr.Markdown(
-                                "**🗣️ Custom Voice Mode** - Use predefined speakers with style instructions"
+                                "**[SPEAKING] Custom Voice Mode** - Use predefined speakers with style instructions"
                             )
-                            gr.Markdown("*⚠️ Only works in Text to Speech mode (no chunking)*")
+                            gr.Markdown(
+                                "*WARNING: Only works in Text to Speech mode (no chunking)*"
+                            )
                             qwen_speaker = gr.Radio(
                                 label="👤 Speaker",
                                 choices=QWEN_SPEAKERS if QWEN_TTS_AVAILABLE else ["Ryan"],
@@ -15102,7 +15164,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     elem_classes=["fade-in"],
                                 )
                             qwen_style_instruct = gr.Textbox(
-                                label="🎭 Style Instruction (Optional, 1.7B only)",
+                                label="[THEATER] Style Instruction (Optional, 1.7B only)",
                                 placeholder="e.g., Speak in a cheerful and energetic tone",
                                 lines=2,
                                 elem_classes=["fade-in"],
@@ -15126,7 +15188,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     # Placeholder when Qwen TTS is not available
                     with gr.Group():
                         gr.Markdown(
-                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**🎙️ Qwen TTS** - ⚠️ Not available - please check qwen_tts module installation</div>"
+                            "<div style='text-align: center; padding: 40px; opacity: 0.5;'>**[MIC2] Qwen TTS** - WARNING: Not available - please check qwen_tts module installation</div>"
                         )
                         # Create dummy components
                         qwen_mode = gr.Radio(
@@ -15155,7 +15217,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         qwen_custom_voice_group = gr.Group(visible=False)
 
         # Audio Effects in a separate expandable section
-        with gr.Accordion("🎵 Audio Effects Studio", open=False, elem_classes=["fade-in"]):
+        with gr.Accordion("[MUSIC] Audio Effects Studio", open=False, elem_classes=["fade-in"]):
             gr.Markdown("""
             <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
                         padding: 12px; border-radius: 12px; margin-bottom: 15px;'>
@@ -15172,7 +15234,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         -20,
                         20,
                         step=0.5,
-                        label="🎚️ Master Gain (dB)",
+                        label="Master Gain (dB)",
                         value=0,
                         info="Boost or reduce overall volume",
                         elem_classes=["fade-in"],
@@ -15213,7 +15275,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             # Effects Section with better layout
             with gr.Row():
                 with gr.Column():
-                    gr.Markdown("#### 🏛️ Spatial Effects")
+                    gr.Markdown("#### Spatial Effects")
                     enable_reverb = gr.Checkbox(
                         label="Enable Reverb", value=False, elem_classes=["fade-in"]
                     )
@@ -15288,13 +15350,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_load_chatterbox():
             success, message = init_chatterbox()
             if success:
-                chatterbox_status_text = "✅ Loaded (Auto-selected)"
+                chatterbox_status_text = "SUCCESS: Loaded (Auto-selected)"
                 # Auto-select ChatterboxTTS engine when loaded
                 selected_engine = "ChatterboxTTS"
                 # Auto-switch to ChatterboxTTS tab
                 selected_tab = gr.update(selected="chatterbox_tab")
             else:
-                chatterbox_status_text = "❌ Failed to load"
+                chatterbox_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
 
@@ -15312,13 +15374,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_load_chatterbox_multilingual():
             success, message = init_chatterbox_multilingual()
             if success:
-                chatterbox_mtl_status_text = "✅ Loaded (Auto-selected)"
+                chatterbox_mtl_status_text = "SUCCESS: Loaded (Auto-selected)"
                 # Auto-select Chatterbox Multilingual engine when loaded
                 selected_engine = "Chatterbox Multilingual"
                 # Auto-switch to Chatterbox Multilingual tab
                 selected_tab = gr.update(selected="chatterbox_mtl_tab")
             else:
-                chatterbox_mtl_status_text = "❌ Failed to load"
+                chatterbox_mtl_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
 
@@ -15336,13 +15398,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_load_chatterbox_turbo():
             success, message = init_chatterbox_turbo_model()
             if success:
-                chatterbox_turbo_status_text = "✅ Loaded (Auto-selected)"
+                chatterbox_turbo_status_text = "SUCCESS: Loaded (Auto-selected)"
                 # Auto-select Chatterbox Turbo engine when loaded
                 selected_engine = "Chatterbox Turbo"
                 # Auto-switch to Chatterbox Turbo tab
                 selected_tab = gr.update(selected="chatterbox_turbo_tab")
             else:
-                chatterbox_turbo_status_text = "❌ Failed to load"
+                chatterbox_turbo_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
 
@@ -15361,13 +15423,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             success, message = init_kokoro()
             if success:
                 preload_kokoro_voices()  # Preload voices after loading model
-                kokoro_status_text = "✅ Loaded (Auto-selected)"
+                kokoro_status_text = "SUCCESS: Loaded (Auto-selected)"
                 # Auto-select Kokoro TTS engine when loaded
                 selected_engine = "Kokoro TTS"
                 # Auto-switch to Kokoro TTS tab
                 selected_tab = gr.update(selected="kokoro_tab")
             else:
-                kokoro_status_text = "❌ Failed to load"
+                kokoro_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
 
@@ -15385,13 +15447,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_load_fish():
             success, message = init_fish_speech()
             if success:
-                fish_status_text = "✅ Loaded (Auto-selected)"
+                fish_status_text = "SUCCESS: Loaded (Auto-selected)"
                 # Auto-select Fish Speech engine when loaded
                 selected_engine = "Fish Speech"
                 # Auto-switch to Fish Speech tab
                 selected_tab = gr.update(selected="fish_tab")
             else:
-                fish_status_text = "❌ Failed to load"
+                fish_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
 
@@ -15409,12 +15471,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_load_indextts():
             success, message = init_indextts()
             if success:
-                indextts_status_text = "✅ Loaded (Auto-selected)"
+                indextts_status_text = "SUCCESS: Loaded (Auto-selected)"
                 selected_engine = "IndexTTS"
                 # Auto-switch to IndexTTS tab
                 selected_tab = gr.update(selected="indextts_tab")
             else:
-                indextts_status_text = "❌ Failed to load"
+                indextts_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()
                 selected_tab = gr.update()  # No tab change
 
@@ -15432,13 +15494,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_load_higgs():
             success, message = init_higgs_audio()
             if success:
-                higgs_status_text = "✅ Loaded (Auto-selected)"
+                higgs_status_text = "SUCCESS: Loaded (Auto-selected)"
                 # Auto-select Higgs Audio engine when loaded
                 selected_engine = "Higgs Audio"
                 # Auto-switch to Higgs Audio tab
                 selected_tab = gr.update(selected="higgs_tab")
             else:
-                higgs_status_text = "❌ Failed to load"
+                higgs_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
 
@@ -15456,13 +15518,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_load_voxcpm():
             success, message = init_voxcpm_model()
             if success:
-                voxcpm_status_text = "✅ Loaded (Auto-selected)"
+                voxcpm_status_text = "SUCCESS: Loaded (Auto-selected)"
                 # Auto-select VoxCPM engine when loaded
                 selected_engine = "VoxCPM"
                 # Auto-switch to VoxCPM tab
                 selected_tab = gr.update(selected="voxcpm_tab")
             else:
-                voxcpm_status_text = "❌ Failed to load"
+                voxcpm_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
 
@@ -15480,13 +15542,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_load_kitten():
             success, message = init_kitten_tts_model()
             if success:
-                kitten_status_text = "✅ Loaded (Auto-selected)"
+                kitten_status_text = "SUCCESS: Loaded (Auto-selected)"
                 # Auto-select KittenTTS engine when loaded
                 selected_engine = "KittenTTS"
                 # Auto-switch to KittenTTS tab
                 selected_tab = gr.update(selected="kitten_tab")
             else:
-                kitten_status_text = "❌ Failed to load"
+                kitten_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
 
@@ -15517,7 +15579,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         ):
             """Send a message to the assistant and update the chatbot."""
             if not user_message or not str(user_message).strip():
-                return chat_history, "", "⚠️ Please enter a message"
+                return chat_history, "", "WARNING: Please enter a message"
 
             from assistant_service import AssistantRequest, ChatMessage, chat as assistant_chat
 
@@ -15556,13 +15618,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             new_history.append({"role": "user", "content": str(user_message).strip()})
 
             if response.error:
-                error_msg = f"❌ {response.error}"
+                error_msg = f"ERROR: {response.error}"
                 new_history.append({"role": "assistant", "content": error_msg})
-                status = f"❌ Error: {response.error}"
+                status = f"ERROR: Error: {response.error}"
             else:
                 new_history.append({"role": "assistant", "content": response.content})
                 status = (
-                    "✅ Response received "
+                    "SUCCESS: Response received "
                     f"({response.elapsed_seconds}s) — "
                     f"{response.provider_name}/{response.model_id}"
                 )
@@ -15583,7 +15645,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 api_key=api_key or "",
                 model_id=model_id or "",
             )
-            if result.startswith("✅"):
+            if result.startswith("SUCCESS:"):
                 indicator = f"🤖 Assistant: Connected ({provider})"
             else:
                 indicator = f"🤖 Assistant: Connection failed ({provider})"
@@ -15619,7 +15681,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 }
             )
             return (
-                "✅ Assistant settings saved (including generation parameters).",
+                "SUCCESS: Assistant settings saved (including generation parameters).",
                 get_assistant_status_indicator_text(provider, base_url, model_id),
             )
 
@@ -15659,9 +15721,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             status_icons = {
                 "pending": "⏳ Pending",
-                "running": "🔄 Running",
-                "completed": "✅ Done",
-                "failed": "❌ Failed",
+                "running": "[ARROWS] Running",
+                "completed": "SUCCESS: Done",
+                "failed": "ERROR: Failed",
                 "cancelled": "🚫 Cancelled",
             }
 
@@ -15712,18 +15774,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
             manager = get_job_manager()
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
-                return f"❌ Job not found: {str(job_id).strip()}"
+                return f"ERROR: Job not found: {str(job_id).strip()}"
 
             try:
                 info = manager.get_status(matched_job_id)
             except KeyError:
-                return f"❌ Job not found: {matched_job_id}"
+                return f"ERROR: Job not found: {matched_job_id}"
 
             status_icons = {
                 "pending": "⏳ Pending",
-                "running": "🔄 Running",
-                "completed": "✅ Completed",
-                "failed": "❌ Failed",
+                "running": "[ARROWS] Running",
+                "completed": "SUCCESS: Completed",
+                "failed": "ERROR: Failed",
                 "cancelled": "🚫 Cancelled",
             }
 
@@ -15785,34 +15847,34 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             if not job_id or not str(job_id).strip():
                 rows, _ = handle_job_panel_refresh("")
-                return rows, "⚠️ Enter a job ID to cancel.", str(job_id or "")
+                return rows, "WARNING: Enter a job ID to cancel.", str(job_id or "")
 
             manager = get_job_manager()
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
                 rows, _ = handle_job_panel_refresh("")
-                return rows, f"❌ Job not found: {str(job_id).strip()}", str(job_id).strip()
+                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip()
 
             try:
                 cancelled = manager.cancel(matched_job_id)
             except KeyError:
                 rows, _ = handle_job_panel_refresh("")
-                return rows, f"❌ Job not found: {matched_job_id}", str(job_id).strip()
+                return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip()
             except Exception as exc:
                 rows, detail = handle_job_panel_refresh(matched_job_id)
-                return rows, f"❌ Cancel failed: {exc}\n\n{detail}", matched_job_id
+                return rows, f"ERROR: Cancel failed: {exc}\n\n{detail}", matched_job_id
 
             rows, detail = handle_job_panel_refresh(matched_job_id)
             if cancelled:
                 return (
                     rows,
-                    f"✅ Job {matched_job_id[:12]}... cancelled.\n\n{detail}",
+                    f"SUCCESS: Job {matched_job_id[:12]}... cancelled.\n\n{detail}",
                     matched_job_id,
                 )
 
             return (
                 rows,
-                f"⚠️ Cannot cancel job in terminal state.\n\n{detail}",
+                f"WARNING: Cannot cancel job in terminal state.\n\n{detail}",
                 matched_job_id,
             )
 
@@ -15822,25 +15884,25 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             if not job_id or not str(job_id).strip():
                 rows, _ = handle_job_panel_refresh("")
-                return rows, "⚠️ Enter a job ID to retry.", str(job_id or "")
+                return rows, "WARNING: Enter a job ID to retry.", str(job_id or "")
 
             manager = get_job_manager()
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
                 rows, _ = handle_job_panel_refresh("")
-                return rows, f"❌ Job not found: {str(job_id).strip()}", str(job_id).strip()
+                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip()
 
             try:
                 info = manager.get_status(matched_job_id)
             except KeyError:
                 rows, _ = handle_job_panel_refresh("")
-                return rows, f"❌ Job not found: {matched_job_id}", str(job_id).strip()
+                return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip()
 
             if info.status in {"pending", "running"}:
                 rows, detail = handle_job_panel_refresh(matched_job_id)
                 return (
                     rows,
-                    f"⚠️ Job {matched_job_id[:12]}... is still active and cannot be retried yet.\n\n{detail}",
+                    f"WARNING: Job {matched_job_id[:12]}... is still active and cannot be retried yet.\n\n{detail}",
                     matched_job_id,
                 )
 
@@ -15857,7 +15919,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             rows, detail = handle_job_panel_refresh(new_job_id)
             return (
                 rows,
-                f"✅ Retried job {matched_job_id[:12]}... as {new_job_id[:12]}...\n\n{detail}",
+                f"SUCCESS: Retried job {matched_job_id[:12]}... as {new_job_id[:12]}...\n\n{detail}",
                 new_job_id,
             )
 
@@ -16210,7 +16272,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     record_id,
                     request,
                 )
-                prefix = f"✅ Reindexed {len(records)} autosave bundle(s)."
+                prefix = f"SUCCESS: Reindexed {len(records)} autosave bundle(s)."
                 if detail.startswith("No indexed autosave history yet") or detail.startswith(
                     "No history record selected yet"
                 ):
@@ -16230,7 +16292,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     record_id,
                     request,
                 )
-                return rows, f"❌ Reindex failed: {error}\n\n{detail}", audio_value, preview_value
+                return (
+                    rows,
+                    f"ERROR: Reindex failed: {error}\n\n{detail}",
+                    audio_value,
+                    preview_value,
+                )
 
         def handle_history_import(
             query,
@@ -16262,7 +16329,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     request,
                 )
                 prefix = (
-                    "✅ Legacy import scan complete. "
+                    "SUCCESS: Legacy import scan complete. "
                     f"Imported {summary['imported']} item(s), "
                     f"skipped {summary['skipped']}, "
                     f"synthesized metadata for {summary['synthesized_meta']}, "
@@ -16290,7 +16357,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 )
                 return (
                     rows,
-                    f"❌ Legacy import failed: {error}\n\n{detail}",
+                    f"ERROR: Legacy import failed: {error}\n\n{detail}",
                     audio_value,
                     preview_value,
                 )
@@ -16326,10 +16393,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_history_open_folder(record_id):
             bundle_path = _resolve_history_bundle_path(record_id)
             if bundle_path is None:
-                return "⚠️ No valid bundle path found for the selected record."
+                return "WARNING: No valid bundle path found for the selected record."
             folder_path = os.path.dirname(bundle_path)
             if not os.path.isdir(folder_path):
-                return f"❌ Folder does not exist: {folder_path}"
+                return f"ERROR: Folder does not exist: {folder_path}"
             try:
                 if sys.platform == "win32":
                     os.startfile(folder_path)
@@ -16339,12 +16406,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     subprocess.run(["xdg-open", folder_path], check=False)
                 return f"📂 Opened folder: {folder_path}"
             except Exception as error:
-                return f"❌ Failed to open folder: {error}"
+                return f"ERROR: Failed to open folder: {error}"
 
         def handle_history_copy_path(record_id):
             bundle_path = _resolve_history_bundle_path(record_id)
             if bundle_path is None:
-                return "⚠️ No valid bundle path found for the selected record."
+                return "WARNING: No valid bundle path found for the selected record."
             try:
                 if sys.platform == "win32":
                     subprocess.run(
@@ -16373,7 +16440,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             break
                 return f"📋 Copied path to clipboard: {bundle_path}"
             except Exception as error:
-                return f"❌ Failed to copy path: {error}"
+                return f"ERROR: Failed to copy path: {error}"
 
         def handle_history_table_select(
             evt,
@@ -16404,7 +16471,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             if parsed_id is None:
                 return (
                     *[preserve for _name, _component in history_reload_targets],
-                    "⚠️ Enter a history record ID to reload.",
+                    "WARNING: Enter a history record ID to reload.",
                     preserve,
                 )
 
@@ -16413,7 +16480,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             if record is None:
                 return (
                     *[preserve for _name, _component in history_reload_targets],
-                    f"❌ History record not found: {record_id}",
+                    f"ERROR: History record not found: {record_id}",
                     preserve,
                 )
 
@@ -16422,7 +16489,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             except Exception as error:
                 return (
                     *[preserve for _name, _component in history_reload_targets],
-                    f"❌ Failed to build reload payload: {error}",
+                    f"ERROR: Failed to build reload payload: {error}",
                     preserve,
                 )
 
@@ -16504,11 +16571,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
             seed_label = f"🎲 Last Seed: {seed_value if seed_value is not None else 'N/A'}"
             if payload.get("legacy_reload"):
                 status_message = (
-                    f"✅ Reloaded history record {record.id} with legacy fallback fields. "
+                    f"SUCCESS: Reloaded history record {record.id} with legacy fallback fields. "
                     "Older records may not include full engine/LLM/effects state."
                 )
             else:
-                status_message = f"✅ Reloaded history record {record.id} from {record.project} / {record.timestamp}"
+                status_message = f"SUCCESS: Reloaded history record {record.id} from {record.project} / {record.timestamp}"
 
             return (*updates, status_message, seed_label)
 
@@ -16521,7 +16588,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             # Clear conversation mode speaker audio components too
             speaker_audio_updates = [gr.update(value=None) for _ in range(5)]
             # Return a simple, clean message instead of technical details
-            simple_message = "✅ All temporary files cleared successfully"
+            simple_message = "SUCCESS: All temporary files cleared successfully"
             return (
                 simple_message,
                 chatterbox_audio_update,
@@ -16533,13 +16600,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_load_indextts2():
             success, message = init_indextts2_model()
             if success:
-                indextts2_status_text = "✅ Loaded (Auto-selected)"
+                indextts2_status_text = "SUCCESS: Loaded (Auto-selected)"
                 # Auto-select IndexTTS2 engine when loaded
                 selected_engine = "IndexTTS2"
                 # Auto-switch to IndexTTS2 tab
                 selected_tab = gr.update(selected="indextts2_tab")
             else:
-                indextts2_status_text = "❌ Failed to load"
+                indextts2_status_text = "ERROR: Failed to load"
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
 
@@ -16560,8 +16627,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
             success, message = init_qwen_tts_model(model_type, model_size)
             loaded_display = get_qwen_loaded_model_display()
             if success:
-                qwen_status_text = "✅ Loaded"
-                status_msg = f"✅ {model_type} ({model_size}) loaded successfully"
+                qwen_status_text = "SUCCESS: Loaded"
+                status_msg = f"SUCCESS: {model_type} ({model_size}) loaded successfully"
                 # Auto-select appropriate Qwen engine when loaded
                 if model_type == "Base":
                     selected_engine = "Qwen Voice Clone"
@@ -16589,7 +16656,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 custom_size_update = gr.update(value=model_size)
                 mode_update = gr.update(value=selected_mode)
             else:
-                qwen_status_text = "❌ Failed to load"
+                qwen_status_text = "ERROR: Failed to load"
                 status_msg = message
                 selected_engine = gr.update()  # No change to current selection
                 selected_tab = gr.update()  # No tab change
@@ -16640,7 +16707,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_qwen_download(model_type, model_size):
             """Download selected Qwen TTS model."""
             if not QWEN_TTS_AVAILABLE:
-                return "❌ Qwen TTS not available", "❌ Qwen TTS not available"
+                return "ERROR: Qwen TTS not available", "ERROR: Qwen TTS not available"
 
             handler = get_qwen_tts_handler()
             success, message = handler.download_model(model_type, model_size)
@@ -16650,7 +16717,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def update_qwen_model_status():
             """Update Qwen TTS model status display."""
             if not QWEN_TTS_AVAILABLE:
-                return "❌ Qwen TTS not available"
+                return "ERROR: Qwen TTS not available"
 
             handler = get_qwen_tts_handler()
             return handler.get_downloaded_models_status()
@@ -16658,14 +16725,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def get_qwen_loaded_model_display():
             """Get the currently loaded Qwen TTS model for display."""
             if not QWEN_TTS_AVAILABLE:
-                return "📦 **Loaded Model:** ❌ Qwen TTS not available"
+                return "📦 **Loaded Model:** ERROR: Qwen TTS not available"
 
             handler = get_qwen_tts_handler()
             if handler.current_model_key:
                 model_type, model_size = handler.current_model_key
-                return f"📦 **Loaded Model:** ✅ {model_type} ({model_size})"
+                return f"📦 **Loaded Model:** SUCCESS: {model_type} ({model_size})"
             else:
-                return "📦 **Loaded Model:** ⚠️ None - Load a model from Models tab first"
+                return "📦 **Loaded Model:** WARNING: None - Load a model from Models tab first"
 
         def update_qwen_size_choices(model_type):
             """Update available sizes based on model type."""
@@ -16687,7 +16754,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_qwen_transcribe(audio):
             """Handle Qwen TTS audio transcription."""
             if not QWEN_TTS_AVAILABLE:
-                return "❌ Qwen TTS not available"
+                return "ERROR: Qwen TTS not available"
             return transcribe_qwen_audio(audio)
 
         def _normalize_emotion_mode(mode_input):
@@ -16701,7 +16768,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     "audio_reference",
                     "AUDIO_REFERENCE",
                     "Audio Reference",
-                    "🎵 Audio Reference",
+                    "[MUSIC] Audio Reference",
                 ],
                 "vector_control": [
                     "vector_control",
@@ -16713,7 +16780,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     "text_description",
                     "TEXT_DESCRIPTION",
                     "Text Description",
-                    "📝 Text Description",
+                    "[MEMO] Text Description",
                 ],
             }
 
@@ -16745,7 +16812,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_conversation_emotion_mode_change(mode):
             """Handle conversation mode IndexTTS2 emotion mode changes"""
             normalized = _normalize_emotion_mode(mode)
-            print(f"🎭 Conversation emotion mode changed to: {mode}")
+            print(f"[THEATER] Conversation emotion mode changed to: {mode}")
             if normalized == "audio_reference":
                 print("   → Showing audio reference controls")
                 return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False)
@@ -17053,7 +17120,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def update_f5_model_status():
             """Update F5-TTS model status display"""
             if not F5_TTS_AVAILABLE:
-                return "❌ F5-TTS not available - please install"
+                return "ERROR: F5-TTS not available - please install"
 
             handler = get_f5_tts_handler()
             status = handler.get_model_status()
@@ -17062,7 +17129,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             for model_name, model_info in status.items():
                 if model_info["downloaded"]:
                     if model_info["loaded"]:
-                        status_text += f"✅ **{model_name}** - Loaded and ready\n"
+                        status_text += f"SUCCESS: **{model_name}** - Loaded and ready\n"
                     else:
                         status_text += f"📦 **{model_name}** - Downloaded (click Load to use)\n"
                 else:
@@ -17075,7 +17142,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             """Handle F5-TTS model download"""
             if not F5_TTS_AVAILABLE:
                 return (
-                    gr.update(visible=True, value="❌ F5-TTS not available"),
+                    gr.update(visible=True, value="ERROR: F5-TTS not available"),
                     update_f5_model_status(),
                 )
 
@@ -17097,16 +17164,21 @@ Alice: I went to Japan. It was absolutely incredible!""",
             success, message = handler.download_model(model_name, progress_callback)
 
             if success:
-                final_message = f"✅ {message}\n" + "\n".join(progress_messages)
+                final_message = f"SUCCESS: {message}\n" + "\n".join(progress_messages)
             else:
-                final_message = f"❌ {message}"
+                final_message = f"ERROR: {message}"
 
             yield gr.update(visible=True, value=final_message), update_f5_model_status()
 
         def handle_f5_load(model_name):
             """Handle F5-TTS model loading"""
             if not F5_TTS_AVAILABLE:
-                return "❌ F5-TTS not available", update_f5_model_status(), gr.update(), gr.update()
+                return (
+                    "ERROR: F5-TTS not available",
+                    update_f5_model_status(),
+                    gr.update(),
+                    gr.update(),
+                )
 
             handler = get_f5_tts_handler()
             print(f"Attempting to load F5-TTS model: {model_name}")
@@ -17123,7 +17195,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             if success:
                 MODEL_STATUS["f5_tts"]["loaded"] = True
                 MODEL_STATUS["f5_tts"]["current_model"] = model_name
-                print(f"✅ F5-TTS model loaded successfully: {model_name}")
+                print(f"SUCCESS: F5-TTS model loaded successfully: {model_name}")
                 print(f"MODEL_STATUS updated: {MODEL_STATUS['f5_tts']}")
                 # Auto-select F5-TTS engine
                 selected_engine = "F5-TTS"
@@ -17131,7 +17203,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 selected_tab = gr.update(selected="f5_tab")
             else:
                 MODEL_STATUS["f5_tts"]["loaded"] = False
-                print(f"❌ Failed to load F5-TTS model: {message}")
+                print(f"ERROR: Failed to load F5-TTS model: {message}")
                 selected_engine = gr.update()
                 selected_tab = gr.update()  # No tab change
 
@@ -17149,7 +17221,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_f5_unload():
             """Handle F5-TTS model unloading"""
             if not F5_TTS_AVAILABLE:
-                return "❌ F5-TTS not available", update_f5_model_status()
+                return "ERROR: F5-TTS not available", update_f5_model_status()
 
             handler = get_f5_tts_handler()
             message = handler.unload_model()
@@ -17200,22 +17272,22 @@ Alice: I went to Japan. It was absolutely incredible!""",
             try:
                 save_lexicon(lexicon_path, protected_terms, overrides)
             except OSError as error:
-                return protected_rows, override_rows, f"❌ Failed to save glossary: {error}"
+                return protected_rows, override_rows, f"ERROR: Failed to save glossary: {error}"
 
             return (
                 protected_rows,
                 override_rows,
-                f"✅ Saved glossary to {lexicon_path.name} ({len(protected_rows)} terms, {len(override_rows)} overrides)",
+                f"SUCCESS: Saved glossary to {lexicon_path.name} ({len(protected_rows)} terms, {len(override_rows)} overrides)",
             )
 
         def handle_add_protected_term(term_text: str, case_sensitive: bool, current_df: Any):
             protected_rows = _normalize_protected_df_rows(current_df)
             normalized_term = term_text.strip()
             if not normalized_term:
-                return protected_rows, "⚠️ Enter a term before adding it."
+                return protected_rows, "WARNING: Enter a term before adding it."
 
             protected_rows.append([normalized_term, bool(case_sensitive)])
-            return protected_rows, f"✅ Added protected term: {normalized_term}"
+            return protected_rows, f"SUCCESS: Added protected term: {normalized_term}"
 
         def handle_remove_protected_term(current_df: Any):
             protected_rows = _normalize_protected_df_rows(current_df)
@@ -17223,7 +17295,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 return protected_rows, "ℹ️ No protected terms to remove."
 
             removed_term = protected_rows.pop()[0]
-            return protected_rows, f"✅ Removed protected term: {removed_term}"
+            return protected_rows, f"SUCCESS: Removed protected term: {removed_term}"
 
         def handle_add_pronunciation_override(
             word: str,
@@ -17235,10 +17307,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             normalized_word = word.strip()
             normalized_phonetic = phonetic.strip()
             if not normalized_word or not normalized_phonetic:
-                return override_rows, "⚠️ Enter both a word and phonetic spelling before adding it."
+                return (
+                    override_rows,
+                    "WARNING: Enter both a word and phonetic spelling before adding it.",
+                )
 
             override_rows.append([normalized_word, normalized_phonetic, bool(case_sensitive)])
-            return override_rows, f"✅ Added override for: {normalized_word}"
+            return override_rows, f"SUCCESS: Added override for: {normalized_word}"
 
         def handle_remove_pronunciation_override(current_df: Any):
             override_rows = _normalize_override_df_rows(current_df)
@@ -17246,7 +17321,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 return override_rows, "ℹ️ No pronunciation overrides to remove."
 
             removed_word = override_rows.pop()[0]
-            return override_rows, f"✅ Removed override for: {removed_word}"
+            return override_rows, f"SUCCESS: Removed override for: {removed_word}"
 
         def handle_clear_glossary():
             return [], [], "🧹 Cleared glossary tables. Save to persist the empty glossary."
@@ -18805,19 +18880,19 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 kokoro_updates.append(
                     gr.update(
                         visible=speaker_visible and engine_family == "kokoro",
-                        label=f"🗣️ {speaker_name} Kokoro Voice",
+                        label=f"[SPEAKING] {speaker_name} Kokoro Voice",
                     )
                 )
                 kitten_updates.append(
                     gr.update(
                         visible=speaker_visible and engine_family == "kitten",
-                        label=f"🐱 {speaker_name} KittenTTS Voice",
+                        label=f"[CAT] {speaker_name} KittenTTS Voice",
                     )
                 )
                 indextts2_updates.append(
                     gr.update(
                         visible=speaker_visible and engine_family == "indextts2",
-                        label=f"🎭 {speaker_name} IndexTTS2 Emotions",
+                        label=f"[THEATER] {speaker_name} IndexTTS2 Emotions",
                     )
                 )
 
@@ -19304,7 +19379,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         ):
             """Use the configured LLM provider to normalize free-form dialogue into Speaker: Text format."""
             if not isinstance(script_text, str) or not script_text.strip():
-                return script_text, "❌ Enter script text before using AI Format."
+                return script_text, "ERROR: Enter script text before using AI Format."
 
             provider_config = _get_provider_config(provider_name)
             resolved_api_key, _api_key_source = resolve_llm_api_key(provider_name, api_key)
@@ -19343,10 +19418,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     formatted_rows.extend(parsed_rows)
             except Exception as error:
                 logger.exception("Failed to AI-format conversation script")
-                return script_text, f"❌ Error formatting conversation with LLM: {error}"
+                return script_text, f"ERROR: Error formatting conversation with LLM: {error}"
 
             if not cleaned_chunk_outputs:
-                return script_text, "❌ AI Format returned an empty response."
+                return script_text, "ERROR: AI Format returned an empty response."
 
             chunk_count = len(chunk_specs)
             fallback_text = "\n\n".join(cleaned_chunk_outputs).strip()
@@ -19354,7 +19429,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 return (
                     fallback_text if fallback_text != script_text else script_text,
                     (
-                        f"⚠️ AI formatted {chunk_count} chunk(s) using '{selected_content_type}', "
+                        f"WARNING: AI formatted {chunk_count} chunk(s) using '{selected_content_type}', "
                         f"but {parse_failures or chunk_count} chunk(s) could not be fully parsed into "
                         "speaker lines. Review and adjust manually."
                     ),
@@ -19395,21 +19470,21 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 or len(speakers_state) == 0
             ):
                 return _speaker_profile_status_update(
-                    "❌ Analyze a script first to discover speakers."
+                    "ERROR: Analyze a script first to discover speakers."
                 )
 
             clean_base_url = str(base_url or "").strip()
             clean_model_id = str(model_id or "").strip()
             if not clean_base_url or not clean_model_id:
                 return _speaker_profile_status_update(
-                    "❌ Configure the LLM provider base URL and model ID before casting."
+                    "ERROR: Configure the LLM provider base URL and model ID before casting."
                 )
 
             provider_config = _get_provider_config(provider_name)
             resolved_api_key, _ = resolve_llm_api_key(provider_name, api_key)
             if provider_config.get("requires_api_key") and not resolved_api_key:
                 return _speaker_profile_status_update(
-                    f"❌ {provider_name} API key required before casting.\n"
+                    f"ERROR: {provider_name} API key required before casting.\n"
                     + get_llm_shell_key_setup_hint(provider_name)
                 )
 
@@ -19424,13 +19499,15 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             )
 
             if error_msg:
-                return _speaker_profile_status_update(f"❌ Cast failed: {error_msg}")
+                return _speaker_profile_status_update(f"ERROR: Cast failed: {error_msg}")
 
-            return _speaker_profile_status_update(f"🎭 Voice Casting Results:\n\n{result_text}")
+            return _speaker_profile_status_update(
+                f"[THEATER] Voice Casting Results:\n\n{result_text}"
+            )
 
         def handle_tts_engine_change(selected_engine):
             """Handle TTS engine selection changes and update UI accordingly."""
-            print(f"🎯 TTS Engine changed to: {selected_engine}")
+            print(f"[TARGET] TTS Engine changed to: {selected_engine}")
 
             # Enable conversation mode for all engines now including Kokoro TTS
             conversation_info_text = "Ready for conversation generation..."
@@ -19466,10 +19543,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             emotion_vectors=None,
         ):
             """Generate the multi-voice conversation with voice samples or Kokoro voice selections."""
-            print(f"🎭 Conversation handler called with engine: {selected_engine}")
+            print(f"[THEATER] Conversation handler called with engine: {selected_engine}")
 
             if not script_text.strip():
-                return None, "❌ No conversation script provided"
+                return None, "ERROR: No conversation script provided"
 
             resolved_project, project_error = _validate_required_project_name(project_name)
             if project_error:
@@ -19531,7 +19608,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     )
 
                 if result[0] is None:
-                    print(f"❌ Conversation generation failed: {result[1]}")
+                    print(f"ERROR: Conversation generation failed: {result[1]}")
                     return None, result[1]
 
                 audio_data, summary = result
@@ -19592,7 +19669,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                                 )
                             except Exception as scheduler_error:
                                 history_status_lines.append(
-                                    f"⚠️ History index scheduler failed: {scheduler_error}"
+                                    f"WARNING: History index scheduler failed: {scheduler_error}"
                                 )
                         if autosave_error:
                             history_status_lines.append(f"Autosave failed: {autosave_error}")
@@ -19620,15 +19697,15 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 if history_status_lines:
                     summary_text = summary_text + "\n\n" + "\n".join(history_status_lines)
 
-                print(f"✅ Conversation generated successfully")
+                print(f"SUCCESS: Conversation generated successfully")
                 return audio_data, summary_text
 
             except Exception as e:
                 import traceback
 
                 traceback.print_exc()
-                error_msg = f"❌ Generation error: {str(e)}"
-                print(f"❌ Exception in conversation handler: {error_msg}")
+                error_msg = f"ERROR: Generation error: {str(e)}"
+                print(f"ERROR: Exception in conversation handler: {error_msg}")
                 return None, error_msg
 
         def handle_generate_conversation_simple(
@@ -19641,10 +19718,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             selected_engine,
         ):
             """Generate the multi-voice conversation with voice samples - Simplified version."""
-            print(f"🎭 Conversation handler called with engine: {selected_engine}")
+            print(f"[THEATER] Conversation handler called with engine: {selected_engine}")
 
             if not script_text.strip():
-                return None, "❌ No conversation script provided"
+                return None, "ERROR: No conversation script provided"
 
             try:
                 # Generate the conversation audio using the simplified function
@@ -19660,14 +19737,14 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 )
 
                 if result[0] is None:
-                    print(f"❌ Conversation generation failed: {result[1]}")
+                    print(f"ERROR: Conversation generation failed: {result[1]}")
                     return None, result[1]  # Return error message
 
                 audio_data, summary = result
                 summary_text = format_conversation_info(summary)
 
                 print(
-                    f"✅ Conversation generated successfully, returning summary: {summary_text[:100]}..."
+                    f"SUCCESS: Conversation generated successfully, returning summary: {summary_text[:100]}..."
                 )
                 return audio_data, summary_text
 
@@ -19675,8 +19752,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 import traceback
 
                 traceback.print_exc()
-                error_msg = f"❌ Generation error: {str(e)}"
-                print(f"❌ Exception in conversation handler: {error_msg}")
+                error_msg = f"ERROR: Generation error: {str(e)}"
+                print(f"ERROR: Exception in conversation handler: {error_msg}")
                 return None, error_msg
 
         # Wire up conversation mode event handlers
@@ -20488,7 +20565,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     transcription = transcribe_voxcpm_audio(audio_path)
                     return transcription
                 except Exception as e:
-                    print(f"❌ VoxCPM transcription error: {e}")
+                    print(f"ERROR: VoxCPM transcription error: {e}")
                     return ""
 
             voxcpm_ref_audio.change(
@@ -20995,7 +21072,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
         # VibeVoice event handlers (only if VibeVoice is available)
         if VIBEVOICE_AVAILABLE:
-            print("✅ VibeVoice is available, setting up event handlers...")
+            print("SUCCESS: VibeVoice is available, setting up event handlers...")
 
             # Update speaker dropdowns based on number of speakers
             def update_speaker_visibility(num_speakers):
@@ -21028,7 +21105,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 # Prefer radio selection; fall back to manual path
                 effective_path = selected_model_path or path
                 if not effective_path:
-                    return "❌ No model path selected"
+                    return "ERROR: No model path selected"
                 success, message = init_vibevoice_model(
                     effective_path, use_flash_attention=use_flash_attention
                 )
@@ -21054,11 +21131,11 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             # Model download
             def handle_vibevoice_download(model_name):
                 if not VIBEVOICE_AVAILABLE:
-                    yield "❌ VibeVoice not available"
+                    yield "ERROR: VibeVoice not available"
                     return
 
                 if not model_name:
-                    yield "❌ No model selected"
+                    yield "ERROR: No model selected"
                     return
 
                 # Immediate feedback
@@ -21069,7 +21146,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     success, message = handler.download_model(model_name)
                     yield message
                 except Exception as e:
-                    yield f"❌ Error in download handler: {str(e)}"
+                    yield f"ERROR: Error in download handler: {str(e)}"
 
             print("🔗 Connecting download button click handler...")
             vibevoice_download_btn.click(
@@ -21078,7 +21155,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 outputs=[vibevoice_download_status],
                 queue=True,
             )
-            print("✅ Download button handler connected!")
+            print("SUCCESS: Download button handler connected!")
 
             # Refresh voice dropdowns function
             def refresh_vibevoice_voices():
@@ -21122,7 +21199,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             def handle_add_custom_voice(audio_file, voice_name):
                 if not VIBEVOICE_AVAILABLE:
                     return (
-                        "❌ VibeVoice not available",
+                        "ERROR: VibeVoice not available",
                         gr.update(),
                         gr.update(),
                         gr.update(),
@@ -21141,7 +21218,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     return result, voice_choices, voice_choices, voice_choices, voice_choices, ""
                 except Exception as e:
                     return (
-                        f"❌ Error in add voice handler: {str(e)}",
+                        f"ERROR: Error in add voice handler: {str(e)}",
                         gr.update(),
                         gr.update(),
                         gr.update(),
@@ -21175,7 +21252,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 audio_format,
             ):
                 if not VIBEVOICE_AVAILABLE:
-                    return None, "❌ VibeVoice not available"
+                    return None, "ERROR: VibeVoice not available"
 
                 # Collect speaker voices
                 speaker_voices = [speaker_1, speaker_2, speaker_3, speaker_4][:num_speakers]
@@ -21746,7 +21823,7 @@ def _warn_on_shared_env_mcp_f5_pydantic_conflict(mcp_server_enabled: bool) -> No
         return
 
     print(
-        "⚠️ Detected shared-env risk: MCP runtime is installed and F5-TTS is available, "
+        "WARNING: Detected shared-env risk: MCP runtime is installed and F5-TTS is available, "
         f"but pydantic {pydantic_version} is newer than the F5-TTS tested limit (<=2.10.6)."
     )
     print(
@@ -21756,7 +21833,7 @@ def _warn_on_shared_env_mcp_f5_pydantic_conflict(mcp_server_enabled: bool) -> No
 
 
 if __name__ == "__main__":
-    print("🚀 Starting Unified TTS Pro...")
+    print("[ROCKET] Starting Unified TTS Pro...")
 
     # Create and launch the interface
     with suppress_specific_warnings():
@@ -21772,7 +21849,7 @@ if __name__ == "__main__":
         print("MCP security initialized. Token file: .mcp_token")
         mcp_server_enabled = _is_mcp_runtime_available()
         if not mcp_server_enabled:
-            print("⚠️ MCP runtime not found. Launching without Gradio MCP server support.")
+            print("WARNING: MCP runtime not found. Launching without Gradio MCP server support.")
             print('ℹ️ Install with: uv pip install "gradio[mcp]" (or pip install "gradio[mcp]")')
         else:
             print("🔌 MCP server enabled. Endpoint: http://127.0.0.1:<port>/gradio_api/mcp/sse")

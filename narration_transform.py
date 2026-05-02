@@ -35,7 +35,6 @@ from engine_registry import (
     strip_unsupported_cues,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -331,9 +330,7 @@ def delete_prompt_from_library(name: str) -> str:
         if str(prompt.get("name", "")).strip() != prompt_name:
             continue
         if bool(prompt.get("built_in")):
-            return (
-                f"⚠️ Cannot delete built-in prompt '{prompt_name}'. Use 'Restore Built-ins' instead."
-            )
+            return f"⚠️ Cannot delete built-in prompt '{prompt_name}'. Use 'Restore Built-ins' instead."
 
         remaining_prompts = [
             candidate
@@ -1342,6 +1339,30 @@ def call_openai_compatible_chat(
             headers["api-key"] = api_key.strip()
         else:
             headers["Authorization"] = f"Bearer {api_key.strip()}"
+
+    # Defensive: validate auth header is present for providers that require it
+    stripped_key = str(api_key).strip() if api_key else ""
+    host = (base_url or "").lower()
+    is_openrouter = "openrouter.ai" in host
+    is_cloud_requiring_key = is_openrouter  # extend as needed
+
+    if is_cloud_requiring_key and auth_style == "bearer" and not stripped_key:
+        raise ValueError(
+            "API key required for OpenRouter. "
+            "Please enter your API key in the UI or set the OPENROUTER_API_KEY environment variable."
+        )
+
+    if auth_style == "bearer" and stripped_key and "Authorization" not in headers:
+        raise ValueError(
+            "Authentication header missing. "
+            "Please check that an API key is entered in the UI or set via environment variable."
+        )
+
+    # Log headers for diagnostics (redact sensitive values)
+    safe_headers = {
+        k: ("***" if k.lower() in ("authorization", "api-key") else v) for k, v in headers.items()
+    }
+    logger.debug("LLM request to %s — headers: %s", endpoint, safe_headers)
 
     request_body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(endpoint, data=request_body, headers=headers, method="POST")

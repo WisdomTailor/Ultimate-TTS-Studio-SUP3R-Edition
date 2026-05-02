@@ -31,7 +31,7 @@ try:
     KITTEN_TTS_AVAILABLE = True
     print("✅ KittenTTS package available")
 except ImportError:
-    print("⚠️ KittenTTS not available - install with: pip install https://github.com/KittenML/KittenTTS/releases/download/0.1/kittentts-0.1.0-py3-none-any.whl")
+    print("WARNING: KittenTTS not available - install with: pip install https://github.com/KittenML/KittenTTS/releases/download/0.1/kittentts-0.1.0-py3-none-any.whl")
 
 def get_kitten_tts_handler():
     """Get the global KittenTTS handler instance (singleton)"""

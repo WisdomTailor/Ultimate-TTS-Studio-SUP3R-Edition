@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS output_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -335,6 +334,38 @@ class OutputHistoryStore:
         with self._connect() as connection:
             rows = connection.execute(sql, params).fetchall()
         return [OutputHistoryRecord.from_row(row) for row in rows]
+
+    def list_distinct_projects(self) -> list[str]:
+        """Return all distinct project names, sorted."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT project FROM output_history ORDER BY project"
+            ).fetchall()
+        return [row["project"] for row in rows if row["project"]]
+
+    def list_distinct_presets(self) -> list[str]:
+        """Return all distinct preset names, sorted."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT preset FROM output_history ORDER BY preset"
+            ).fetchall()
+        return [row["preset"] for row in rows if row["preset"]]
+
+    def list_distinct_engines(self) -> list[str]:
+        """Return all distinct engine names, sorted."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT engine FROM output_history ORDER BY engine"
+            ).fetchall()
+        return [row["engine"] for row in rows if row["engine"]]
+
+    def list_distinct_speakers(self) -> list[str]:
+        """Return all distinct speaker names, sorted."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT speaker FROM output_history ORDER BY speaker"
+            ).fetchall()
+        return [row["speaker"] for row in rows if row["speaker"]]
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(str(self.db_path))

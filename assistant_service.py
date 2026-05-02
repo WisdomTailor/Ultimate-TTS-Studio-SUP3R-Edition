@@ -20,7 +20,6 @@ from narration_transform import (
     resolve_llm_api_key,
 )
 
-
 DEFAULT_ASSISTANT_SYSTEM_PROMPT = (
     "You are the Ultimate TTS Studio assistant. "
     "Help users with text-to-speech tasks including engine selection, "
