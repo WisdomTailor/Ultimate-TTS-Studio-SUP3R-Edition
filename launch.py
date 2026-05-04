@@ -5774,10 +5774,36 @@ def save_speaker_profile_store(store: dict) -> bool:
         return False
 
 
+def _auto_save_speaker_settings(settings: dict) -> None:
+    """Auto-save current speaker settings to disk (stored as hidden '__auto_save__' profile)."""
+    try:
+        store = load_speaker_profile_store()
+        store.setdefault("profiles", {})
+        store["profiles"]["__auto_save__"] = {"speakers": settings}
+        save_speaker_profile_store(store)
+    except Exception as e:
+        logger.warning(f"Failed to auto-save speaker settings: {e}")
+
+
+def _load_auto_saved_speaker_settings() -> dict:
+    """Load auto-saved speaker settings from disk, or return empty dict."""
+    try:
+        store = load_speaker_profile_store()
+        auto_save = store.get("profiles", {}).get("__auto_save__", {})
+        if isinstance(auto_save, dict):
+            speakers = auto_save.get("speakers")
+            if isinstance(speakers, dict):
+                return speakers
+    except Exception:
+        pass
+    return {}
+
+
 def get_speaker_profile_choices() -> list[str]:
-    """Return list of saved conversation speaker profile names."""
+    """Return list of saved conversation speaker profile names (excluding auto-save)."""
     store = load_speaker_profile_store()
-    return sorted(store.get("profiles", {}).keys())
+    names = sorted(store.get("profiles", {}).keys())
+    return [n for n in names if not n.startswith("__")]
 
 
 def _is_app_state_voice_path(audio_path: str) -> bool:
@@ -6303,6 +6329,12 @@ def apply_preset_to_selected_conversation_character(
     if preset_reference_text:
         selected_settings["fish_ref_text"] = preset_reference_text
     selected_settings["assigned_preset"] = normalized_preset
+
+    # Auto-save speaker settings to disk after applying preset
+    try:
+        _auto_save_speaker_settings(updated_state)
+    except Exception as e:
+        logger.warning(f"Failed to auto-save speaker settings after applying preset: {e}")
 
     audio_values, ref_text_values = _build_speaker_profile_component_values(updated_state)
     return (
@@ -7905,11 +7937,8 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
         "gpt-4.1-nano",
     ],
     "OpenRouter (OpenAI-compatible)": [
-        "openai/gpt-4o-mini",
-        "openai/gpt-4.1-mini",
-        "anthropic/claude-3.5-sonnet",
-        "meta-llama/llama-3.1-8b-instruct",
-        "google/gemini-2.5-flash-preview",
+        "openrouter/owl-alpha",
+        "nousresearch/hermes-4-405b",
     ],
     "Ollama (OpenAI-compatible)": [
         "qwen3:30b-a3b",
@@ -11717,7 +11746,7 @@ def create_gradio_interface():
                         conversation_rows_state = gr.State(value=[])
                         conversation_selected_speaker_state = gr.State(value=None)
                         conversation_selected_line_state = gr.State(value=None)
-                        conversation_speaker_settings_state = gr.State(value={})
+                        conversation_speaker_settings_state = gr.State(value=_load_auto_saved_speaker_settings())
 
                         kitten_conversation_voice_choices = [
                             "expr-voice-2-m",
@@ -13123,7 +13152,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             # Output
                             vibevoice_output = gr.Audio(
                                 label="🎧 Generated Podcast",
-                                show_download_button=True,
+                                show_download_button=True, # type: ignore
                                 elem_classes=["fade-in", "glow"],
                             )
 
@@ -13183,7 +13212,6 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         assistant_chatbot = gr.Chatbot(
                             label="💬 Assistant Chat",
                             height=400,
-                            type="messages",
                             autoscroll=True,
                             elem_classes=["fade-in", "expandable-chat-panel"],
                             elem_id="assistant_chat_panel",
@@ -13627,7 +13655,6 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 # Audio output section with glow effect
                 audio_output = gr.Audio(
                     label="Generated Audio",
-                    show_download_button=True,
                     elem_classes=["fade-in", "glow"],
                 )
 
@@ -13659,7 +13686,6 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 ):
                     audiobook_output = gr.Audio(
                         label="Generated Audiobook",
-                        show_download_button=True,
                         elem_classes=["fade-in", "glow"],
                     )
 

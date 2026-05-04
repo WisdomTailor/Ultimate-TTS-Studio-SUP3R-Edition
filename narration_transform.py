@@ -712,11 +712,8 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
         "gpt-4.1-nano",
     ],
     "OpenRouter (OpenAI-compatible)": [
-        "openai/gpt-4o-mini",
-        "openai/gpt-4.1-mini",
-        "anthropic/claude-3.5-sonnet",
-        "meta-llama/llama-3.1-8b-instruct",
-        "google/gemini-2.5-flash-preview",
+        "openrouter/owl-alpha",
+        "nousresearch/hermes-4-405b",
     ],
     "Ollama (OpenAI-compatible)": [
         "qwen3:30b-a3b",
