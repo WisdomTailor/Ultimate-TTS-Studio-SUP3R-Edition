@@ -744,7 +744,7 @@ def generate_conversation_audio_simple(
 
         # Initialize ref_texts if not provided
         if ref_texts is None:
-            ref_texts = [None] * 5
+            ref_texts = [None] * 10
 
         # Map speakers to voice samples, reference texts, and generate consistent seeds
         speaker_voice_map = {}
@@ -5120,8 +5120,8 @@ def refresh_all_kokoro_voices():
 
     updated_choices = update_kokoro_voice_choices()
     new_choices = [(k, v) for k, v in updated_choices.items()]
-    # Return 5 identical updates for the 5 conversation mode voice selectors
-    return [gr.update(choices=new_choices) for _ in range(5)]
+    # Return 10 identical updates for the 10 conversation mode voice selectors
+    return [gr.update(choices=new_choices) for _ in range(10)]
 
 
 def update_kokoro_voice_choices():
@@ -6117,7 +6117,7 @@ def _build_speaker_profile_component_values(
     audio_values: list[str | None] = []
     ref_text_values: list[str] = []
 
-    for speaker_name in list(speaker_settings.keys())[:5]:
+    for speaker_name in list(speaker_settings.keys())[:10]:
         settings = speaker_settings.get(speaker_name, {})
         if not isinstance(settings, dict):
             settings = {}
@@ -6126,9 +6126,9 @@ def _build_speaker_profile_component_values(
         audio_values.append(audio_path if audio_path and os.path.exists(audio_path) else None)
         ref_text_values.append(str(settings.get("fish_ref_text", "") or ""))
 
-    while len(audio_values) < 5:
+    while len(audio_values) < 10:
         audio_values.append(None)
-    while len(ref_text_values) < 5:
+    while len(ref_text_values) < 10:
         ref_text_values.append("")
 
     return audio_values, ref_text_values
@@ -12119,6 +12119,106 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                 elem_classes=["fade-in"],
                                             )
 
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_6_group:
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
+                                            speaker_6_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_6_transcribe_btn = gr.Button(
+                                                "[MEMO] Transcribe", size="sm"
+                                            )
+                                            speaker_6_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_7_group:
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
+                                            speaker_7_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_7_transcribe_btn = gr.Button(
+                                                "[MEMO] Transcribe", size="sm"
+                                            )
+                                            speaker_7_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_8_group:
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
+                                            speaker_8_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_8_transcribe_btn = gr.Button(
+                                                "[MEMO] Transcribe", size="sm"
+                                            )
+                                            speaker_8_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_9_group:
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
+                                            speaker_9_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_9_transcribe_btn = gr.Button(
+                                                "[MEMO] Transcribe", size="sm"
+                                            )
+                                            speaker_9_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
+                                        with gr.Group(
+                                            visible=False, elem_classes=["fade-in"]
+                                        ) as speaker_10_group:
+                                            gr.Markdown("**[MIC] Voice Clone Setup**")
+                                            speaker_10_audio = gr.Audio(
+                                                sources=["upload", "microphone"],
+                                                type="filepath",
+                                                label="Voice Sample",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_10_transcribe_btn = gr.Button(
+                                                "[MEMO] Transcribe", size="sm"
+                                            )
+                                            speaker_10_ref_text = gr.Textbox(
+                                                label="Reference Text",
+                                                placeholder="Transcribed text will appear here...",
+                                                lines=2,
+                                                elem_classes=["fade-in"],
+                                            )
+
                                         with gr.Accordion(
                                             "[SPEAKING] Speaker 1 Kokoro Voice",
                                             open=True,
@@ -12205,6 +12305,91 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             )
 
                                         with gr.Accordion(
+                                            "[SPEAKING] Speaker 6 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_6_kokoro_accordion:
+                                            speaker_6_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="am_michael",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "[SPEAKING] Speaker 7 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_7_kokoro_accordion:
+                                            speaker_7_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="af_sarah",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "[SPEAKING] Speaker 8 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_8_kokoro_accordion:
+                                            speaker_8_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="bm_lewis",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "[SPEAKING] Speaker 9 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_9_kokoro_accordion:
+                                            speaker_9_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="bf_emma",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "[SPEAKING] Speaker 10 Kokoro Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_10_kokoro_accordion:
+                                            speaker_10_kokoro_voice = gr.Radio(
+                                                choices=[
+                                                    (k, v)
+                                                    for k, v in update_kokoro_voice_choices().items()
+                                                ],
+                                                value="af_heart",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
                                             "[CAT] Speaker 1 KittenTTS Voice",
                                             open=True,
                                             visible=False,
@@ -12269,6 +12454,76 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                             speaker_5_kitten_voice = gr.Radio(
                                                 choices=kitten_conversation_voice_choices,
                                                 value="expr-voice-4-f",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "[CAT] Speaker 6 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_6_kitten_accordion:
+                                            speaker_6_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-4-m",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "[CAT] Speaker 7 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_7_kitten_accordion:
+                                            speaker_7_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-5-f",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "[CAT] Speaker 8 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_8_kitten_accordion:
+                                            speaker_8_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-5-m",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "[CAT] Speaker 9 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_9_kitten_accordion:
+                                            speaker_9_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-2-f",
+                                                label="",
+                                                elem_classes=["voice-grid"],
+                                                show_label=False,
+                                            )
+
+                                        with gr.Accordion(
+                                            "[CAT] Speaker 10 KittenTTS Voice",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_10_kitten_accordion:
+                                            speaker_10_kitten_voice = gr.Radio(
+                                                choices=kitten_conversation_voice_choices,
+                                                value="expr-voice-2-m",
                                                 label="",
                                                 elem_classes=["voice-grid"],
                                                 show_label=False,
@@ -12554,6 +12809,286 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                                         0, 1, 1, step=0.1, label="😌 Calm"
                                                     )
 
+                                        with gr.Accordion(
+                                            "[THEATER] Speaker 6 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_6_indextts2_accordion:
+                                            speaker_6_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("[MEMO] Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_6_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="[MUSIC] Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_6_emotion_description = gr.Textbox(
+                                                label="[MEMO] Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_6_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_6_emotion_vectors:
+                                                gr.Markdown("**Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_6_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_6_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_6_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_6_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_6_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_6_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
+                                        with gr.Accordion(
+                                            "[THEATER] Speaker 7 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_7_indextts2_accordion:
+                                            speaker_7_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("[MEMO] Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_7_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="[MUSIC] Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_7_emotion_description = gr.Textbox(
+                                                label="[MEMO] Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_7_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_7_emotion_vectors:
+                                                gr.Markdown("**Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_7_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_7_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_7_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_7_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_7_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_7_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
+                                        with gr.Accordion(
+                                            "[THEATER] Speaker 8 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_8_indextts2_accordion:
+                                            speaker_8_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("[MEMO] Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_8_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="[MUSIC] Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_8_emotion_description = gr.Textbox(
+                                                label="[MEMO] Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_8_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_8_emotion_vectors:
+                                                gr.Markdown("**Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_8_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_8_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_8_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_8_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_8_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_8_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
+                                        with gr.Accordion(
+                                            "[THEATER] Speaker 9 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_9_indextts2_accordion:
+                                            speaker_9_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("[MEMO] Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_9_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="[MUSIC] Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_9_emotion_description = gr.Textbox(
+                                                label="[MEMO] Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_9_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_9_emotion_vectors:
+                                                gr.Markdown("**Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_9_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_9_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_9_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_9_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_9_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_9_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
+                                        with gr.Accordion(
+                                            "[THEATER] Speaker 10 IndexTTS2 Emotions",
+                                            open=True,
+                                            visible=False,
+                                            elem_classes=["fade-in"],
+                                        ) as speaker_10_indextts2_accordion:
+                                            speaker_10_emotion_mode = gr.Radio(
+                                                choices=[
+                                                    ("[MUSIC] Audio Reference", "audio_reference"),
+                                                    ("🎛️ Manual Control", "vector_control"),
+                                                    ("[MEMO] Text Description", "text_description"),
+                                                ],
+                                                value="audio_reference",
+                                                label="Emotion Control Mode",
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_10_emotion_audio = gr.Audio(
+                                                sources=["upload"],
+                                                type="filepath",
+                                                label="[MUSIC] Emotion Reference Audio",
+                                                visible=True,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_10_emotion_description = gr.Textbox(
+                                                label="[MEMO] Emotion Description",
+                                                placeholder="e.g., 'happy and excited', 'sad and melancholic'",
+                                                visible=False,
+                                                elem_classes=["fade-in"],
+                                            )
+                                            speaker_10_emotion_vectors = gr.Group(
+                                                visible=False, elem_classes=["fade-in"]
+                                            )
+                                            with speaker_10_emotion_vectors:
+                                                gr.Markdown("**Emotion Intensity Controls**")
+                                                with gr.Row():
+                                                    speaker_10_happy = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😊 Happy"
+                                                    )
+                                                    speaker_10_sad = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😢 Sad"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_10_angry = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😠 Angry"
+                                                    )
+                                                    speaker_10_afraid = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😨 Afraid"
+                                                    )
+                                                with gr.Row():
+                                                    speaker_10_surprised = gr.Slider(
+                                                        0, 1, 0, step=0.1, label="😲 Surprised"
+                                                    )
+                                                    speaker_10_calm = gr.Slider(
+                                                        0, 1, 1, step=0.1, label="😌 Calm"
+                                                    )
+
                                 conversation_lines_df = gr.Dataframe(
                                     headers=["Line #", "Speaker", "Text"],
                                     datatype=["number", "str", "str"],
@@ -12647,26 +13182,51 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             speaker_3_audio,
                             speaker_4_audio,
                             speaker_5_audio,
+                            speaker_6_audio,
+                            speaker_7_audio,
+                            speaker_8_audio,
+                            speaker_9_audio,
+                            speaker_10_audio,
                             speaker_1_ref_text,
                             speaker_2_ref_text,
                             speaker_3_ref_text,
                             speaker_4_ref_text,
                             speaker_5_ref_text,
+                            speaker_6_ref_text,
+                            speaker_7_ref_text,
+                            speaker_8_ref_text,
+                            speaker_9_ref_text,
+                            speaker_10_ref_text,
                             speaker_1_kokoro_voice,
                             speaker_2_kokoro_voice,
                             speaker_3_kokoro_voice,
                             speaker_4_kokoro_voice,
                             speaker_5_kokoro_voice,
+                            speaker_6_kokoro_voice,
+                            speaker_7_kokoro_voice,
+                            speaker_8_kokoro_voice,
+                            speaker_9_kokoro_voice,
+                            speaker_10_kokoro_voice,
                             speaker_1_kitten_voice,
                             speaker_2_kitten_voice,
                             speaker_3_kitten_voice,
                             speaker_4_kitten_voice,
                             speaker_5_kitten_voice,
+                            speaker_6_kitten_voice,
+                            speaker_7_kitten_voice,
+                            speaker_8_kitten_voice,
+                            speaker_9_kitten_voice,
+                            speaker_10_kitten_voice,
                             speaker_1_emotion_mode,
                             speaker_2_emotion_mode,
                             speaker_3_emotion_mode,
                             speaker_4_emotion_mode,
                             speaker_5_emotion_mode,
+                            speaker_6_emotion_mode,
+                            speaker_7_emotion_mode,
+                            speaker_8_emotion_mode,
+                            speaker_9_emotion_mode,
+                            speaker_10_emotion_mode,
                         ]
 
                     # eBook to Audiobook Tab
@@ -13727,21 +14287,41 @@ Alice: I went to Japan. It was absolutely incredible!""",
             speaker_3_group,
             speaker_4_group,
             speaker_5_group,
+            speaker_6_group,
+            speaker_7_group,
+            speaker_8_group,
+            speaker_9_group,
+            speaker_10_group,
             speaker_1_kokoro_accordion,
             speaker_2_kokoro_accordion,
             speaker_3_kokoro_accordion,
             speaker_4_kokoro_accordion,
             speaker_5_kokoro_accordion,
+            speaker_6_kokoro_accordion,
+            speaker_7_kokoro_accordion,
+            speaker_8_kokoro_accordion,
+            speaker_9_kokoro_accordion,
+            speaker_10_kokoro_accordion,
             speaker_1_kitten_accordion,
             speaker_2_kitten_accordion,
             speaker_3_kitten_accordion,
             speaker_4_kitten_accordion,
             speaker_5_kitten_accordion,
+            speaker_6_kitten_accordion,
+            speaker_7_kitten_accordion,
+            speaker_8_kitten_accordion,
+            speaker_9_kitten_accordion,
+            speaker_10_kitten_accordion,
             speaker_1_indextts2_accordion,
             speaker_2_indextts2_accordion,
             speaker_3_indextts2_accordion,
             speaker_4_indextts2_accordion,
             speaker_5_indextts2_accordion,
+            speaker_6_indextts2_accordion,
+            speaker_7_indextts2_accordion,
+            speaker_8_indextts2_accordion,
+            speaker_9_indextts2_accordion,
+            speaker_10_indextts2_accordion,
         ]
 
         conversation_analysis_outputs = [
@@ -16612,7 +17192,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             chatterbox_audio_update = gr.update(value=None)
             fish_audio_update = gr.update(value=None)
             # Clear conversation mode speaker audio components too
-            speaker_audio_updates = [gr.update(value=None) for _ in range(5)]
+            speaker_audio_updates = [gr.update(value=None) for _ in range(10)]
             # Return a simple, clean message instead of technical details
             simple_message = "SUCCESS: All temporary files cleared successfully"
             return (
@@ -16868,6 +17448,21 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def handle_speaker_5_emotion_mode_change(mode):
             return handle_conversation_emotion_mode_change(mode)
 
+        def handle_speaker_6_emotion_mode_change(mode):
+            return handle_conversation_emotion_mode_change(mode)
+
+        def handle_speaker_7_emotion_mode_change(mode):
+            return handle_conversation_emotion_mode_change(mode)
+
+        def handle_speaker_8_emotion_mode_change(mode):
+            return handle_conversation_emotion_mode_change(mode)
+
+        def handle_speaker_9_emotion_mode_change(mode):
+            return handle_conversation_emotion_mode_change(mode)
+
+        def handle_speaker_10_emotion_mode_change(mode):
+            return handle_conversation_emotion_mode_change(mode)
+
         def apply_indextts2_emotion_preset(preset_name):
             """Apply IndexTTS2 emotion preset"""
             if not INDEXTTS2_AVAILABLE or not preset_name or preset_name not in EMOTION_PRESETS:
@@ -17024,6 +17619,51 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     speaker_5_emotion_audio,
                     speaker_5_emotion_description,
                     speaker_5_emotion_vectors,
+                ],
+            )
+            speaker_6_emotion_mode.change(
+                fn=handle_speaker_6_emotion_mode_change,
+                inputs=[speaker_6_emotion_mode],
+                outputs=[
+                    speaker_6_emotion_audio,
+                    speaker_6_emotion_description,
+                    speaker_6_emotion_vectors,
+                ],
+            )
+            speaker_7_emotion_mode.change(
+                fn=handle_speaker_7_emotion_mode_change,
+                inputs=[speaker_7_emotion_mode],
+                outputs=[
+                    speaker_7_emotion_audio,
+                    speaker_7_emotion_description,
+                    speaker_7_emotion_vectors,
+                ],
+            )
+            speaker_8_emotion_mode.change(
+                fn=handle_speaker_8_emotion_mode_change,
+                inputs=[speaker_8_emotion_mode],
+                outputs=[
+                    speaker_8_emotion_audio,
+                    speaker_8_emotion_description,
+                    speaker_8_emotion_vectors,
+                ],
+            )
+            speaker_9_emotion_mode.change(
+                fn=handle_speaker_9_emotion_mode_change,
+                inputs=[speaker_9_emotion_mode],
+                outputs=[
+                    speaker_9_emotion_audio,
+                    speaker_9_emotion_description,
+                    speaker_9_emotion_vectors,
+                ],
+            )
+            speaker_10_emotion_mode.change(
+                fn=handle_speaker_10_emotion_mode_change,
+                inputs=[speaker_10_emotion_mode],
+                outputs=[
+                    speaker_10_emotion_audio,
+                    speaker_10_emotion_description,
+                    speaker_10_emotion_vectors,
                 ],
             )
 
@@ -18888,7 +19528,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             kitten_updates = []
             indextts2_updates = []
 
-            for slot_index in range(5):
+            for slot_index in range(10):
                 speaker_visible = (
                     slot_index < len(speakers) and slot_index == selected_speaker_index
                 )
@@ -18925,7 +19565,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             return audio_updates + kokoro_updates + kitten_updates + indextts2_updates
 
         def _conversation_empty_response(status_message: str):
-            hidden_updates = [gr.update(visible=False) for _ in range(20)]
+            hidden_updates = [gr.update(visible=False) for _ in range(40)]
             return (
                 status_message,
                 gr.update(visible=False),
@@ -18985,11 +19625,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             speaker_warnings = detect_suspect_speaker_names(speakers)
 
-            voice_samples = list(voice_samples or [None] * 5)
-            ref_texts = list(ref_texts or [""] * 5)
-            kokoro_voices = list(kokoro_voices or ["af_heart"] * 5)
-            kitten_voices = list(kitten_voices or ["expr-voice-2-f"] * 5)
-            emotion_modes = list(emotion_modes or ["audio_reference"] * 5)
+            voice_samples = list(voice_samples or [None] * 10)
+            ref_texts = list(ref_texts or [""] * 10)
+            kokoro_voices = list(kokoro_voices or ["af_heart"] * 10)
+            kitten_voices = list(kitten_voices or ["expr-voice-2-f"] * 10)
+            emotion_modes = list(emotion_modes or ["audio_reference"] * 10)
 
             normalized_selected_index = selected_speaker_index
             if normalized_selected_index is None or not (
@@ -19065,11 +19705,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
             *component_values,
         ):
             """Analyze the script and populate the guided conversation editor."""
-            voice_samples = component_values[0:5]
-            ref_texts = component_values[5:10]
-            kokoro_voices = component_values[10:15]
-            kitten_voices = component_values[15:20]
-            emotion_modes = component_values[20:25]
+            voice_samples = component_values[0:10]
+            ref_texts = component_values[10:20]
+            kokoro_voices = component_values[20:30]
+            kitten_voices = component_values[30:40]
+            emotion_modes = component_values[40:50]
             return _build_conversation_analysis_response(
                 script_text,
                 selected_engine,
@@ -19107,15 +19747,15 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             *component_values,
         ):
             """Select a roster entry and show only that speaker's detail controls."""
-            voice_samples = component_values[0:5]
-            ref_texts = component_values[5:10]
-            kokoro_voices = component_values[10:15]
-            kitten_voices = component_values[15:20]
-            emotion_modes = component_values[20:25]
-            speaker_settings = component_values[25] if len(component_values) > 25 else {}
+            voice_samples = component_values[0:10]
+            ref_texts = component_values[10:20]
+            kokoro_voices = component_values[20:30]
+            kitten_voices = component_values[30:40]
+            emotion_modes = component_values[40:50]
+            speaker_settings = component_values[50] if len(component_values) > 50 else {}
 
             if not speakers:
-                hidden_updates = [gr.update(visible=False) for _ in range(20)]
+                hidden_updates = [gr.update(visible=False) for _ in range(40)]
                 return (
                     gr.update(choices=[], value=None),
                     gr.update(value="### Select a character"),
@@ -19815,11 +20455,21 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_3_audio,
                 speaker_4_audio,
                 speaker_5_audio,
+                speaker_6_audio,
+                speaker_7_audio,
+                speaker_8_audio,
+                speaker_9_audio,
+                speaker_10_audio,
                 speaker_1_ref_text,
                 speaker_2_ref_text,
                 speaker_3_ref_text,
                 speaker_4_ref_text,
                 speaker_5_ref_text,
+                speaker_6_ref_text,
+                speaker_7_ref_text,
+                speaker_8_ref_text,
+                speaker_9_ref_text,
+                speaker_10_ref_text,
                 speaker_profile_name_input,
                 speaker_profile_status,
             ],
@@ -19959,11 +20609,21 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_3_audio,
                 speaker_4_audio,
                 speaker_5_audio,
+                speaker_6_audio,
+                speaker_7_audio,
+                speaker_8_audio,
+                speaker_9_audio,
+                speaker_10_audio,
                 speaker_1_ref_text,
                 speaker_2_ref_text,
                 speaker_3_ref_text,
                 speaker_4_ref_text,
                 speaker_5_ref_text,
+                speaker_6_ref_text,
+                speaker_7_ref_text,
+                speaker_8_ref_text,
+                speaker_9_ref_text,
+                speaker_10_ref_text,
                 character_preset_selector,
                 character_preset_reference_preview,
                 character_preset_status,
@@ -20101,65 +20761,35 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         )
 
         generate_conversation_btn.click(
-            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, rt1, rt2, rt3, rt4, rt5, kv1, kv2, kv3, kv4, kv5, ktv1, ktv2, ktv3, ktv4, ktv5, engine, project_name, autosave_on, autosave_copy, keep_legacy, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5: handle_generate_conversation_advanced(
+            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, rt1, rt2, rt3, rt4, rt5, rt6, rt7, rt8, rt9, rt10, kv1, kv2, kv3, kv4, kv5, kv6, kv7, kv8, kv9, kv10, ktv1, ktv2, ktv3, ktv4, ktv5, ktv6, ktv7, ktv8, ktv9, ktv10, engine, project_name, autosave_on, autosave_copy, keep_legacy, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5, em6, ea6, ed6, h6, s6_sad, a6, af6, su6, c6, em7, ea7, ed7, h7, s7_sad, a7, af7, su7, c7, em8, ea8, ed8, h8, s8_sad, a8, af8, su8, c8, em9, ea9, ed9, h9, s9_sad, a9, af9, su9, c9, em10, ea10, ed10, h10, s10_sad, a10, af10, su10, c10: handle_generate_conversation_advanced(
                 script,
                 pause,
                 trans_pause,
                 audio_fmt,
-                [s1, s2, s3, s4, s5],
-                [rt1, rt2, rt3, rt4, rt5],
-                [kv1, kv2, kv3, kv4, kv5],
-                [ktv1, ktv2, ktv3, ktv4, ktv5],
+                [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10],
+                [rt1, rt2, rt3, rt4, rt5, rt6, rt7, rt8, rt9, rt10],
+                [kv1, kv2, kv3, kv4, kv5, kv6, kv7, kv8, kv9, kv10],
+                [ktv1, ktv2, ktv3, ktv4, ktv5, ktv6, ktv7, ktv8, ktv9, ktv10],
                 engine,
                 project_name,
                 autosave_on,
                 autosave_copy,
                 keep_legacy,
                 # IndexTTS2 emotion parameters
-                [em1, em2, em3, em4, em5],  # emotion_modes
-                [ea1, ea2, ea3, ea4, ea5],  # emotion_audios
-                [ed1, ed2, ed3, ed4, ed5],  # emotion_descriptions
+                [em1, em2, em3, em4, em5, em6, em7, em8, em9, em10],  # emotion_modes
+                [ea1, ea2, ea3, ea4, ea5, ea6, ea7, ea8, ea9, ea10],  # emotion_audios
+                [ed1, ed2, ed3, ed4, ed5, ed6, ed7, ed8, ed9, ed10],  # emotion_descriptions
                 [
-                    {
-                        "happy": h1,
-                        "sad": s1_sad,
-                        "angry": a1,
-                        "afraid": af1,
-                        "surprised": su1,
-                        "calm": c1,
-                    },
-                    {
-                        "happy": h2,
-                        "sad": s2_sad,
-                        "angry": a2,
-                        "afraid": af2,
-                        "surprised": su2,
-                        "calm": c2,
-                    },
-                    {
-                        "happy": h3,
-                        "sad": s3_sad,
-                        "angry": a3,
-                        "afraid": af3,
-                        "surprised": su3,
-                        "calm": c3,
-                    },
-                    {
-                        "happy": h4,
-                        "sad": s4_sad,
-                        "angry": a4,
-                        "afraid": af4,
-                        "surprised": su4,
-                        "calm": c4,
-                    },
-                    {
-                        "happy": h5,
-                        "sad": s5_sad,
-                        "angry": a5,
-                        "afraid": af5,
-                        "surprised": su5,
-                        "calm": c5,
-                    },
+                    {"happy": h1, "sad": s1_sad, "angry": a1, "afraid": af1, "surprised": su1, "calm": c1},
+                    {"happy": h2, "sad": s2_sad, "angry": a2, "afraid": af2, "surprised": su2, "calm": c2},
+                    {"happy": h3, "sad": s3_sad, "angry": a3, "afraid": af3, "surprised": su3, "calm": c3},
+                    {"happy": h4, "sad": s4_sad, "angry": a4, "afraid": af4, "surprised": su4, "calm": c4},
+                    {"happy": h5, "sad": s5_sad, "angry": a5, "afraid": af5, "surprised": su5, "calm": c5},
+                    {"happy": h6, "sad": s6_sad, "angry": a6, "afraid": af6, "surprised": su6, "calm": c6},
+                    {"happy": h7, "sad": s7_sad, "angry": a7, "afraid": af7, "surprised": su7, "calm": c7},
+                    {"happy": h8, "sad": s8_sad, "angry": a8, "afraid": af8, "surprised": su8, "calm": c8},
+                    {"happy": h9, "sad": s9_sad, "angry": a9, "afraid": af9, "surprised": su9, "calm": c9},
+                    {"happy": h10, "sad": s10_sad, "angry": a10, "afraid": af10, "surprised": su10, "calm": c10},
                 ],  # emotion_vectors
             ),
             inputs=[
@@ -20172,21 +20802,41 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_3_audio,
                 speaker_4_audio,
                 speaker_5_audio,
+                speaker_6_audio,
+                speaker_7_audio,
+                speaker_8_audio,
+                speaker_9_audio,
+                speaker_10_audio,
                 speaker_1_ref_text,
                 speaker_2_ref_text,
                 speaker_3_ref_text,
                 speaker_4_ref_text,
                 speaker_5_ref_text,
+                speaker_6_ref_text,
+                speaker_7_ref_text,
+                speaker_8_ref_text,
+                speaker_9_ref_text,
+                speaker_10_ref_text,
                 speaker_1_kokoro_voice,
                 speaker_2_kokoro_voice,
                 speaker_3_kokoro_voice,
                 speaker_4_kokoro_voice,
                 speaker_5_kokoro_voice,
+                speaker_6_kokoro_voice,
+                speaker_7_kokoro_voice,
+                speaker_8_kokoro_voice,
+                speaker_9_kokoro_voice,
+                speaker_10_kokoro_voice,
                 speaker_1_kitten_voice,
                 speaker_2_kitten_voice,
                 speaker_3_kitten_voice,
                 speaker_4_kitten_voice,
                 speaker_5_kitten_voice,
+                speaker_6_kitten_voice,
+                speaker_7_kitten_voice,
+                speaker_8_kitten_voice,
+                speaker_9_kitten_voice,
+                speaker_10_kitten_voice,
                 tts_engine,  # Use the main TTS engine selector
                 autosave_project_name,
                 autosave_enabled,
@@ -20238,6 +20888,51 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_5_afraid,
                 speaker_5_surprised,
                 speaker_5_calm,
+                speaker_6_emotion_mode,
+                speaker_6_emotion_audio,
+                speaker_6_emotion_description,
+                speaker_6_happy,
+                speaker_6_sad,
+                speaker_6_angry,
+                speaker_6_afraid,
+                speaker_6_surprised,
+                speaker_6_calm,
+                speaker_7_emotion_mode,
+                speaker_7_emotion_audio,
+                speaker_7_emotion_description,
+                speaker_7_happy,
+                speaker_7_sad,
+                speaker_7_angry,
+                speaker_7_afraid,
+                speaker_7_surprised,
+                speaker_7_calm,
+                speaker_8_emotion_mode,
+                speaker_8_emotion_audio,
+                speaker_8_emotion_description,
+                speaker_8_happy,
+                speaker_8_sad,
+                speaker_8_angry,
+                speaker_8_afraid,
+                speaker_8_surprised,
+                speaker_8_calm,
+                speaker_9_emotion_mode,
+                speaker_9_emotion_audio,
+                speaker_9_emotion_description,
+                speaker_9_happy,
+                speaker_9_sad,
+                speaker_9_angry,
+                speaker_9_afraid,
+                speaker_9_surprised,
+                speaker_9_calm,
+                speaker_10_emotion_mode,
+                speaker_10_emotion_audio,
+                speaker_10_emotion_description,
+                speaker_10_happy,
+                speaker_10_sad,
+                speaker_10_angry,
+                speaker_10_afraid,
+                speaker_10_surprised,
+                speaker_10_calm,
             ],
             outputs=[audio_output, conversation_info],  # Use same audio output as single voice mode
         )
@@ -20328,9 +21023,93 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             ],
             outputs=[conversation_speaker_settings_state],
         )
-
-        speaker_1_audio.change(
-            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+        speaker_6_transcribe_btn.click(
+            fn=handle_qwen_transcribe, inputs=[speaker_6_audio], outputs=[speaker_6_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                5,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_6_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_7_transcribe_btn.click(
+            fn=handle_qwen_transcribe, inputs=[speaker_7_audio], outputs=[speaker_7_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                6,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_7_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_8_transcribe_btn.click(
+            fn=handle_qwen_transcribe, inputs=[speaker_8_audio], outputs=[speaker_8_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                7,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_8_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_9_transcribe_btn.click(
+            fn=handle_qwen_transcribe, inputs=[speaker_9_audio], outputs=[speaker_9_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                8,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_9_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_10_transcribe_btn.click(
+            fn=handle_qwen_transcribe, inputs=[speaker_10_audio], outputs=[speaker_10_ref_text]
+        ).then(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                9,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_10_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_1_audio.change (
+                    fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
                 settings,
                 speakers,
                 0,
@@ -20399,6 +21178,81 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             ),
             inputs=[
                 speaker_5_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_6_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                5,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_6_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_7_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                6,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_7_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_8_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                7,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_8_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_9_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                8,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_9_audio,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_10_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                9,
+                "ref_audio",
+                str(audio or ""),
+            ),
+            inputs=[
+                speaker_10_audio,
                 conversation_speaker_settings_state,
                 conversation_speakers_state,
             ],
@@ -20480,6 +21334,81 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             ],
             outputs=[conversation_speaker_settings_state],
         )
+        speaker_6_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                5,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_6_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_7_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                6,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_7_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_8_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                7,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_8_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_9_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                8,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_9_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_10_ref_text.change(
+            fn=lambda text_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                9,
+                "fish_ref_text",
+                str(text_value or ""),
+            ),
+            inputs=[
+                speaker_10_ref_text,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
 
         speaker_1_kokoro_voice.change(
             fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
@@ -20551,6 +21480,232 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             ),
             inputs=[
                 speaker_5_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_6_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                5,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_6_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_7_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                6,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_7_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_8_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                7,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_8_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_9_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                8,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_9_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_10_kokoro_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                9,
+                "kokoro_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_10_kokoro_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+
+        speaker_1_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                0,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_1_kitten_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_2_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                1,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_2_kitten_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_3_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                2,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_3_kitten_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_4_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                3,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_4_kitten_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_5_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                4,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_5_kitten_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_6_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                5,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_6_kitten_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_7_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                6,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_7_kitten_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_8_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                7,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_8_kitten_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_9_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                8,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_9_kitten_voice,
+                conversation_speaker_settings_state,
+                conversation_speakers_state,
+            ],
+            outputs=[conversation_speaker_settings_state],
+        )
+        speaker_10_kitten_voice.change(
+            fn=lambda voice_value, settings, speakers: update_conversation_speaker_setting(
+                settings,
+                speakers,
+                9,
+                "kitten_voice",
+                voice_value,
+            ),
+            inputs=[
+                speaker_10_kitten_voice,
                 conversation_speaker_settings_state,
                 conversation_speakers_state,
             ],
@@ -21075,6 +22230,11 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     speaker_3_kokoro_voice,
                     speaker_4_kokoro_voice,
                     speaker_5_kokoro_voice,
+                    speaker_6_kokoro_voice,
+                    speaker_7_kokoro_voice,
+                    speaker_8_kokoro_voice,
+                    speaker_9_kokoro_voice,
+                    speaker_10_kokoro_voice,
                 ],  # Conversation mode voice selectors
             )
 
@@ -21090,6 +22250,11 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     speaker_3_kokoro_voice,
                     speaker_4_kokoro_voice,
                     speaker_5_kokoro_voice,
+                    speaker_6_kokoro_voice,
+                    speaker_7_kokoro_voice,
+                    speaker_8_kokoro_voice,
+                    speaker_9_kokoro_voice,
+                    speaker_10_kokoro_voice,
                 ],
             )
 
