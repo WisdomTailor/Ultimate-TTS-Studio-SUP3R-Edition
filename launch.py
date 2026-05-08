@@ -11746,7 +11746,9 @@ def create_gradio_interface():
                         conversation_rows_state = gr.State(value=[])
                         conversation_selected_speaker_state = gr.State(value=None)
                         conversation_selected_line_state = gr.State(value=None)
-                        conversation_speaker_settings_state = gr.State(value=_load_auto_saved_speaker_settings())
+                        conversation_speaker_settings_state = gr.State(
+                            value=_load_auto_saved_speaker_settings()
+                        )
 
                         kitten_conversation_voice_choices = [
                             "expr-voice-2-m",
@@ -13712,7 +13714,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             # Output
                             vibevoice_output = gr.Audio(
                                 label="🎧 Generated Podcast",
-                                show_download_button=True, # type: ignore
+                                show_download_button=True,  # type: ignore
                                 elem_classes=["fade-in", "glow"],
                             )
 
@@ -20780,16 +20782,86 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 [ea1, ea2, ea3, ea4, ea5, ea6, ea7, ea8, ea9, ea10],  # emotion_audios
                 [ed1, ed2, ed3, ed4, ed5, ed6, ed7, ed8, ed9, ed10],  # emotion_descriptions
                 [
-                    {"happy": h1, "sad": s1_sad, "angry": a1, "afraid": af1, "surprised": su1, "calm": c1},
-                    {"happy": h2, "sad": s2_sad, "angry": a2, "afraid": af2, "surprised": su2, "calm": c2},
-                    {"happy": h3, "sad": s3_sad, "angry": a3, "afraid": af3, "surprised": su3, "calm": c3},
-                    {"happy": h4, "sad": s4_sad, "angry": a4, "afraid": af4, "surprised": su4, "calm": c4},
-                    {"happy": h5, "sad": s5_sad, "angry": a5, "afraid": af5, "surprised": su5, "calm": c5},
-                    {"happy": h6, "sad": s6_sad, "angry": a6, "afraid": af6, "surprised": su6, "calm": c6},
-                    {"happy": h7, "sad": s7_sad, "angry": a7, "afraid": af7, "surprised": su7, "calm": c7},
-                    {"happy": h8, "sad": s8_sad, "angry": a8, "afraid": af8, "surprised": su8, "calm": c8},
-                    {"happy": h9, "sad": s9_sad, "angry": a9, "afraid": af9, "surprised": su9, "calm": c9},
-                    {"happy": h10, "sad": s10_sad, "angry": a10, "afraid": af10, "surprised": su10, "calm": c10},
+                    {
+                        "happy": h1,
+                        "sad": s1_sad,
+                        "angry": a1,
+                        "afraid": af1,
+                        "surprised": su1,
+                        "calm": c1,
+                    },
+                    {
+                        "happy": h2,
+                        "sad": s2_sad,
+                        "angry": a2,
+                        "afraid": af2,
+                        "surprised": su2,
+                        "calm": c2,
+                    },
+                    {
+                        "happy": h3,
+                        "sad": s3_sad,
+                        "angry": a3,
+                        "afraid": af3,
+                        "surprised": su3,
+                        "calm": c3,
+                    },
+                    {
+                        "happy": h4,
+                        "sad": s4_sad,
+                        "angry": a4,
+                        "afraid": af4,
+                        "surprised": su4,
+                        "calm": c4,
+                    },
+                    {
+                        "happy": h5,
+                        "sad": s5_sad,
+                        "angry": a5,
+                        "afraid": af5,
+                        "surprised": su5,
+                        "calm": c5,
+                    },
+                    {
+                        "happy": h6,
+                        "sad": s6_sad,
+                        "angry": a6,
+                        "afraid": af6,
+                        "surprised": su6,
+                        "calm": c6,
+                    },
+                    {
+                        "happy": h7,
+                        "sad": s7_sad,
+                        "angry": a7,
+                        "afraid": af7,
+                        "surprised": su7,
+                        "calm": c7,
+                    },
+                    {
+                        "happy": h8,
+                        "sad": s8_sad,
+                        "angry": a8,
+                        "afraid": af8,
+                        "surprised": su8,
+                        "calm": c8,
+                    },
+                    {
+                        "happy": h9,
+                        "sad": s9_sad,
+                        "angry": a9,
+                        "afraid": af9,
+                        "surprised": su9,
+                        "calm": c9,
+                    },
+                    {
+                        "happy": h10,
+                        "sad": s10_sad,
+                        "angry": a10,
+                        "afraid": af10,
+                        "surprised": su10,
+                        "calm": c10,
+                    },
                 ],  # emotion_vectors
             ),
             inputs=[
@@ -21108,8 +21180,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             ],
             outputs=[conversation_speaker_settings_state],
         )
-        speaker_1_audio.change (
-                    fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
+        speaker_1_audio.change(
+            fn=lambda audio, settings, speakers: update_conversation_speaker_setting(
                 settings,
                 speakers,
                 0,
