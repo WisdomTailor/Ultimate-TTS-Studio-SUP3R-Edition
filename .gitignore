@@ -26,6 +26,7 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+*.bak
 temp_status.txt
 requirements_no_versions.txt
 *.diff
