@@ -14034,6 +14034,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             </div>
                             """)
 
+                            audiobook_project_name_prominent = gr.Textbox(
+                                value="",
+                                label="Project Name (mirrors Generate / Queue project name)",
+                                placeholder="Optional mirror for the active project name",
+                                info="This stays synced with the main Project Name field so audiobook work starts with the same project context visible.",
+                                elem_classes=["fade-in"],
+                            )
+
                             with gr.Row():
                                 with gr.Column(scale=2):
                                     # File upload
@@ -14227,6 +14235,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             </div>
                             """)
                             # Create dummy components to maintain interface consistency
+                            audiobook_project_name_prominent = gr.Textbox(visible=False, value="")
                             ebook_file = gr.File(visible=False, value=None)
                             analyze_btn = gr.Button(visible=False)
                             convert_ebook_btn = gr.Button(visible=False)
@@ -15025,6 +15034,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             )
                             job_move_down_btn = gr.Button(
                                 "⬇️ Move Down",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+                            job_move_top_btn = gr.Button(
+                                "⏫ Move To Top",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+                            job_move_bottom_btn = gr.Button(
+                                "⏬ Move To Bottom",
                                 variant="secondary",
                                 size="sm",
                                 elem_classes=["fade-in"],
@@ -17348,7 +17369,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
                 rows, _detail, summary = handle_job_panel_refresh("")
-                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip(), summary
+                return (
+                    rows,
+                    f"ERROR: Job not found: {str(job_id).strip()}",
+                    str(job_id).strip(),
+                    summary,
+                )
 
             try:
                 cancelled = manager.cancel(matched_job_id)
@@ -17387,7 +17413,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
                 rows, _detail, summary = handle_job_panel_refresh("")
-                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip(), summary
+                return (
+                    rows,
+                    f"ERROR: Job not found: {str(job_id).strip()}",
+                    str(job_id).strip(),
+                    summary,
+                )
 
             try:
                 info = manager.get_status(matched_job_id)
@@ -17435,7 +17466,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
                 rows, _detail, summary = handle_job_panel_refresh("")
-                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip(), summary
+                return (
+                    rows,
+                    f"ERROR: Job not found: {str(job_id).strip()}",
+                    str(job_id).strip(),
+                    summary,
+                )
 
             try:
                 moved, message = manager.move_pending(matched_job_id, direction)
@@ -17449,6 +17485,26 @@ Alice: I went to Japan. It was absolutely incredible!""",
             rows, detail, summary = handle_job_panel_refresh(matched_job_id)
             prefix = "SUCCESS" if moved else "WARNING"
             return rows, f"{prefix}: {message}\n\n{detail}", matched_job_id, summary
+
+        def handle_job_table_select(evt, table_rows):
+            """Populate the job ID field and detail panel from the selected job row."""
+            if not table_rows:
+                return gr.update(value=""), "Select a job to view details."
+
+            row_index = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+            resolved_index = _coerce_conversation_index(row_index)
+            if resolved_index is None or not (0 <= resolved_index < len(table_rows)):
+                return gr.update(value=""), "Select a valid job row."
+
+            row = table_rows[resolved_index]
+            if not isinstance(row, (list, tuple)) or not row:
+                return gr.update(value=""), "Select a valid job row."
+
+            raw_job_id = str(row[0] or "").strip().rstrip(".")
+            if raw_job_id in {"", "—"}:
+                return gr.update(value=""), "Select a job to view details."
+
+            return gr.update(value=raw_job_id), handle_job_detail(raw_job_id)
 
         def handle_job_auto_refresh_toggle(auto_enabled):
             """Toggle periodic timer polling for the Jobs tab."""
@@ -17482,6 +17538,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ("text_input", text),
             ("autosave_project_name", autosave_project_name),
             ("autosave_project_name", autosave_project_name_prominent),
+            ("autosave_project_name", audiobook_project_name_prominent),
             ("tts_engine", tts_engine),
             ("audio_format", audio_format),
             ("chatterbox_ref_audio", chatterbox_ref_audio),
@@ -19898,22 +19955,58 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[job_queue_display, job_detail_output, job_id_input, job_summary_output],
         )
 
+        job_move_top_btn.click(
+            fn=lambda job_id: handle_job_move(job_id, "top"),
+            inputs=[job_id_input],
+            outputs=[job_queue_display, job_detail_output, job_id_input, job_summary_output],
+        )
+
+        job_move_bottom_btn.click(
+            fn=lambda job_id: handle_job_move(job_id, "bottom"),
+            inputs=[job_id_input],
+            outputs=[job_queue_display, job_detail_output, job_id_input, job_summary_output],
+        )
+
         job_id_input.change(
             fn=handle_job_detail,
             inputs=[job_id_input],
             outputs=[job_detail_output],
         )
 
+        job_queue_display.select(
+            fn=handle_job_table_select,
+            inputs=[job_queue_display],
+            outputs=[job_id_input, job_detail_output],
+        )
+
         autosave_project_name.change(
             fn=lambda value: gr.update(value=str(value or "")),
             inputs=[autosave_project_name],
             outputs=[autosave_project_name_prominent],
+        ).then(
+            fn=lambda value: gr.update(value=str(value or "")),
+            inputs=[autosave_project_name],
+            outputs=[audiobook_project_name_prominent],
         )
 
         autosave_project_name_prominent.change(
             fn=lambda value: gr.update(value=str(value or "")),
             inputs=[autosave_project_name_prominent],
             outputs=[autosave_project_name],
+        ).then(
+            fn=lambda value: gr.update(value=str(value or "")),
+            inputs=[autosave_project_name_prominent],
+            outputs=[audiobook_project_name_prominent],
+        )
+
+        audiobook_project_name_prominent.change(
+            fn=lambda value: gr.update(value=str(value or "")),
+            inputs=[audiobook_project_name_prominent],
+            outputs=[autosave_project_name],
+        ).then(
+            fn=lambda value: gr.update(value=str(value or "")),
+            inputs=[audiobook_project_name_prominent],
+            outputs=[autosave_project_name_prominent],
         )
 
         add_protected_term_btn.click(

@@ -217,7 +217,7 @@ class JobManager:
     def move_pending(self, job_id: str, direction: str) -> tuple[bool, str]:
         """Move a pending job up or down within the queue."""
         normalized_direction = str(direction or "").strip().lower()
-        if normalized_direction not in {"up", "down"}:
+        if normalized_direction not in {"up", "down", "top", "bottom"}:
             raise ValueError(f"Unsupported queue move direction: {direction}")
 
         with self._lock:
@@ -237,27 +237,40 @@ class JobManager:
             pending_jobs.sort(key=self._pending_sort_key)
 
             current_index = next(
-                (index for index, pending_info in enumerate(pending_jobs) if pending_info.id == job_id),
+                (
+                    index
+                    for index, pending_info in enumerate(pending_jobs)
+                    if pending_info.id == job_id
+                ),
                 -1,
             )
             if current_index < 0:
                 return False, "Pending job was not found in the current queue."
 
-            target_index = current_index - 1 if normalized_direction == "up" else current_index + 1
+            target_index = current_index
+            if normalized_direction == "up":
+                target_index = current_index - 1
+            elif normalized_direction == "down":
+                target_index = current_index + 1
+            elif normalized_direction == "top":
+                target_index = 0
+            elif normalized_direction == "bottom":
+                target_index = len(pending_jobs) - 1
+
+            if target_index == current_index:
+                edge = "top" if normalized_direction in {"up", "top"} else "bottom"
+                return False, f"Job is already at the {edge} of the pending queue."
             if target_index < 0 or target_index >= len(pending_jobs):
-                edge = "top" if normalized_direction == "up" else "bottom"
+                edge = "top" if normalized_direction in {"up", "top"} else "bottom"
                 return False, f"Job is already at the {edge} of the pending queue."
 
-            current_job = pending_jobs[current_index]
-            target_job = pending_jobs[target_index]
-            current_job.queue_order, target_job.queue_order = (
-                target_job.queue_order,
-                current_job.queue_order,
-            )
-            self._save(current_job)
-            self._save(target_job)
+            selected_job = pending_jobs.pop(current_index)
+            pending_jobs.insert(target_index, selected_job)
+            for index, pending_job in enumerate(pending_jobs, start=1):
+                pending_job.queue_order = float(index)
+                self._save(pending_job)
             self._normalize_pending_queue_orders_locked()
-            return True, f"Moved job {job_id[:12]}... {normalized_direction} in the pending queue."
+            return True, f"Moved job {job_id[:12]}... to the {normalized_direction} of the pending queue."
 
     def list_jobs(self, limit: int = 50) -> list[JobInfo]:
         """List jobs with active queue entries first and recent terminal jobs after."""
