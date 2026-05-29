@@ -291,7 +291,7 @@ transcribe_voxcpm_audio = _transcribe_unavailable
 INVALID_GENERATION_PROJECT_NAMES = {"default"}
 PROJECT_NAME_REQUIRED_MESSAGE = (
     "ERROR: Enter a real project name before generating. Blank names and 'default' are not allowed. "
-    "Use Workspace Controls -> Project Name."
+    "Use the Project Name field near Generate or Workspace Controls."
 )
 
 
@@ -14949,17 +14949,32 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         </div>
                         """)
 
+                        job_summary_output = gr.Markdown(
+                            value=(
+                                "<div style='display:flex; gap:12px; flex-wrap:wrap; margin: 6px 0 14px 0;'>"
+                                "<div style='padding:10px 14px; border-radius:12px; background:rgba(59,130,246,0.14);'><strong>Running</strong><br>0</div>"
+                                "<div style='padding:10px 14px; border-radius:12px; background:rgba(245,158,11,0.14);'><strong>Pending</strong><br>0</div>"
+                                "<div style='padding:10px 14px; border-radius:12px; background:rgba(16,185,129,0.14);'><strong>Completed</strong><br>0</div>"
+                                "<div style='padding:10px 14px; border-radius:12px; background:rgba(239,68,68,0.14);'><strong>Failed</strong><br>0</div>"
+                                "<div style='padding:10px 14px; border-radius:12px; background:rgba(148,163,184,0.14);'><strong>Cancelled</strong><br>0</div>"
+                                "<div style='padding:10px 14px; border-radius:12px; background:rgba(139,92,246,0.14);'><strong>Concurrency</strong><br>1</div>"
+                                "</div>"
+                            ),
+                            elem_classes=["fade-in"],
+                        )
+
                         job_queue_display = gr.Dataframe(
                             headers=[
                                 "ID",
                                 "Status",
+                                "Queue",
                                 "Engine",
                                 "Created",
                                 "Elapsed",
                                 "Text Preview",
                             ],
-                            datatype=["str", "str", "str", "str", "str", "str"],
-                            value=[["—", "No jobs", "—", "—", "—", "—"]],
+                            datatype=["str", "str", "str", "str", "str", "str", "str"],
+                            value=[["—", "No jobs", "—", "—", "—", "—", "—"]],
                             label="[ARROWS] Active & Recent Jobs",
                             interactive=False,
                             wrap=True,
@@ -14998,6 +15013,20 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 variant="secondary",
                                 size="sm",
                                 scale=1,
+                                elem_classes=["fade-in"],
+                            )
+
+                        with gr.Row():
+                            job_move_up_btn = gr.Button(
+                                "⬆️ Move Up",
+                                variant="secondary",
+                                size="sm",
+                                elem_classes=["fade-in"],
+                            )
+                            job_move_down_btn = gr.Button(
+                                "⬇️ Move Down",
+                                variant="secondary",
+                                size="sm",
                                 elem_classes=["fade-in"],
                             )
 
@@ -15056,6 +15085,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         interactive=False,
                         elem_classes=["fade-in"],
                     )
+
+        with gr.Row(elem_classes=["fade-in"], elem_id="project_name_prominent_row"):
+            autosave_project_name_prominent = gr.Textbox(
+                value="",
+                label="Project Name (required to generate or queue)",
+                placeholder="Enter project name before using Generate or Queue Job",
+                info="This mirrors Workspace Controls -> Project Name so the required field stays visible when starting a new project.",
+            )
 
         # Generate buttons - separate for single voice and conversation modes
         with gr.Row():
@@ -17140,7 +17177,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             import time as _time
 
             if not jobs:
-                return [["—", "No jobs", "—", "—", "—", "—"]]
+                return [["—", "No jobs", "—", "—", "—", "—", "—"]]
 
             status_icons = {
                 "pending": "⏳ Pending",
@@ -17151,6 +17188,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             }
 
             rows = []
+            pending_rank = 1
             for job in jobs:
                 request = job.request or {}
                 job_type = str(request.get("job_type", "tts") or "tts").strip().lower()
@@ -17177,10 +17215,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 if job_type == "conversation":
                     engine_label = f"Conversation / {engine_label}"
 
+                queue_label = "—"
+                if job.status == "running":
+                    queue_label = "Active"
+                elif job.status == "pending":
+                    queue_label = str(pending_rank)
+                    pending_rank += 1
+
                 rows.append(
                     [
                         f"{job.id[:12]}..." if len(job.id) > 12 else job.id,
                         status_icons.get(job.status, job.status),
+                        queue_label,
                         engine_label,
                         created,
                         elapsed,
@@ -17189,6 +17235,23 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 )
 
             return rows
+
+        def _format_job_summary(summary_counts: dict[str, int], max_concurrent: int) -> str:
+            pending_count = int(summary_counts.get("pending", 0) or 0)
+            running_count = int(summary_counts.get("running", 0) or 0)
+            completed_count = int(summary_counts.get("completed", 0) or 0)
+            failed_count = int(summary_counts.get("failed", 0) or 0)
+            cancelled_count = int(summary_counts.get("cancelled", 0) or 0)
+            return (
+                "<div style='display:flex; gap:12px; flex-wrap:wrap; margin: 6px 0 14px 0;'>"
+                f"<div style='padding:10px 14px; border-radius:12px; background:rgba(59,130,246,0.14);'><strong>Running</strong><br>{running_count}</div>"
+                f"<div style='padding:10px 14px; border-radius:12px; background:rgba(245,158,11,0.14);'><strong>Pending</strong><br>{pending_count}</div>"
+                f"<div style='padding:10px 14px; border-radius:12px; background:rgba(16,185,129,0.14);'><strong>Completed</strong><br>{completed_count}</div>"
+                f"<div style='padding:10px 14px; border-radius:12px; background:rgba(239,68,68,0.14);'><strong>Failed</strong><br>{failed_count}</div>"
+                f"<div style='padding:10px 14px; border-radius:12px; background:rgba(148,163,184,0.14);'><strong>Cancelled</strong><br>{cancelled_count}</div>"
+                f"<div style='padding:10px 14px; border-radius:12px; background:rgba(139,92,246,0.14);'><strong>Concurrency</strong><br>{max_concurrent}</div>"
+                "</div>"
+            )
 
         def handle_job_detail(job_id):
             """Show detailed information for a job."""
@@ -17265,48 +17328,51 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             manager = get_job_manager()
             rows = _format_job_queue_rows(manager.list_jobs(limit=25))
+            summary = _format_job_summary(manager.summarize(), manager.max_concurrent)
             detail = (
                 handle_job_detail(job_id)
                 if str(job_id or "").strip()
                 else "Select a job to view details."
             )
-            return rows, detail
+            return rows, detail, summary
 
         def handle_job_cancel(job_id):
             """Cancel a pending or running job by ID."""
             from job_manager import get_job_manager
 
             if not job_id or not str(job_id).strip():
-                rows, _ = handle_job_panel_refresh("")
-                return rows, "WARNING: Enter a job ID to cancel.", str(job_id or "")
+                rows, _detail, summary = handle_job_panel_refresh("")
+                return rows, "WARNING: Enter a job ID to cancel.", str(job_id or ""), summary
 
             manager = get_job_manager()
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
-                rows, _ = handle_job_panel_refresh("")
-                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip()
+                rows, _detail, summary = handle_job_panel_refresh("")
+                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip(), summary
 
             try:
                 cancelled = manager.cancel(matched_job_id)
             except KeyError:
-                rows, _ = handle_job_panel_refresh("")
-                return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip()
+                rows, _detail, summary = handle_job_panel_refresh("")
+                return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip(), summary
             except Exception as exc:
-                rows, detail = handle_job_panel_refresh(matched_job_id)
-                return rows, f"ERROR: Cancel failed: {exc}\n\n{detail}", matched_job_id
+                rows, detail, summary = handle_job_panel_refresh(matched_job_id)
+                return rows, f"ERROR: Cancel failed: {exc}\n\n{detail}", matched_job_id, summary
 
-            rows, detail = handle_job_panel_refresh(matched_job_id)
+            rows, detail, summary = handle_job_panel_refresh(matched_job_id)
             if cancelled:
                 return (
                     rows,
                     f"SUCCESS: Job {matched_job_id[:12]}... cancelled.\n\n{detail}",
                     matched_job_id,
+                    summary,
                 )
 
             return (
                 rows,
                 f"WARNING: Cannot cancel job in terminal state.\n\n{detail}",
                 matched_job_id,
+                summary,
             )
 
         def handle_job_retry(job_id):
@@ -17314,27 +17380,28 @@ Alice: I went to Japan. It was absolutely incredible!""",
             from job_manager import JobRequest, get_job_manager
 
             if not job_id or not str(job_id).strip():
-                rows, _ = handle_job_panel_refresh("")
-                return rows, "WARNING: Enter a job ID to retry.", str(job_id or "")
+                rows, _detail, summary = handle_job_panel_refresh("")
+                return rows, "WARNING: Enter a job ID to retry.", str(job_id or ""), summary
 
             manager = get_job_manager()
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
-                rows, _ = handle_job_panel_refresh("")
-                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip()
+                rows, _detail, summary = handle_job_panel_refresh("")
+                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip(), summary
 
             try:
                 info = manager.get_status(matched_job_id)
             except KeyError:
-                rows, _ = handle_job_panel_refresh("")
-                return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip()
+                rows, _detail, summary = handle_job_panel_refresh("")
+                return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip(), summary
 
             if info.status in {"pending", "running"}:
-                rows, detail = handle_job_panel_refresh(matched_job_id)
+                rows, detail, summary = handle_job_panel_refresh(matched_job_id)
                 return (
                     rows,
                     f"WARNING: Job {matched_job_id[:12]}... is still active and cannot be retried yet.\n\n{detail}",
                     matched_job_id,
+                    summary,
                 )
 
             request = info.request or {}
@@ -17348,12 +17415,40 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 )
             )
 
-            rows, detail = handle_job_panel_refresh(new_job_id)
+            rows, detail, summary = handle_job_panel_refresh(new_job_id)
             return (
                 rows,
                 f"SUCCESS: Retried job {matched_job_id[:12]}... as {new_job_id[:12]}...\n\n{detail}",
                 new_job_id,
+                summary,
             )
+
+        def handle_job_move(job_id, direction):
+            """Move a pending job within the queue."""
+            from job_manager import get_job_manager
+
+            if not job_id or not str(job_id).strip():
+                rows, _detail, summary = handle_job_panel_refresh("")
+                return rows, "WARNING: Enter a job ID to reorder.", str(job_id or ""), summary
+
+            manager = get_job_manager()
+            matched_job_id = _resolve_job_id(manager, job_id)
+            if not matched_job_id:
+                rows, _detail, summary = handle_job_panel_refresh("")
+                return rows, f"ERROR: Job not found: {str(job_id).strip()}", str(job_id).strip(), summary
+
+            try:
+                moved, message = manager.move_pending(matched_job_id, direction)
+            except KeyError:
+                rows, _detail, summary = handle_job_panel_refresh("")
+                return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip(), summary
+            except Exception as exc:
+                rows, detail, summary = handle_job_panel_refresh(matched_job_id)
+                return rows, f"ERROR: Reorder failed: {exc}\n\n{detail}", matched_job_id, summary
+
+            rows, detail, summary = handle_job_panel_refresh(matched_job_id)
+            prefix = "SUCCESS" if moved else "WARNING"
+            return rows, f"{prefix}: {message}\n\n{detail}", matched_job_id, summary
 
         def handle_job_auto_refresh_toggle(auto_enabled):
             """Toggle periodic timer polling for the Jobs tab."""
@@ -17386,6 +17481,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         history_reload_targets = [
             ("text_input", text),
             ("autosave_project_name", autosave_project_name),
+            ("autosave_project_name", autosave_project_name_prominent),
             ("tts_engine", tts_engine),
             ("audio_format", audio_format),
             ("chatterbox_ref_audio", chatterbox_ref_audio),
@@ -19548,7 +19644,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         demo.load(
             fn=handle_job_panel_refresh,
             inputs=[job_id_input],
-            outputs=[job_queue_display, job_detail_output],
+            outputs=[job_queue_display, job_detail_output, job_summary_output],
         )
 
         demo.load(
@@ -19763,13 +19859,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         job_refresh_btn.click(
             fn=handle_job_panel_refresh,
             inputs=[job_id_input],
-            outputs=[job_queue_display, job_detail_output],
+            outputs=[job_queue_display, job_detail_output, job_summary_output],
         )
 
         job_timer.tick(
             fn=handle_job_panel_refresh,
             inputs=[job_id_input],
-            outputs=[job_queue_display, job_detail_output],
+            outputs=[job_queue_display, job_detail_output, job_summary_output],
         )
 
         job_auto_refresh.change(
@@ -19781,19 +19877,43 @@ Alice: I went to Japan. It was absolutely incredible!""",
         job_cancel_btn.click(
             fn=handle_job_cancel,
             inputs=[job_id_input],
-            outputs=[job_queue_display, job_detail_output, job_id_input],
+            outputs=[job_queue_display, job_detail_output, job_id_input, job_summary_output],
         )
 
         job_retry_btn.click(
             fn=handle_job_retry,
             inputs=[job_id_input],
-            outputs=[job_queue_display, job_detail_output, job_id_input],
+            outputs=[job_queue_display, job_detail_output, job_id_input, job_summary_output],
+        )
+
+        job_move_up_btn.click(
+            fn=lambda job_id: handle_job_move(job_id, "up"),
+            inputs=[job_id_input],
+            outputs=[job_queue_display, job_detail_output, job_id_input, job_summary_output],
+        )
+
+        job_move_down_btn.click(
+            fn=lambda job_id: handle_job_move(job_id, "down"),
+            inputs=[job_id_input],
+            outputs=[job_queue_display, job_detail_output, job_id_input, job_summary_output],
         )
 
         job_id_input.change(
             fn=handle_job_detail,
             inputs=[job_id_input],
             outputs=[job_detail_output],
+        )
+
+        autosave_project_name.change(
+            fn=lambda value: gr.update(value=str(value or "")),
+            inputs=[autosave_project_name],
+            outputs=[autosave_project_name_prominent],
+        )
+
+        autosave_project_name_prominent.change(
+            fn=lambda value: gr.update(value=str(value or "")),
+            inputs=[autosave_project_name_prominent],
+            outputs=[autosave_project_name],
         )
 
         add_protected_term_btn.click(
@@ -19964,8 +20084,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
             signature_params = list(inspect.signature(generate_unified_tts).parameters.keys())
             base_count = len(signature_params)
             if len(all_args) < base_count:
-                rows, detail = handle_job_panel_refresh("")
-                return "ERROR: Internal error: incomplete generation arguments", rows, detail, ""
+                rows, detail, summary = handle_job_panel_refresh("")
+                return (
+                    "ERROR: Internal error: incomplete generation arguments",
+                    rows,
+                    detail,
+                    "",
+                    summary,
+                )
 
             base_args = list(all_args[:base_count])
             extra_args = list(all_args[base_count:])
@@ -19973,8 +20099,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             text_input = str(base_args[param_idx["text_input"]] or "")
             if not text_input.strip():
-                rows, detail = handle_job_panel_refresh("")
-                return "ERROR: No text provided for synthesis", rows, detail, ""
+                rows, detail, summary = handle_job_panel_refresh("")
+                return "ERROR: No text provided for synthesis", rows, detail, "", summary
 
             autosave_project_name = ""
             if len(extra_args) >= 7 and isinstance(extra_args[2], bool):
@@ -19990,17 +20116,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             resolved_project, project_error = _validate_required_project_name(autosave_project_name)
             if project_error:
-                rows, detail = handle_job_panel_refresh("")
-                return project_error, rows, detail, ""
+                rows, detail, summary = handle_job_panel_refresh("")
+                return project_error, rows, detail, "", summary
 
             staged_args, staging_errors = _stage_single_speaker_job_args(list(all_args))
             if staging_errors:
-                rows, detail = handle_job_panel_refresh("")
+                rows, detail, summary = handle_job_panel_refresh("")
                 return (
                     "\n".join(["ERROR: Failed to stage queued job assets", *staging_errors]),
                     rows,
                     detail,
                     "",
+                    summary,
                 )
 
             if len(extra_args) >= 7 and isinstance(extra_args[2], bool):
@@ -20026,12 +20153,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
             )
 
             job_id = get_job_manager().submit(job_request)
-            rows, detail = handle_job_panel_refresh(job_id)
+            rows, detail, summary = handle_job_panel_refresh(job_id)
             status_lines = [
                 f"SUCCESS: Queued single-speaker job {job_id[:12]}... for {tts_engine_value}.",
                 "Open the Jobs tab to monitor, cancel, or retry it.",
             ]
-            return "\n".join(status_lines), rows, detail, job_id
+            return "\n".join(status_lines), rows, detail, job_id, summary
 
         single_speaker_generation_inputs = [
             text,
@@ -20166,7 +20293,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             speaker_name_tb,
             voice_preset_dd,
             autosave_enabled,
-            autosave_project_name,
+            autosave_project_name_prominent,
             autosave_store_audio_copy,
             keep_legacy_output_copy,
             last_seed_state,
@@ -20181,7 +20308,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         queue_generate_job_btn.click(
             fn=handle_queue_single_speaker_job,
             inputs=single_speaker_generation_inputs,
-            outputs=[status_output, job_queue_display, job_detail_output, job_id_input],
+            outputs=[
+                status_output,
+                job_queue_display,
+                job_detail_output,
+                job_id_input,
+                job_summary_output,
+            ],
         )
 
         # Conversation Mode Event Handlers
@@ -21492,13 +21625,13 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             from job_manager import JobRequest, get_job_manager
 
             if not script_text.strip():
-                rows, detail = handle_job_panel_refresh("")
-                return "ERROR: No conversation script provided", rows, detail, ""
+                rows, detail, summary = handle_job_panel_refresh("")
+                return "ERROR: No conversation script provided", rows, detail, "", summary
 
             resolved_project, project_error = _validate_required_project_name(project_name)
             if project_error:
-                rows, detail = handle_job_panel_refresh("")
-                return project_error, rows, detail, ""
+                rows, detail, summary = handle_job_panel_refresh("")
+                return project_error, rows, detail, "", summary
 
             (
                 hydrated_voice_samples,
@@ -21524,12 +21657,12 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 hydrated_kitten_voices,
             )
             if preflight_errors:
-                rows, detail = handle_job_panel_refresh("")
+                rows, detail, summary = handle_job_panel_refresh("")
                 status_lines = ["ERROR: Conversation preflight failed"]
                 status_lines.extend(preflight_errors)
                 status_lines.extend(f"WARNING: {warning}" for warning in hydration_warnings)
                 status_lines.extend(f"WARNING: {warning}" for warning in preflight_warnings)
-                return "\n".join(status_lines), rows, detail, ""
+                return "\n".join(status_lines), rows, detail, "", summary
 
             staged_voice_samples, staged_emotion_audios, staging_errors = (
                 _stage_conversation_job_media(
@@ -21538,12 +21671,13 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 )
             )
             if staging_errors:
-                rows, detail = handle_job_panel_refresh("")
+                rows, detail, summary = handle_job_panel_refresh("")
                 return (
                     "\n".join(["ERROR: Failed to stage queued job assets", *staging_errors]),
                     rows,
                     detail,
                     "",
+                    summary,
                 )
 
             job_request = JobRequest(
@@ -21572,14 +21706,14 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             )
 
             job_id = get_job_manager().submit(job_request)
-            rows, detail = handle_job_panel_refresh(job_id)
+            rows, detail, summary = handle_job_panel_refresh(job_id)
             status_lines = [
                 f"SUCCESS: Queued conversation job {job_id[:12]}... for {selected_engine}.",
                 "Open the Jobs tab to monitor, cancel, or retry it.",
             ]
             status_lines.extend(f"WARNING: {warning}" for warning in hydration_warnings)
             status_lines.extend(f"WARNING: {warning}" for warning in preflight_warnings)
-            return "\n".join(status_lines), rows, detail, job_id
+            return "\n".join(status_lines), rows, detail, job_id, summary
 
         def handle_generate_conversation_simple(
             script_text,
@@ -22368,7 +22502,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_10_kitten_voice,
                 tts_engine,
                 conversation_speaker_settings_state,
-                autosave_project_name,
+                autosave_project_name_prominent,
                 autosave_enabled,
                 autosave_store_audio_copy,
                 keep_legacy_output_copy,
@@ -22463,7 +22597,13 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_10_surprised,
                 speaker_10_calm,
             ],
-            outputs=[conversation_info, job_queue_display, job_detail_output, job_id_input],
+            outputs=[
+                conversation_info,
+                job_queue_display,
+                job_detail_output,
+                job_id_input,
+                job_summary_output,
+            ],
         )
 
         # Speaker transcribe button handlers for conversation mode

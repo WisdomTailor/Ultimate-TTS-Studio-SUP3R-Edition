@@ -47,6 +47,7 @@ class JobInfo:
     result: dict[str, Any] | None = None
     error: str = ""
     created_at: float = 0.0
+    queue_order: float = 0.0
     started_at: float = 0.0
     completed_at: float = 0.0
 
@@ -159,15 +160,18 @@ class JobManager:
 
     def submit(self, request: JobRequest) -> str:
         """Submit a synthesis job and return its job identifier."""
+        created_at = time.time()
         job_id = str(uuid.uuid4())
         job_info = JobInfo(
             id=job_id,
             status=PENDING,
             request=asdict(request),
-            created_at=time.time(),
+            created_at=created_at,
+            queue_order=created_at,
         )
         with self._lock:
             self._save(job_info)
+            self._normalize_pending_queue_orders_locked()
             self._reconcile_processes_locked()
             self._launch_pending_jobs_locked()
         logger.info("Job %s submitted as %s", job_id, request.job_type)
@@ -205,18 +209,91 @@ class JobManager:
             info.status = CANCELLED
             info.completed_at = time.time()
             self._save(info)
+            self._normalize_pending_queue_orders_locked()
             self._launch_pending_jobs_locked()
         logger.info("Job %s cancelled", job_id)
         return True
 
+    def move_pending(self, job_id: str, direction: str) -> tuple[bool, str]:
+        """Move a pending job up or down within the queue."""
+        normalized_direction = str(direction or "").strip().lower()
+        if normalized_direction not in {"up", "down"}:
+            raise ValueError(f"Unsupported queue move direction: {direction}")
+
+        with self._lock:
+            self._reconcile_processes_locked()
+            info = self._load(job_id)
+            if info is None:
+                raise KeyError(f"Unknown job: {job_id}")
+            if info.status != PENDING:
+                return False, "Only pending jobs can be reordered."
+
+            self._normalize_pending_queue_orders_locked()
+            pending_jobs = [
+                pending_info
+                for pending_info in self._load_all_jobs_locked()
+                if pending_info.status == PENDING
+            ]
+            pending_jobs.sort(key=self._pending_sort_key)
+
+            current_index = next(
+                (index for index, pending_info in enumerate(pending_jobs) if pending_info.id == job_id),
+                -1,
+            )
+            if current_index < 0:
+                return False, "Pending job was not found in the current queue."
+
+            target_index = current_index - 1 if normalized_direction == "up" else current_index + 1
+            if target_index < 0 or target_index >= len(pending_jobs):
+                edge = "top" if normalized_direction == "up" else "bottom"
+                return False, f"Job is already at the {edge} of the pending queue."
+
+            current_job = pending_jobs[current_index]
+            target_job = pending_jobs[target_index]
+            current_job.queue_order, target_job.queue_order = (
+                target_job.queue_order,
+                current_job.queue_order,
+            )
+            self._save(current_job)
+            self._save(target_job)
+            self._normalize_pending_queue_orders_locked()
+            return True, f"Moved job {job_id[:12]}... {normalized_direction} in the pending queue."
+
     def list_jobs(self, limit: int = 50) -> list[JobInfo]:
-        """List recent jobs ordered by creation time, newest first."""
+        """List jobs with active queue entries first and recent terminal jobs after."""
         with self._lock:
             self._reconcile_processes_locked()
             self._launch_pending_jobs_locked()
             jobs = self._load_all_jobs_locked()
-        jobs.sort(key=lambda info: (info.created_at, info.id), reverse=True)
-        return jobs[:limit]
+        running_jobs = [info for info in jobs if info.status == RUNNING]
+        pending_jobs = [info for info in jobs if info.status == PENDING]
+        terminal_jobs = [info for info in jobs if info.status not in {RUNNING, PENDING}]
+
+        running_jobs.sort(key=lambda info: (info.started_at or info.created_at, info.id))
+        pending_jobs.sort(key=self._pending_sort_key)
+        terminal_jobs.sort(
+            key=lambda info: (info.completed_at or info.created_at, info.created_at, info.id),
+            reverse=True,
+        )
+        return [*running_jobs, *pending_jobs, *terminal_jobs][:limit]
+
+    def summarize(self) -> dict[str, int]:
+        """Return counts for each job state across the full job store."""
+        counts = {
+            PENDING: 0,
+            RUNNING: 0,
+            COMPLETED: 0,
+            FAILED: 0,
+            CANCELLED: 0,
+        }
+        with self._lock:
+            self._reconcile_processes_locked()
+            self._launch_pending_jobs_locked()
+            jobs = self._load_all_jobs_locked()
+
+        for info in jobs:
+            counts[info.status] = counts.get(info.status, 0) + 1
+        return counts
 
     def _save(self, info: JobInfo) -> None:
         path = self._jobs_dir / f"{info.id}.json"
@@ -245,6 +322,19 @@ class JobManager:
         jobs.sort(key=lambda info: (info.created_at, info.id))
         return jobs
 
+    def _pending_sort_key(self, info: JobInfo) -> tuple[float, float, str]:
+        queue_value = info.queue_order if info.queue_order > 0 else info.created_at
+        return (queue_value, info.created_at, info.id)
+
+    def _normalize_pending_queue_orders_locked(self) -> None:
+        pending_jobs = [info for info in self._load_all_jobs_locked() if info.status == PENDING]
+        pending_jobs.sort(key=self._pending_sort_key)
+        for index, info in enumerate(pending_jobs, start=1):
+            normalized_order = float(index)
+            if info.queue_order != normalized_order:
+                info.queue_order = normalized_order
+                self._save(info)
+
     def _recover_stale_jobs_locked(self) -> None:
         for info in self._load_all_jobs_locked():
             if info.status == RUNNING:
@@ -252,6 +342,7 @@ class JobManager:
                 info.completed_at = time.time()
                 info.error = info.error or "Recovered stale running job after restart."
                 self._save(info)
+        self._normalize_pending_queue_orders_locked()
 
     def _reconcile_processes_locked(self) -> None:
         finished_job_ids: list[str] = []
@@ -289,7 +380,8 @@ class JobManager:
         if available_slots <= 0:
             return
 
-        for info in self._load_all_jobs_locked():
+        self._normalize_pending_queue_orders_locked()
+        for info in sorted(self._load_all_jobs_locked(), key=self._pending_sort_key):
             if available_slots <= 0:
                 break
             if info.status != PENDING or info.id in self._processes:
