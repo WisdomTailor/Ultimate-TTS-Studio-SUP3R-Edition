@@ -67,18 +67,27 @@ Vivid — Everything Polish does, plus: add sparse [emotional] audio cues honori
 dramatic pauses, occasional ALL-CAPS for spoken stress. Calibrate tone and rhythm to the STYLE.
 """
 
-VOICE_CASTING_SYSTEM_PROMPT = """You are a professional voice casting director for audio productions. Given a list of character names from a script, generate a concise voice profile for each character.
+VOICE_CASTING_SYSTEM_PROMPT = """You are a professional voice casting director and character designer for audio productions and illustrated storytelling. Given a list of character names, generate a detailed character profile for each one.
 
-For each character, provide:
-- A brief character description (age estimate, personality, speaking style)
-- A 3-5 word voice profile descriptor (e.g., "Warm, authoritative baritone" or "Bright, energetic soprano")
+For each character provide ALL of the following fields:
 
-Format your response as a simple list:
+- Description: Narrative role, personality, speaking style, and any story context that shapes their voice or presence.
+- Physical Profile: Gender (male / female / non-binary), estimated age, race / ethnicity (e.g. Black, Caucasian, East Asian, South Asian, Hispanic, Middle Eastern, Indigenous, Mixed-race, etc.), skin tone, height/build, hair colour and style, eye colour, and any notable features (scars, tattoos, distinguishing marks). Be specific and visual — this information is used both for voice selection and for producing accurate character illustrations.
+- Voice Profile: A 4-7 word descriptor capturing tone, pitch, and texture (e.g. "Deep, gravelly baritone with Southern warmth" or "Crisp, high soprano — clipped British consonants").
+
+Rules:
+- Infer details from character names, narrative conventions, and any context clues available.
+- If a detail is genuinely unknowable from the name alone, make a confident creative choice that fits the story genre implied by the full cast list.
+- Never leave a field blank. Always provide a specific value — use "Likely" or "Possibly" as a prefix only when the inference is weak.
+- Do not hedge with "N/A" or "Unknown".
+
+Format every character as:
 CHARACTER_NAME:
-    Description: [brief description]
-    Voice Profile: [3-5 word descriptor]
+    Description: [narrative description — 2-3 sentences]
+    Physical Profile: [gender, age, race/ethnicity, build, hair, eyes, notable features]
+    Voice Profile: [4-7 word voice descriptor]
 
-Be creative but realistic. Infer character traits from their names and typical narrative conventions. Keep descriptions concise - a few sentences maximum per character."""
+Return only the formatted list. No preamble, no commentary."""
 
 CONTENT_TYPE_PRESETS: dict[str, dict[str, str | None]] = {
     "General (Default)": {
@@ -1404,8 +1413,9 @@ def _normalize_voice_casting_speaker_names(speaker_names: list[str]) -> list[str
     return normalized_names
 
 
-def _normalize_voice_casting_block(block_lines: list[str]) -> tuple[str, str]:
+def _normalize_voice_casting_block(block_lines: list[str]) -> tuple[str, str, str]:
     description_parts: list[str] = []
+    physical_profile_parts: list[str] = []
     voice_profile_parts: list[str] = []
     extra_lines: list[str] = []
     current_field = ""
@@ -1422,6 +1432,16 @@ def _normalize_voice_casting_block(block_lines: list[str]) -> tuple[str, str]:
             current_field = "description"
             continue
 
+        physical_profile_match = re.match(
+            r"^Physical\s*Profile:\s*(.+)$",
+            stripped_line,
+            re.IGNORECASE,
+        )
+        if physical_profile_match:
+            physical_profile_parts = [physical_profile_match.group(1).strip()]
+            current_field = "physical_profile"
+            continue
+
         voice_profile_match = re.match(
             r"^Voice\s*Profile:\s*(.+)$",
             stripped_line,
@@ -1434,12 +1454,15 @@ def _normalize_voice_casting_block(block_lines: list[str]) -> tuple[str, str]:
 
         if current_field == "description":
             description_parts.append(stripped_line)
+        elif current_field == "physical_profile":
+            physical_profile_parts.append(stripped_line)
         elif current_field == "voice_profile":
             voice_profile_parts.append(stripped_line)
         else:
             extra_lines.append(stripped_line)
 
     description_text = " ".join(description_parts).strip()
+    physical_profile_text = " ".join(physical_profile_parts).strip()
     voice_profile_text = " ".join(voice_profile_parts).strip()
 
     if not description_text and extra_lines:
@@ -1450,9 +1473,10 @@ def _normalize_voice_casting_block(block_lines: list[str]) -> tuple[str, str]:
         ).strip()
 
     description_text = re.sub(r"\s+", " ", description_text).strip()
+    physical_profile_text = re.sub(r"\s+", " ", physical_profile_text).strip()
     voice_profile_text = re.sub(r"\s+", " ", voice_profile_text).strip()
 
-    return description_text, voice_profile_text
+    return description_text, physical_profile_text, voice_profile_text
 
 
 def _format_voice_casting_result(raw_text: str, speaker_names: list[str]) -> str:
@@ -1481,11 +1505,13 @@ def _format_voice_casting_result(raw_text: str, speaker_names: list[str]) -> str
 
     formatted_sections: list[str] = []
     for speaker_name in clean_names:
-        description_text, voice_profile_text = _normalize_voice_casting_block(
-            sections.get(speaker_name, [])
+        description_text, physical_profile_text, voice_profile_text = (
+            _normalize_voice_casting_block(sections.get(speaker_name, []))
         )
-        if not description_text and not voice_profile_text:
+        if not description_text and not physical_profile_text and not voice_profile_text:
             description_text = "No description returned."
+        if not physical_profile_text:
+            physical_profile_text = "Not provided"
         if not voice_profile_text:
             voice_profile_text = "Not provided"
 
@@ -1494,6 +1520,7 @@ def _format_voice_casting_result(raw_text: str, speaker_names: list[str]) -> str
                 [
                     f"{speaker_name}:",
                     f"  Description: {description_text}",
+                    f"  Physical Profile: {physical_profile_text}",
                     f"  Voice Profile: {voice_profile_text}",
                 ]
             )
@@ -1510,6 +1537,7 @@ def generate_voice_casting(
     timeout_seconds: int,
     extra_headers: dict[str, str],
     auth_style: str,
+    script_text: str = "",
 ) -> tuple[str, str]:
     clean_speaker_names = _normalize_voice_casting_speaker_names(speaker_names)
     if not clean_speaker_names:
@@ -1523,12 +1551,33 @@ def generate_voice_casting(
     if not clean_model_id:
         return "", "Model ID is required."
 
+    script_excerpt = str(script_text or "").strip()
+    # Limit context to avoid exceeding model context windows
+    if len(script_excerpt) > 4000:
+        script_excerpt = script_excerpt[:4000] + "\n[...script continues...]"
+
+    context_block = (
+        "\n".join(
+            [
+                "Use the following script excerpt as context to infer accurate physical and personality details for each character:",
+                "---",
+                script_excerpt,
+                "---",
+                "",
+            ]
+        )
+        if script_excerpt
+        else ""
+    )
+
     user_prompt = "\n".join(
         [
-            "Generate voice casting guidance for the following speakers:",
+            context_block,
+            "Generate a full character and voice casting profile for the following speakers:",
             *(f"- {speaker_name}" for speaker_name in clean_speaker_names),
             "",
             "Return every speaker using the exact format requested in the system prompt.",
+            "Include gender, race/ethnicity, physical appearance, age, and voice details for each character.",
         ]
     )
 
@@ -1542,7 +1591,7 @@ def generate_voice_casting(
             timeout_seconds=int(timeout_seconds or 60),
             temperature=0.7,
             top_p=0.9,
-            max_tokens=1024,
+            max_tokens=2048,
             extra_headers=extra_headers,
             auth_style=auth_style,
         )
