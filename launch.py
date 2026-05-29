@@ -742,6 +742,12 @@ def generate_conversation_audio_simple(
         speakers = get_speaker_names_from_script(conversation_script)
         print(f"[MIC] Found speakers: {speakers}")
 
+        checkpoint_dir = _get_conversation_checkpoint_dir(
+            resolved_project,
+            selected_engine,
+            conversation_script,
+        )
+
         # Initialize ref_texts if not provided
         if ref_texts is None:
             ref_texts = [None] * 10
@@ -771,12 +777,23 @@ def generate_conversation_audio_simple(
             speaker_seed_map[speaker] = np.random.randint(0, 2147483647)
             print(f"🎲 {speaker} -> seed: {speaker_seed_map[speaker]}")
 
-        conversation_audio_chunks = []
-        conversation_info = []
-        sample_rate = 22050
+        (
+            conversation_audio_chunks,
+            conversation_info,
+            resume_start_index,
+            resumed_sample_rate,
+            resume_message,
+        ) = _resume_conversation_checkpoint(
+            checkpoint_dir,
+            resolved_project,
+            selected_engine,
+            conversation_script,
+            len(conversation),
+        )
+        sample_rate = resumed_sample_rate or 22050
 
         # Generate audio for each conversation line
-        for i, line in enumerate(conversation):
+        for i, line in enumerate(conversation[resume_start_index:], start=resume_start_index):
             speaker = line["speaker"]
             text = line["text"]
 
@@ -1028,9 +1045,20 @@ def generate_conversation_audio_simple(
 
                 # Extract audio array from tuple
                 if isinstance(audio_data, tuple):
-                    sample_rate, line_audio = audio_data
+                    current_sample_rate, line_audio = audio_data
                 else:
                     return None, f"ERROR: Invalid audio format for {speaker}"
+
+                if sample_rate is None:
+                    sample_rate = current_sample_rate
+                elif sample_rate != current_sample_rate:
+                    import librosa
+
+                    line_audio = librosa.resample(
+                        line_audio,
+                        orig_sr=current_sample_rate,
+                        target_sr=sample_rate,
+                    )
 
                 conversation_audio_chunks.append(line_audio)
                 conversation_info.append(
@@ -1042,13 +1070,32 @@ def generate_conversation_audio_simple(
                     }
                 )
 
+                _save_conversation_checkpoint_segment(
+                    checkpoint_dir,
+                    resolved_project,
+                    selected_engine,
+                    conversation_script,
+                    len(conversation),
+                    i,
+                    speaker,
+                    text[:50] + ("..." if len(text) > 50 else ""),
+                    line_audio,
+                    sample_rate,
+                )
+
                 print(f"SUCCESS: Generated {len(line_audio)} samples for {speaker}")
 
             except Exception as gen_error:
                 import traceback
 
                 traceback.print_exc()
-                return None, f"ERROR: Error generating audio for {speaker}: {str(gen_error)}"
+                completed_lines = len(conversation_audio_chunks)
+                return (
+                    None,
+                    "ERROR: Error generating audio for "
+                    + f"{speaker}: {str(gen_error)}\n"
+                    + f"Checkpoint saved for project '{resolved_project}'. Re-run to resume from line {completed_lines + 1}/{len(conversation)}.",
+                )
 
         # Combine all audio with proper timing
         print("[MUSIC] Combining conversation audio with proper timing...")
@@ -1200,6 +1247,10 @@ def generate_conversation_audio_simple(
             "script_file": script_path,
         }
         summary["saved_audio_path"] = filepath
+        if resume_message:
+            summary["resume_info"] = resume_message
+
+        _clear_conversation_checkpoint(checkpoint_dir)
 
         print(
             f"SUCCESS: Conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
@@ -2267,6 +2318,7 @@ APP_STATE_SETTINGS_FILE = os.path.join(APP_STATE_DIR, "settings.json")
 APP_STATE_SPEAKER_PROFILES_FILE = Path(APP_STATE_DIR) / "speaker_profiles.json"
 APP_STATE_VOICES_DIR = os.path.join(APP_STATE_DIR, "voices")
 APP_STATE_OUTPUTS_DIR = os.path.join(APP_STATE_DIR, "outputs")
+APP_STATE_CONVERSATION_CHECKPOINTS_DIR = os.path.join(APP_STATE_DIR, "conversation_checkpoints")
 
 # Legacy preset file (migrated one-way to app_state/presets.json)
 PRESETS_FILE = "voice_presets.json"
@@ -2335,6 +2387,7 @@ def ensure_app_state_dirs():
     os.makedirs(APP_STATE_DIR, exist_ok=True)
     os.makedirs(APP_STATE_VOICES_DIR, exist_ok=True)
     os.makedirs(APP_STATE_OUTPUTS_DIR, exist_ok=True)
+    os.makedirs(APP_STATE_CONVERSATION_CHECKPOINTS_DIR, exist_ok=True)
     if not os.path.exists(APP_STATE_SETTINGS_FILE):
         with open(APP_STATE_SETTINGS_FILE, "w", encoding="utf-8") as file:
             json.dump(DEFAULT_AUTOSAVE_SETTINGS, file, indent=2, ensure_ascii=False)
@@ -2666,9 +2719,7 @@ def _get_initial_namespaced_llm_settings(
 
     provider_config = _get_provider_config(provider_name)
     base_url = str(settings.get(base_url_key, "") or "").strip() or provider_config["base_url"]
-    api_key = ""
-    if namespace == "assistant":
-        api_key = str(settings.get(api_key_key, "") or "").strip()
+    api_key = str(settings.get(api_key_key, "") or "").strip()
     model_id = normalize_provider_model_id(
         provider_name,
         str(settings.get(model_id_key, "") or "").strip() or provider_config["default_model"],
@@ -2801,6 +2852,7 @@ def _save_namespaced_llm_settings(
         _get_llm_settings_key(namespace, "provider"): normalized_provider,
         _get_llm_settings_key(namespace, "preset"): normalized_preset,
         _get_llm_settings_key(namespace, "base_url"): str(base_url or "").strip(),
+        _get_llm_settings_key(namespace, "api_key"): str(api_key or "").strip(),
         _get_llm_settings_key(namespace, "model_id"): str(model_id or "").strip(),
         _get_llm_settings_key(namespace, "system_prompt"): (
             ""
@@ -2808,8 +2860,6 @@ def _save_namespaced_llm_settings(
             else str(system_prompt or "")
         ),
     }
-    if namespace == "assistant":
-        updates[_get_llm_settings_key(namespace, "api_key")] = str(api_key or "").strip()
     if namespace == "narration" and normalized_content_type is not None:
         updates[_get_llm_settings_key(namespace, "content_type")] = normalized_content_type
 
@@ -2870,6 +2920,17 @@ def save_assistant_llm_settings(
     try:
         _save_namespaced_llm_settings(
             namespace="assistant",
+            provider_name=provider_name,
+            base_url=base_url,
+            model_id=model_id,
+            api_key=api_key,
+            system_prompt=system_prompt,
+            preset_name=preset_name,
+            default_system_prompt="",
+        )
+        # Sync assistant settings to narration namespace so Conversation panel stays in sync
+        _save_namespaced_llm_settings(
+            namespace="narration",
             provider_name=provider_name,
             base_url=base_url,
             model_id=model_id,
@@ -4121,6 +4182,456 @@ def split_text_into_chunks(text: str, max_chunk_length: int = 300) -> list[str]:
     return chunks
 
 
+def sanitize_chatterbox_multilingual_chunk(text: str) -> str:
+    """Normalize interrupted fragments so multilingual tokenization never sees empty content."""
+    sanitized = str(text or "").strip()
+    if not sanitized:
+        return ""
+
+    sanitized = sanitized.replace("—", "-").replace("–", "-")
+    sanitized = re.sub(r"(?<=\w)-(?=[\s,.;:!?-]*$)", "", sanitized)
+    sanitized = re.sub(r"[\s,.;:!?-]+$", "", sanitized)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+
+    if not re.search(r"\w", sanitized):
+        return ""
+
+    return sanitized
+
+
+def _has_value(value: Any) -> bool:
+    return bool(str(value or "").strip())
+
+
+def _single_speaker_preflight(
+    tts_engine: str, params: dict[str, Any]
+) -> tuple[list[str], list[str]]:
+    """Return blocking errors and user-facing warnings before single-speaker synthesis."""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if tts_engine in {"ChatterboxTTS", "Chatterbox Multilingual", "Chatterbox Turbo"}:
+        ref_key = {
+            "ChatterboxTTS": "chatterbox_ref_audio",
+            "Chatterbox Multilingual": "chatterbox_mtl_ref_audio",
+            "Chatterbox Turbo": "chatterbox_turbo_ref_audio",
+        }[tts_engine]
+        if not _has_value(params.get(ref_key)):
+            errors.append(
+                f"{tts_engine} requires a saved voice preset or reference audio before synthesis can start."
+            )
+    elif tts_engine == "Fish Speech":
+        if not _has_value(params.get("fish_ref_audio")):
+            errors.append("Fish Speech requires reference audio before synthesis can start.")
+        elif not _has_value(params.get("fish_ref_text")):
+            warnings.append(
+                "Fish Speech reference text is empty. Generation may be less stable or less accurate."
+            )
+    elif tts_engine == "IndexTTS2":
+        if not _has_value(params.get("indextts2_ref_audio")):
+            errors.append("IndexTTS2 requires reference audio before synthesis can start.")
+    elif tts_engine == "IndexTTS":
+        if not _has_value(params.get("indextts_ref_audio")):
+            warnings.append(
+                "IndexTTS has no reference audio selected. The app will fall back to its default sample voice."
+            )
+    elif tts_engine == "F5-TTS":
+        if not _has_value(params.get("f5_ref_audio")):
+            warnings.append(
+                "F5-TTS has no reference audio selected. The app will fall back to its default sample voice."
+            )
+    elif tts_engine == "VoxCPM":
+        if not _has_value(params.get("voxcpm_ref_audio")):
+            warnings.append(
+                "VoxCPM has no reference audio selected. The app will use its default voice path."
+            )
+    elif tts_engine == "Qwen Voice Clone":
+        if not _has_value(params.get("qwen_ref_audio")):
+            errors.append("Qwen Voice Clone requires reference audio before synthesis can start.")
+        elif not _has_value(params.get("qwen_ref_text")):
+            warnings.append(
+                "Qwen Voice Clone has no reference transcript saved. The app may auto-transcribe it before generation."
+            )
+
+    return errors, warnings
+
+
+def _conversation_preflight(
+    script_text: str,
+    selected_engine: str,
+    voice_samples,
+    ref_texts,
+    kokoro_voices,
+    kitten_voices,
+) -> tuple[list[str], list[str], dict[str, dict[str, bool]]]:
+    """Return blocking errors, warnings, and per-speaker readiness for conversation mode."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    readiness: dict[str, dict[str, bool]] = {}
+
+    speakers = get_speaker_names_from_script(script_text)
+    if not speakers:
+        return errors, warnings, readiness
+
+    missing_samples: list[str] = []
+    missing_ref_texts: list[str] = []
+    fallback_voice_speakers: list[str] = []
+
+    strict_voice_clone_engines = {
+        "ChatterboxTTS",
+        "Chatterbox Multilingual",
+        "Chatterbox Turbo",
+        "Fish Speech",
+        "IndexTTS2",
+        "Qwen Voice Clone",
+    }
+
+    for index, speaker in enumerate(speakers):
+        has_sample = index < len(voice_samples) and _has_value(voice_samples[index])
+        has_ref_text = index < len(ref_texts) and _has_value(ref_texts[index])
+        has_kokoro_voice = index < len(kokoro_voices) and _has_value(kokoro_voices[index])
+        has_kitten_voice = index < len(kitten_voices) and _has_value(kitten_voices[index])
+
+        readiness[speaker] = {
+            "has_sample": has_sample,
+            "has_ref_text": has_ref_text,
+            "has_kokoro_voice": has_kokoro_voice,
+            "has_kitten_voice": has_kitten_voice,
+        }
+
+        if not has_sample:
+            missing_samples.append(speaker)
+        if not has_ref_text:
+            missing_ref_texts.append(speaker)
+        if selected_engine == "Kokoro TTS" and not has_kokoro_voice:
+            fallback_voice_speakers.append(speaker)
+        if selected_engine == "KittenTTS" and not has_kitten_voice:
+            fallback_voice_speakers.append(speaker)
+
+    if selected_engine in strict_voice_clone_engines and missing_samples:
+        errors.append(
+            f"{selected_engine} cannot start because these speakers do not have voice assignments: {', '.join(missing_samples)}."
+        )
+    elif selected_engine == "IndexTTS" and missing_samples:
+        warnings.append(
+            "IndexTTS missing reference audio for: "
+            + ", ".join(missing_samples)
+            + ". Those speakers will use the default sample voice."
+        )
+    elif selected_engine == "F5-TTS" and missing_samples:
+        warnings.append(
+            "F5-TTS missing reference audio for: "
+            + ", ".join(missing_samples)
+            + ". Those speakers will use the default sample voice."
+        )
+    elif selected_engine == "VoxCPM" and missing_samples:
+        warnings.append(
+            "VoxCPM missing reference audio for: "
+            + ", ".join(missing_samples)
+            + ". Those speakers will use the default voice path."
+        )
+
+    if selected_engine == "Qwen Voice Clone" and missing_ref_texts:
+        warnings.append(
+            "Qwen Voice Clone has no saved transcript for: "
+            + ", ".join(missing_ref_texts)
+            + ". The app may auto-transcribe those voices before generation."
+        )
+
+    if fallback_voice_speakers:
+        warnings.append(
+            f"{selected_engine} will fall back to built-in voices for: {', '.join(fallback_voice_speakers)}."
+        )
+
+    return errors, warnings, readiness
+
+
+def _hydrate_conversation_inputs_from_state(
+    script_text: str,
+    speaker_settings_state: dict[str, dict[str, Any]] | None,
+    voice_samples,
+    ref_texts,
+    kokoro_voices,
+    kitten_voices,
+) -> tuple[list[Any], list[str], list[str], list[str], list[str]]:
+    """Backfill empty conversation controls from saved speaker state before generation."""
+    hydrated_voice_samples = list(voice_samples or [])[:10]
+    hydrated_ref_texts = [str(value or "") for value in list(ref_texts or [])[:10]]
+    hydrated_kokoro_voices = [str(value or "") for value in list(kokoro_voices or [])[:10]]
+    hydrated_kitten_voices = [str(value or "") for value in list(kitten_voices or [])[:10]]
+
+    while len(hydrated_voice_samples) < 10:
+        hydrated_voice_samples.append(None)
+    while len(hydrated_ref_texts) < 10:
+        hydrated_ref_texts.append("")
+    while len(hydrated_kokoro_voices) < 10:
+        hydrated_kokoro_voices.append("")
+    while len(hydrated_kitten_voices) < 10:
+        hydrated_kitten_voices.append("")
+
+    fallback_messages: list[str] = []
+    if not isinstance(speaker_settings_state, dict) or not speaker_settings_state:
+        return (
+            hydrated_voice_samples,
+            hydrated_ref_texts,
+            hydrated_kokoro_voices,
+            hydrated_kitten_voices,
+            fallback_messages,
+        )
+
+    speakers = get_speaker_names_from_script(script_text)
+    for index, speaker_name in enumerate(speakers[:10]):
+        speaker_settings = speaker_settings_state.get(speaker_name, {})
+        if not isinstance(speaker_settings, dict):
+            continue
+
+        saved_ref_audio = str(speaker_settings.get("ref_audio", "") or "").strip()
+        if (
+            not _has_value(hydrated_voice_samples[index])
+            and saved_ref_audio
+            and os.path.exists(saved_ref_audio)
+        ):
+            hydrated_voice_samples[index] = saved_ref_audio
+            fallback_messages.append(
+                f"Recovered saved voice assignment for {speaker_name} from conversation state."
+            )
+
+        saved_ref_text = str(speaker_settings.get("fish_ref_text", "") or "").strip()
+        if not _has_value(hydrated_ref_texts[index]) and saved_ref_text:
+            hydrated_ref_texts[index] = saved_ref_text
+
+        saved_kokoro_voice = str(speaker_settings.get("kokoro_voice", "") or "").strip()
+        if not _has_value(hydrated_kokoro_voices[index]) and saved_kokoro_voice:
+            hydrated_kokoro_voices[index] = saved_kokoro_voice
+
+        saved_kitten_voice = str(speaker_settings.get("kitten_voice", "") or "").strip()
+        if not _has_value(hydrated_kitten_voices[index]) and saved_kitten_voice:
+            hydrated_kitten_voices[index] = saved_kitten_voice
+
+    return (
+        hydrated_voice_samples,
+        hydrated_ref_texts,
+        hydrated_kokoro_voices,
+        hydrated_kitten_voices,
+        fallback_messages,
+    )
+
+
+def _conversation_checkpoint_key(
+    project_name: str,
+    selected_engine: str,
+    conversation_script: str,
+) -> str:
+    key_source = "\n".join(
+        [
+            str(project_name or "").strip(),
+            str(selected_engine or "").strip(),
+            str(conversation_script or ""),
+        ]
+    )
+    return hashlib.sha256(key_source.encode("utf-8")).hexdigest()[:24]
+
+
+def _get_conversation_checkpoint_dir(
+    project_name: str,
+    selected_engine: str,
+    conversation_script: str,
+) -> str:
+    ensure_app_state_dirs()
+    checkpoint_key = _conversation_checkpoint_key(project_name, selected_engine, conversation_script)
+    return os.path.join(
+        APP_STATE_CONVERSATION_CHECKPOINTS_DIR,
+        _safe_name(project_name or "conversation"),
+        checkpoint_key,
+    )
+
+
+def _get_conversation_checkpoint_manifest_path(checkpoint_dir: str) -> str:
+    return os.path.join(checkpoint_dir, "manifest.json")
+
+
+def _load_conversation_checkpoint_audio(audio_path: str) -> tuple[int | None, np.ndarray | None]:
+    if not audio_path or not os.path.exists(audio_path):
+        return None, None
+
+    try:
+        import soundfile as sf
+
+        audio_data, sample_rate = sf.read(audio_path, dtype="float32")
+        if isinstance(audio_data, np.ndarray) and audio_data.ndim > 1:
+            audio_data = audio_data.mean(axis=1)
+        return int(sample_rate), np.asarray(audio_data, dtype=np.float32)
+    except Exception:
+        pass
+
+    try:
+        sample_rate, audio_data = wavfile.read(audio_path)
+        if isinstance(audio_data, np.ndarray) and audio_data.ndim > 1:
+            audio_data = audio_data.mean(axis=1)
+        if np.issubdtype(audio_data.dtype, np.integer):
+            max_value = max(abs(np.iinfo(audio_data.dtype).min), np.iinfo(audio_data.dtype).max)
+            audio_data = audio_data.astype(np.float32) / float(max_value)
+        else:
+            audio_data = audio_data.astype(np.float32)
+        return int(sample_rate), audio_data
+    except Exception:
+        return None, None
+
+
+def _load_conversation_checkpoint_manifest(
+    checkpoint_dir: str,
+    project_name: str,
+    selected_engine: str,
+    conversation_script: str,
+    total_lines: int,
+) -> dict[str, Any]:
+    manifest_path = _get_conversation_checkpoint_manifest_path(checkpoint_dir)
+    if not os.path.exists(manifest_path):
+        return {}
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as file:
+            manifest = json.load(file)
+    except Exception:
+        return {}
+
+    if not isinstance(manifest, dict):
+        return {}
+
+    if manifest.get("project_name") != project_name:
+        return {}
+    if manifest.get("selected_engine") != selected_engine:
+        return {}
+    if manifest.get("script_hash") != hashlib.sha256(str(conversation_script or "").encode("utf-8")).hexdigest():
+        return {}
+    if int(manifest.get("total_lines", 0) or 0) != int(total_lines or 0):
+        return {}
+
+    segments = manifest.get("segments", [])
+    if not isinstance(segments, list):
+        return {}
+
+    manifest["segments"] = sorted(
+        [segment for segment in segments if isinstance(segment, dict)],
+        key=lambda segment: int(segment.get("line_index", -1)),
+    )
+    return manifest
+
+
+def _resume_conversation_checkpoint(
+    checkpoint_dir: str,
+    project_name: str,
+    selected_engine: str,
+    conversation_script: str,
+    total_lines: int,
+) -> tuple[list[np.ndarray], list[dict[str, Any]], int, int | None, str | None]:
+    manifest = _load_conversation_checkpoint_manifest(
+        checkpoint_dir,
+        project_name,
+        selected_engine,
+        conversation_script,
+        total_lines,
+    )
+    if not manifest:
+        return [], [], 0, None, None
+
+    conversation_audio_chunks: list[np.ndarray] = []
+    conversation_info: list[dict[str, Any]] = []
+    sample_rate: int | None = None
+
+    for expected_index, segment in enumerate(manifest.get("segments", [])):
+        line_index = int(segment.get("line_index", -1))
+        if line_index != expected_index:
+            break
+        loaded_sample_rate, line_audio = _load_conversation_checkpoint_audio(
+            str(segment.get("audio_path", "") or "")
+        )
+        if line_audio is None or loaded_sample_rate is None:
+            break
+        if sample_rate is None:
+            sample_rate = loaded_sample_rate
+        conversation_audio_chunks.append(line_audio)
+        conversation_info.append(
+            {
+                "speaker": str(segment.get("speaker", "") or ""),
+                "text": str(segment.get("text", "") or ""),
+                "duration": float(segment.get("duration", 0.0) or 0.0),
+                "samples": int(segment.get("samples", len(line_audio)) or len(line_audio)),
+            }
+        )
+
+    resumed_count = len(conversation_audio_chunks)
+    if resumed_count == 0:
+        return [], [], 0, None, None
+
+    resume_message = (
+        f"Resumed from checkpoint with {resumed_count}/{total_lines} conversation lines already completed."
+    )
+    return conversation_audio_chunks, conversation_info, resumed_count, sample_rate, resume_message
+
+
+def _save_conversation_checkpoint_segment(
+    checkpoint_dir: str,
+    project_name: str,
+    selected_engine: str,
+    conversation_script: str,
+    total_lines: int,
+    line_index: int,
+    speaker: str,
+    text_preview: str,
+    line_audio: np.ndarray,
+    sample_rate: int,
+) -> None:
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    manifest_path = _get_conversation_checkpoint_manifest_path(checkpoint_dir)
+    manifest = _load_conversation_checkpoint_manifest(
+        checkpoint_dir,
+        project_name,
+        selected_engine,
+        conversation_script,
+        total_lines,
+    )
+    if not manifest:
+        manifest = {
+            "version": 1,
+            "project_name": project_name,
+            "selected_engine": selected_engine,
+            "script_hash": hashlib.sha256(str(conversation_script or "").encode("utf-8")).hexdigest(),
+            "total_lines": int(total_lines),
+            "segments": [],
+        }
+
+    segment_base = f"line_{line_index + 1:04d}_{_safe_name(speaker or 'speaker')}"
+    audio_path, _audio_name = save_audio_with_format(
+        line_audio,
+        sample_rate,
+        "wav",
+        checkpoint_dir,
+        filename_base=segment_base,
+    )
+    segment_record = {
+        "line_index": int(line_index),
+        "speaker": str(speaker or ""),
+        "text": str(text_preview or ""),
+        "samples": int(len(line_audio)),
+        "duration": float(len(line_audio) / sample_rate) if sample_rate else 0.0,
+        "audio_path": audio_path,
+    }
+
+    segments = [segment for segment in manifest.get("segments", []) if isinstance(segment, dict)]
+    segments = [segment for segment in segments if int(segment.get("line_index", -1)) != int(line_index)]
+    segments.append(segment_record)
+    manifest["segments"] = sorted(segments, key=lambda segment: int(segment.get("line_index", -1)))
+    manifest["completed_lines"] = len(manifest["segments"])
+    with open(manifest_path, "w", encoding="utf-8") as file:
+        json.dump(manifest, file, indent=2, ensure_ascii=False)
+
+
+def _clear_conversation_checkpoint(checkpoint_dir: str) -> None:
+    if os.path.isdir(checkpoint_dir):
+        shutil.rmtree(checkpoint_dir, ignore_errors=True)
+
+
 # ===== AUDIO EFFECTS FUNCTIONS =====
 def apply_reverb(audio, sr, room_size=0.3, damping=0.5, wet_level=0.3):
     """Apply reverb effect to audio."""
@@ -4461,8 +4972,15 @@ def generate_chatterbox_multilingual_tts(
             print("📊 Progress information will appear below during generation...")
 
         for i, chunk in enumerate(text_chunks):
+            sanitized_chunk = sanitize_chatterbox_multilingual_chunk(chunk)
+            if not sanitized_chunk:
+                print(f"[WARN] Skipping empty multilingual chunk {i+1}/{len(text_chunks)}")
+                continue
+
             if len(text_chunks) > 1:
-                print(f"[MEMO] Processing chunk {i+1}/{len(text_chunks)}: {chunk[:50]}...")
+                print(
+                    f"[MEMO] Processing chunk {i+1}/{len(text_chunks)}: {sanitized_chunk[:50]}..."
+                )
 
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning)
@@ -4471,7 +4989,7 @@ def generate_chatterbox_multilingual_tts(
                 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
                 wav = CHATTERBOX_MULTILINGUAL_MODEL.generate(
-                    chunk,
+                    sanitized_chunk,
                     language_id=language_id,
                     audio_prompt_path=audio_prompt_path_input,
                     exaggeration=exaggeration_input,
@@ -4485,6 +5003,12 @@ def generate_chatterbox_multilingual_tts(
 
             if len(text_chunks) > 1:
                 print(f"SUCCESS: Chunk {i+1}/{len(text_chunks)} completed")
+
+        if not audio_chunks:
+            return (
+                None,
+                "ERROR: ChatterboxMultilingualTTS received no usable text after sanitization",
+            )
 
         # Concatenate chunks
         if len(audio_chunks) == 1:
@@ -9088,6 +9612,19 @@ def generate_unified_tts_wrapped(*all_args):
         base_args[param_idx[ref_param_name]] = preset_audio
         preset_name_used = voice_preset
 
+    preflight_params = {
+        name: base_args[index] for name, index in param_idx.items() if index < len(base_args)
+    }
+    preflight_errors, preflight_warnings = _single_speaker_preflight(tts_engine, preflight_params)
+    if preflight_errors:
+        seed_label = f"🎲 Last Seed: {last_seed_state if last_seed_state is not None else 'N/A'}"
+        status_lines = [f"ERROR: Preflight check failed for {tts_engine}"]
+        status_lines.extend(preflight_errors)
+        if preflight_warnings:
+            status_lines.append("")
+            status_lines.extend(f"WARNING: {warning}" for warning in preflight_warnings)
+        return None, "\n".join(status_lines), seed_label, last_seed_state
+
     engine_seed_param = {
         "ChatterboxTTS": "chatterbox_seed",
         "Chatterbox Multilingual": "chatterbox_mtl_seed",
@@ -9131,6 +9668,7 @@ def generate_unified_tts_wrapped(*all_args):
     status_lines.append(f"Project: {resolved_project}")
     status_lines.append(f"Speaker: {resolved_speaker}")
     status_lines.append(llm_transform_status)
+    status_lines.extend(f"WARNING: {warning}" for warning in preflight_warnings)
     status_lines.append(
         f"Autosave copy audio: {'Yes' if autosave_store_audio_copy else 'No (metadata+script only)'}"
     )
@@ -13888,6 +14426,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     )
 
                             with gr.Row():
+                                assistant_llm_refresh_models_btn = gr.Button(
+                                    "[ARROWS] Refresh Models",
+                                    variant="secondary",
+                                    size="sm",
+                                    elem_classes=["fade-in"],
+                                )
                                 assistant_llm_test_btn = gr.Button(
                                     "🔗 Test Connection",
                                     variant="secondary",
@@ -16269,7 +16813,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             top_p_val,
             max_tokens_val,
         ):
-            """Save assistant LLM settings."""
+            """Save assistant LLM settings and sync to Conversation panel."""
             save_assistant_llm_settings(
                 provider_name=provider,
                 base_url=base_url,
@@ -16288,9 +16832,15 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     ),
                 }
             )
+            summary = build_conversation_llm_summary(provider, model_id)
             return (
                 "SUCCESS: Assistant settings saved (including generation parameters).",
                 get_assistant_status_indicator_text(provider, base_url, model_id),
+                gr.update(value=provider),
+                gr.update(value=base_url),
+                gr.update(value=api_key),
+                gr.update(value=model_id),
+                gr.update(value=summary),
             )
 
         def handle_assistant_provider_change(provider_name):
@@ -18605,6 +19155,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[assistant_llm_status, assistant_status_indicator],
         )
 
+        assistant_llm_refresh_models_btn.click(
+            fn=handle_synced_llm_model_refresh,
+            inputs=[assistant_llm_provider, assistant_llm_base_url, assistant_llm_api_key],
+            outputs=[
+                assistant_llm_model_id,
+                assistant_llm_status,
+                conversation_llm_model_id,
+                conversation_llm_connection_status,
+                conversation_llm_summary,
+            ],
+        )
+
         assistant_llm_save_btn.click(
             fn=handle_assistant_save_settings,
             inputs=[
@@ -18617,7 +19179,15 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 assistant_llm_top_p,
                 assistant_llm_max_tokens,
             ],
-            outputs=[assistant_llm_status, assistant_status_indicator],
+            outputs=[
+                assistant_llm_status,
+                assistant_status_indicator,
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_api_key,
+                conversation_llm_model_id,
+                conversation_llm_summary,
+            ],
         )
 
         assistant_llm_base_url.change(
@@ -19341,6 +19911,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     if speaker_index < len(kokoro_voices)
                     else default_settings.get("kokoro_voice", "af_heart")
                 )
+                if not str(voice_value or "").strip() and str(
+                    default_settings.get("kokoro_voice", "") or ""
+                ).strip():
+                    return f"Kokoro: recovered {default_settings.get('kokoro_voice', '')}"
                 return f"Kokoro: {voice_value or 'unassigned'}"
 
             if engine_family == "kitten":
@@ -19349,6 +19923,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     if speaker_index < len(kitten_voices)
                     else "expr-voice-2-f"
                 )
+                if not str(voice_value or "").strip() and str(
+                    default_settings.get("kitten_voice", "") or ""
+                ).strip():
+                    return f"Kitten: recovered {default_settings.get('kitten_voice', '')}"
                 return f"Kitten: {voice_value or 'unassigned'}"
 
             if engine_family == "indextts2":
@@ -19373,6 +19951,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
             has_ref_text = speaker_index < len(ref_texts) and bool(
                 str(ref_texts[speaker_index] or "").strip()
             )
+            if not has_sample and bool(str(default_settings.get("ref_audio", "") or "").strip()):
+                return "Voice sample: recovered from saved state"
             if has_sample:
                 return "Voice sample: uploaded"
             if has_ref_text:
@@ -19442,12 +20022,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
         def _build_selected_character_assignment(
             speaker_name: str,
             speaker_settings: dict[str, dict[str, Any]] | None,
+            selected_engine: str,
+            current_voice_sample=None,
+            current_ref_text: str | None = None,
+            current_kokoro_voice: str | None = None,
+            current_kitten_voice: str | None = None,
         ) -> str:
             settings = _get_selected_character_settings(speaker_settings, speaker_name)
             assigned_preset = _normalize_preset_name(settings.get("assigned_preset", ""))
             selected_profile = _normalize_speaker_profile_name(settings.get("selected_profile", ""))
             has_sample = bool(str(settings.get("ref_audio", "") or "").strip())
             has_ref_text = bool(str(settings.get("fish_ref_text", "") or "").strip())
+            has_kokoro_voice = bool(str(settings.get("kokoro_voice", "") or "").strip())
 
             assignment_parts: list[str] = []
             if assigned_preset:
@@ -19460,8 +20046,52 @@ Alice: I went to Japan. It was absolutely incredible!""",
             assignment_parts.append(
                 "Transcript: ready" if has_ref_text else "Transcript: not saved"
             )
+
+            if selected_engine in {
+                "ChatterboxTTS",
+                "Chatterbox Multilingual",
+                "Chatterbox Turbo",
+                "Fish Speech",
+                "IndexTTS2",
+                "Qwen Voice Clone",
+            }:
+                assignment_parts.append(
+                    "Ready for generation"
+                    if has_sample
+                    else f"Missing required voice assignment for {selected_engine}"
+                )
+            elif selected_engine == "Kokoro TTS":
+                assignment_parts.append(
+                    "Built-in voice selected"
+                    if has_kokoro_voice
+                    else "No Kokoro voice selected, default fallback will be used"
+                )
+            elif selected_engine == "KittenTTS":
+                assignment_parts.append("Built-in voice selected")
+            elif selected_engine in {"IndexTTS", "F5-TTS", "VoxCPM"} and not has_sample:
+                assignment_parts.append(
+                    f"No voice assignment saved, {selected_engine} fallback will be used"
+                )
+
+            recovery_parts: list[str] = []
+            if has_sample and not current_voice_sample:
+                recovery_parts.append("Recovered saved speaker assignment will be used at generation time")
+            if has_ref_text and not str(current_ref_text or "").strip():
+                recovery_parts.append("Saved transcript guidance is available even though the visible field is empty")
+            if selected_engine == "Kokoro TTS" and has_kokoro_voice and not str(
+                current_kokoro_voice or ""
+            ).strip():
+                recovery_parts.append("Recovered Kokoro voice selection will be used at generation time")
+            if selected_engine == "KittenTTS" and bool(str(settings.get("kitten_voice", "") or "").strip()) and not str(
+                current_kitten_voice or ""
+            ).strip():
+                recovery_parts.append("Recovered Kitten voice selection will be used at generation time")
+
             if selected_profile:
                 assignment_parts.append(f"Conversation voice bank: **{selected_profile}**")
+
+            if recovery_parts:
+                assignment_parts = [*(f"Recovered: {message}" for message in recovery_parts), *assignment_parts]
 
             return f"**Current assignment for {speaker_name}:** " + " | ".join(assignment_parts)
 
@@ -19672,6 +20302,19 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     value=_build_selected_character_assignment(
                         selected_speaker_name,
                         speaker_settings,
+                        selected_engine,
+                        voice_samples[normalized_selected_index]
+                        if normalized_selected_index < len(voice_samples)
+                        else None,
+                        ref_texts[normalized_selected_index]
+                        if normalized_selected_index < len(ref_texts)
+                        else None,
+                        kokoro_voices[normalized_selected_index]
+                        if normalized_selected_index < len(kokoro_voices)
+                        else None,
+                        kitten_voices[normalized_selected_index]
+                        if normalized_selected_index < len(kitten_voices)
+                        else None,
                     )
                 ),
                 gr.update(choices=get_voice_preset_choices(), value=""),
@@ -19819,6 +20462,17 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     value=_build_selected_character_assignment(
                         selected_speaker_name,
                         speaker_settings,
+                        selected_engine,
+                        voice_samples[normalized_index]
+                        if normalized_index < len(voice_samples)
+                        else None,
+                        ref_texts[normalized_index] if normalized_index < len(ref_texts) else None,
+                        kokoro_voices[normalized_index]
+                        if normalized_index < len(kokoro_voices)
+                        else None,
+                        kitten_voices[normalized_index]
+                        if normalized_index < len(kitten_voices)
+                        else None,
                     )
                 ),
                 normalized_index,
@@ -20201,6 +20855,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             kokoro_voices,
             kitten_voices,
             selected_engine,
+            speaker_settings_state,
             project_name=None,
             autosave_enabled=True,
             autosave_store_audio_copy=True,
@@ -20220,12 +20875,42 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             if project_error:
                 return None, project_error
 
+            (
+                hydrated_voice_samples,
+                hydrated_ref_texts,
+                hydrated_kokoro_voices,
+                hydrated_kitten_voices,
+                hydration_warnings,
+            ) = _hydrate_conversation_inputs_from_state(
+                script_text,
+                speaker_settings_state,
+                voice_samples,
+                ref_texts,
+                kokoro_voices,
+                kitten_voices,
+            )
+
+            preflight_errors, preflight_warnings, _ = _conversation_preflight(
+                script_text,
+                selected_engine,
+                hydrated_voice_samples,
+                hydrated_ref_texts,
+                hydrated_kokoro_voices,
+                hydrated_kitten_voices,
+            )
+            if preflight_errors:
+                status_lines = ["ERROR: Conversation preflight failed"]
+                status_lines.extend(preflight_errors)
+                status_lines.extend(f"WARNING: {warning}" for warning in hydration_warnings)
+                status_lines.extend(f"WARNING: {warning}" for warning in preflight_warnings)
+                return None, "\n".join(status_lines)
+
             try:
                 # For Kokoro TTS, use the selected voices instead of voice samples
                 if selected_engine == "Kokoro TTS":
                     result = generate_conversation_audio_kokoro(
                         script_text,
-                        kokoro_voices,
+                        hydrated_kokoro_voices,
                         selected_engine=selected_engine,
                         conversation_pause_duration=pause_duration,
                         speaker_transition_pause=transition_pause,
@@ -20237,7 +20922,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     # For KittenTTS, use the selected voices
                     result = generate_conversation_audio_kitten(
                         script_text,
-                        kitten_voices,
+                        hydrated_kitten_voices,
                         selected_engine=selected_engine,
                         conversation_pause_duration=pause_duration,
                         speaker_transition_pause=transition_pause,
@@ -20249,7 +20934,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     # For IndexTTS2, use emotion controls
                     result = generate_conversation_audio_indextts2(
                         script_text,
-                        voice_samples,
+                        hydrated_voice_samples,
                         emotion_modes or [],
                         emotion_audios or [],
                         emotion_descriptions or [],
@@ -20265,8 +20950,8 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     # Use the original function for other engines
                     result = generate_conversation_audio_simple(
                         script_text,
-                        voice_samples,
-                        ref_texts=ref_texts,
+                        hydrated_voice_samples,
+                        ref_texts=hydrated_ref_texts,
                         selected_engine=selected_engine,
                         conversation_pause_duration=pause_duration,
                         speaker_transition_pause=transition_pause,
@@ -20288,10 +20973,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     audio_format=audio_format,
                     pause_duration=pause_duration,
                     transition_pause=transition_pause,
-                    voice_samples=voice_samples,
-                    ref_texts=ref_texts,
-                    kokoro_voices=kokoro_voices,
-                    kitten_voices=kitten_voices,
+                    voice_samples=hydrated_voice_samples,
+                    ref_texts=hydrated_ref_texts,
+                    kokoro_voices=hydrated_kokoro_voices,
+                    kitten_voices=hydrated_kitten_voices,
                     emotion_modes=emotion_modes,
                     emotion_descriptions=emotion_descriptions,
                     emotion_vectors=emotion_vectors,
@@ -20362,6 +21047,25 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                             )
 
                 summary_text = format_conversation_info(summary)
+                resume_info = str(summary.get("resume_info", "") or "").strip()
+                if resume_info:
+                    summary_text = f"INFO: {resume_info}\n\n{summary_text}"
+                if hydration_warnings:
+                    summary_text = "\n".join(
+                        [
+                            *(f"WARNING: {warning}" for warning in hydration_warnings),
+                            "",
+                            summary_text,
+                        ]
+                    )
+                if preflight_warnings:
+                    summary_text = "\n".join(
+                        [
+                            *(f"WARNING: {warning}" for warning in preflight_warnings),
+                            "",
+                            summary_text,
+                        ]
+                    )
                 if history_status_lines:
                     summary_text = summary_text + "\n\n" + "\n".join(history_status_lines)
 
@@ -20410,6 +21114,9 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
                 audio_data, summary = result
                 summary_text = format_conversation_info(summary)
+                resume_info = str(summary.get("resume_info", "") or "").strip()
+                if resume_info:
+                    summary_text = f"INFO: {resume_info}\n\n{summary_text}"
 
                 print(
                     f"SUCCESS: Conversation generated successfully, returning summary: {summary_text[:100]}..."
@@ -20763,7 +21470,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         )
 
         generate_conversation_btn.click(
-            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, rt1, rt2, rt3, rt4, rt5, rt6, rt7, rt8, rt9, rt10, kv1, kv2, kv3, kv4, kv5, kv6, kv7, kv8, kv9, kv10, ktv1, ktv2, ktv3, ktv4, ktv5, ktv6, ktv7, ktv8, ktv9, ktv10, engine, project_name, autosave_on, autosave_copy, keep_legacy, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5, em6, ea6, ed6, h6, s6_sad, a6, af6, su6, c6, em7, ea7, ed7, h7, s7_sad, a7, af7, su7, c7, em8, ea8, ed8, h8, s8_sad, a8, af8, su8, c8, em9, ea9, ed9, h9, s9_sad, a9, af9, su9, c9, em10, ea10, ed10, h10, s10_sad, a10, af10, su10, c10: handle_generate_conversation_advanced(
+            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, rt1, rt2, rt3, rt4, rt5, rt6, rt7, rt8, rt9, rt10, kv1, kv2, kv3, kv4, kv5, kv6, kv7, kv8, kv9, kv10, ktv1, ktv2, ktv3, ktv4, ktv5, ktv6, ktv7, ktv8, ktv9, ktv10, engine, speaker_settings_state, project_name, autosave_on, autosave_copy, keep_legacy, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5, em6, ea6, ed6, h6, s6_sad, a6, af6, su6, c6, em7, ea7, ed7, h7, s7_sad, a7, af7, su7, c7, em8, ea8, ed8, h8, s8_sad, a8, af8, su8, c8, em9, ea9, ed9, h9, s9_sad, a9, af9, su9, c9, em10, ea10, ed10, h10, s10_sad, a10, af10, su10, c10: handle_generate_conversation_advanced(
                 script,
                 pause,
                 trans_pause,
@@ -20773,6 +21480,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 [kv1, kv2, kv3, kv4, kv5, kv6, kv7, kv8, kv9, kv10],
                 [ktv1, ktv2, ktv3, ktv4, ktv5, ktv6, ktv7, ktv8, ktv9, ktv10],
                 engine,
+                speaker_settings_state,
                 project_name,
                 autosave_on,
                 autosave_copy,
@@ -20910,6 +21618,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_9_kitten_voice,
                 speaker_10_kitten_voice,
                 tts_engine,  # Use the main TTS engine selector
+                conversation_speaker_settings_state,
                 autosave_project_name,
                 autosave_enabled,
                 autosave_store_audio_copy,
