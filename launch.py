@@ -4349,11 +4349,16 @@ def split_text_into_chunks(text: str, max_chunk_length: int = 300) -> list[str]:
     return chunks
 
 
-def sanitize_chatterbox_multilingual_chunk(text: str) -> str:
+def sanitize_chatterbox_multilingual_chunk(text: str) -> tuple[str, str | None]:
     """Normalize interrupted fragments so multilingual tokenization never sees empty content."""
     sanitized = str(text or "").strip()
     if not sanitized:
-        return ""
+        return "", None
+
+    original = sanitized
+    had_terminal_interruption = bool(
+        re.search(r"(?:[-—–]|\.\.\.|…)\s*$", original)
+    )
 
     sanitized = sanitized.replace("—", "-").replace("–", "-")
     sanitized = re.sub(r"(?<=\w)-(?=[\s,.;:!?-]*$)", "", sanitized)
@@ -4361,9 +4366,36 @@ def sanitize_chatterbox_multilingual_chunk(text: str) -> str:
     sanitized = re.sub(r"\s+", " ", sanitized).strip()
 
     if not re.search(r"\w", sanitized):
-        return ""
+        return "", "Skipped multilingual chunk that became empty after sanitization."
 
-    return sanitized
+    alnum_only = re.sub(r"[^\w]", "", sanitized, flags=re.UNICODE)
+    if had_terminal_interruption and alnum_only and len(alnum_only) <= 3 and " " not in sanitized:
+        rewritten = ". ".join(list(alnum_only)) + "."
+        return (
+            rewritten,
+            f"Rewrote short interrupted multilingual fragment '{original[:40]}' as '{rewritten}' for stability.",
+        )
+
+    if len(alnum_only) <= 1:
+        return "", "Skipped multilingual chunk that was too short to synthesize safely."
+
+    return sanitized, None
+
+
+def _find_multilingual_risky_fragments(script_text: str) -> list[str]:
+    """Identify short interrupted fragments that will be rewritten for multilingual stability."""
+    risky_fragments: list[str] = []
+    for line_number, line in enumerate(parse_conversation_script(script_text), start=1):
+        original_text = str(line.get("text") or "").strip()
+        if not original_text:
+            continue
+        _, rewrite_note = sanitize_chatterbox_multilingual_chunk(original_text)
+        if not rewrite_note or not rewrite_note.startswith("Rewrote"):
+            continue
+        speaker = str(line.get("speaker") or "Unknown")
+        preview = original_text if len(original_text) <= 30 else f"{original_text[:27]}..."
+        risky_fragments.append(f"line {line_number} ({speaker}: {preview})")
+    return risky_fragments
 
 
 def _has_value(value: Any) -> bool:
@@ -4504,6 +4536,15 @@ def _conversation_preflight(
             + ", ".join(missing_ref_texts)
             + ". The app may auto-transcribe those voices before generation."
         )
+
+    if selected_engine == "Chatterbox Multilingual":
+        risky_fragments = _find_multilingual_risky_fragments(script_text)
+        if risky_fragments:
+            warnings.append(
+                "Chatterbox Multilingual detected short interrupted fragments that will be rewritten for stability: "
+                + ", ".join(risky_fragments[:5])
+                + ("." if len(risky_fragments) <= 5 else ", ...")
+            )
 
     if fallback_voice_speakers:
         warnings.append(
@@ -4765,6 +4806,74 @@ def _load_conversation_checkpoint_manifest(
         key=lambda segment: int(segment.get("line_index", -1)),
     )
     return manifest
+
+
+def _inspect_conversation_checkpoint(project_name, selected_engine, conversation_script):
+    """Return lightweight checkpoint progress details for the current conversation inputs."""
+    if not str(conversation_script or "").strip() or not str(selected_engine or "").strip():
+        return None
+
+    resolved_project, project_error = _validate_required_project_name(project_name)
+    if project_error:
+        return None
+
+    conversation_lines = parse_conversation_script(conversation_script)
+    total_lines = len(conversation_lines)
+    if total_lines <= 0:
+        return None
+
+    checkpoint_dir = _get_conversation_checkpoint_dir(
+        resolved_project,
+        selected_engine,
+        conversation_script,
+    )
+    manifest = _load_conversation_checkpoint_manifest(
+        checkpoint_dir,
+        resolved_project,
+        selected_engine,
+        conversation_script,
+        total_lines,
+    )
+    if not manifest:
+        return None
+
+    completed_lines = 0
+    for expected_index, segment in enumerate(manifest.get("segments") or []):
+        if int(segment.get("line_index", -1)) != expected_index:
+            break
+        audio_path = str(segment.get("audio_path") or "").strip()
+        if not audio_path or not os.path.exists(audio_path):
+            break
+        completed_lines += 1
+
+    if completed_lines <= 0 or completed_lines >= total_lines:
+        return None
+
+    return {
+        "project_name": resolved_project,
+        "selected_engine": selected_engine,
+        "completed_lines": completed_lines,
+        "total_lines": total_lines,
+        "next_line": completed_lines + 1,
+    }
+
+
+def _format_conversation_checkpoint_status(project_name, selected_engine, conversation_script) -> str:
+    """Build a user-facing resume status message for conversation mode."""
+    checkpoint_state = _inspect_conversation_checkpoint(
+        project_name,
+        selected_engine,
+        conversation_script,
+    )
+    if not checkpoint_state:
+        return "Resume checkpoint: none detected for the current project, engine, and script."
+
+    return (
+        "Resume available: "
+        f"{checkpoint_state['completed_lines']}/{checkpoint_state['total_lines']} lines already exist for "
+        f"{checkpoint_state['project_name']} on {checkpoint_state['selected_engine']}. "
+        f"Next line: {checkpoint_state['next_line']}."
+    )
 
 
 def _resume_conversation_checkpoint(
@@ -5223,7 +5332,9 @@ def generate_chatterbox_multilingual_tts(
             print("📊 Progress information will appear below during generation...")
 
         for i, chunk in enumerate(text_chunks):
-            sanitized_chunk = sanitize_chatterbox_multilingual_chunk(chunk)
+            sanitized_chunk, sanitize_note = sanitize_chatterbox_multilingual_chunk(chunk)
+            if sanitize_note:
+                print(f"[WARN] {sanitize_note}")
             if not sanitized_chunk:
                 print(f"[WARN] Skipping empty multilingual chunk {i+1}/{len(text_chunks)}")
                 continue
@@ -12668,6 +12779,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     elem_classes=["fade-in"],
                                 )
 
+                            conversation_resume_status = gr.Markdown(
+                                "Resume checkpoint: none detected for the current project, engine, and script.",
+                                elem_classes=["fade-in"],
+                            )
+
                             with gr.Group(
                                 visible=False, elem_classes=["fade-in"]
                             ) as conversation_workspace:
@@ -15142,6 +15258,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         variant="primary",
                         size="lg",
                         elem_classes=["generate-btn", "fade-in"],
+                    )
+                    resume_conversation_btn = gr.Button(
+                        "Resume",
+                        variant="secondary",
+                        size="lg",
+                        elem_classes=["fade-in"],
                     )
                     queue_conversation_job_btn = gr.Button(
                         "Queue Job",
@@ -21393,6 +21515,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
         def handle_cast_characters(
             speakers_state,
+            script_text,
             provider_name,
             base_url,
             api_key,
@@ -21426,6 +21549,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
 
             result_text, error_msg = generate_voice_casting(
                 speaker_names=speakers_state,
+                script_text=str(script_text or "").strip(),
                 base_url=clean_base_url,
                 api_key=resolved_api_key,
                 model_id=clean_model_id,
@@ -21694,6 +21818,121 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 print(f"ERROR: Exception in conversation handler: {error_msg}")
                 return None, error_msg
 
+        def handle_conversation_resume_status(script_text, selected_engine, project_name):
+            """Return a lightweight resume banner for the current conversation inputs."""
+            return _format_conversation_checkpoint_status(
+                project_name,
+                selected_engine,
+                script_text,
+            )
+
+        def handle_resume_conversation_advanced(
+            script_text,
+            pause_duration,
+            transition_pause,
+            audio_format,
+            voice_samples,
+            ref_texts,
+            kokoro_voices,
+            kitten_voices,
+            selected_engine,
+            speaker_settings_state,
+            project_name=None,
+            autosave_enabled=True,
+            autosave_store_audio_copy=True,
+            keep_legacy_output_copy=True,
+            emotion_modes=None,
+            emotion_audios=None,
+            emotion_descriptions=None,
+            emotion_vectors=None,
+        ):
+            """Resume a matching conversation checkpoint when one exists for the current inputs."""
+            checkpoint_state = _inspect_conversation_checkpoint(
+                project_name,
+                selected_engine,
+                script_text,
+            )
+            if not checkpoint_state:
+                return (
+                    None,
+                    "ERROR: No resumable checkpoint found for the current project, engine, and script.",
+                )
+
+            return handle_generate_conversation_advanced(
+                script_text,
+                pause_duration,
+                transition_pause,
+                audio_format,
+                voice_samples,
+                ref_texts,
+                kokoro_voices,
+                kitten_voices,
+                selected_engine,
+                speaker_settings_state,
+                project_name,
+                autosave_enabled,
+                autosave_store_audio_copy,
+                keep_legacy_output_copy,
+                emotion_modes,
+                emotion_audios,
+                emotion_descriptions,
+                emotion_vectors,
+            )
+
+        def handle_resume_conversation_from_flat_inputs(*args):
+            """Adapt the flat Gradio input list into grouped resume-generation arguments."""
+            script_text, pause_duration, transition_pause, audio_format = args[:4]
+            voice_samples = list(args[4:14])
+            ref_texts = list(args[14:24])
+            kokoro_voices = list(args[24:34])
+            kitten_voices = list(args[34:44])
+            (
+                selected_engine,
+                speaker_settings_state,
+                project_name,
+                autosave_enabled,
+                autosave_store_audio_copy,
+                keep_legacy_output_copy,
+            ) = args[44:50]
+            emotion_modes = list(args[50:60])
+            emotion_audios = list(args[60:70])
+            emotion_descriptions = list(args[70:80])
+            vector_values = list(args[80:140])
+            emotion_vectors = []
+            for offset in range(0, len(vector_values), 6):
+                happy, sad, angry, afraid, surprised, calm = vector_values[offset : offset + 6]
+                emotion_vectors.append(
+                    {
+                        "happy": happy,
+                        "sad": sad,
+                        "angry": angry,
+                        "afraid": afraid,
+                        "surprised": surprised,
+                        "calm": calm,
+                    }
+                )
+
+            return handle_resume_conversation_advanced(
+                script_text,
+                pause_duration,
+                transition_pause,
+                audio_format,
+                voice_samples,
+                ref_texts,
+                kokoro_voices,
+                kitten_voices,
+                selected_engine,
+                speaker_settings_state,
+                project_name,
+                autosave_enabled,
+                autosave_store_audio_copy,
+                keep_legacy_output_copy,
+                emotion_modes,
+                emotion_audios,
+                emotion_descriptions,
+                emotion_vectors,
+            )
+
         def handle_queue_conversation_job(
             script_text,
             pause_duration,
@@ -21870,11 +22109,37 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=handle_example_script,
             inputs=[tts_engine, *conversation_component_state_inputs],
             outputs=[conversation_script, *conversation_analysis_outputs],
+        ).then(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
+            outputs=[conversation_resume_status],
         )
 
         clear_script_btn.click(
             fn=handle_clear_script,
             outputs=[conversation_script, *conversation_analysis_outputs],
+        ).then(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
+            outputs=[conversation_resume_status],
+        )
+
+        conversation_script.change(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
+            outputs=[conversation_resume_status],
+        )
+
+        autosave_project_name.change(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name],
+            outputs=[conversation_resume_status],
+        )
+
+        autosave_project_name_prominent.change(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
+            outputs=[conversation_resume_status],
         )
 
         speaker_profile_selector.change(
@@ -21959,6 +22224,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=handle_cast_characters,
             inputs=[
                 conversation_speakers_state,
+                conversation_script,
                 conversation_llm_provider,
                 conversation_llm_base_url,
                 conversation_llm_api_key,
@@ -21985,6 +22251,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=handle_analyze_script,
             inputs=conversation_analyze_inputs,
             outputs=conversation_analysis_outputs,
+        ).then(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
+            outputs=[conversation_resume_status],
         )
 
         character_roster.change(
@@ -22197,6 +22467,149 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             ],
         )
 
+        conversation_generation_inputs = [
+            conversation_script,
+            conversation_pause,
+            speaker_transition_pause,
+            audio_format,
+            speaker_1_audio,
+            speaker_2_audio,
+            speaker_3_audio,
+            speaker_4_audio,
+            speaker_5_audio,
+            speaker_6_audio,
+            speaker_7_audio,
+            speaker_8_audio,
+            speaker_9_audio,
+            speaker_10_audio,
+            speaker_1_ref_text,
+            speaker_2_ref_text,
+            speaker_3_ref_text,
+            speaker_4_ref_text,
+            speaker_5_ref_text,
+            speaker_6_ref_text,
+            speaker_7_ref_text,
+            speaker_8_ref_text,
+            speaker_9_ref_text,
+            speaker_10_ref_text,
+            speaker_1_kokoro_voice,
+            speaker_2_kokoro_voice,
+            speaker_3_kokoro_voice,
+            speaker_4_kokoro_voice,
+            speaker_5_kokoro_voice,
+            speaker_6_kokoro_voice,
+            speaker_7_kokoro_voice,
+            speaker_8_kokoro_voice,
+            speaker_9_kokoro_voice,
+            speaker_10_kokoro_voice,
+            speaker_1_kitten_voice,
+            speaker_2_kitten_voice,
+            speaker_3_kitten_voice,
+            speaker_4_kitten_voice,
+            speaker_5_kitten_voice,
+            speaker_6_kitten_voice,
+            speaker_7_kitten_voice,
+            speaker_8_kitten_voice,
+            speaker_9_kitten_voice,
+            speaker_10_kitten_voice,
+            tts_engine,
+            conversation_speaker_settings_state,
+            autosave_project_name,
+            autosave_enabled,
+            autosave_store_audio_copy,
+            keep_legacy_output_copy,
+            speaker_1_emotion_mode,
+            speaker_1_emotion_audio,
+            speaker_1_emotion_description,
+            speaker_1_happy,
+            speaker_1_sad,
+            speaker_1_angry,
+            speaker_1_afraid,
+            speaker_1_surprised,
+            speaker_1_calm,
+            speaker_2_emotion_mode,
+            speaker_2_emotion_audio,
+            speaker_2_emotion_description,
+            speaker_2_happy,
+            speaker_2_sad,
+            speaker_2_angry,
+            speaker_2_afraid,
+            speaker_2_surprised,
+            speaker_2_calm,
+            speaker_3_emotion_mode,
+            speaker_3_emotion_audio,
+            speaker_3_emotion_description,
+            speaker_3_happy,
+            speaker_3_sad,
+            speaker_3_angry,
+            speaker_3_afraid,
+            speaker_3_surprised,
+            speaker_3_calm,
+            speaker_4_emotion_mode,
+            speaker_4_emotion_audio,
+            speaker_4_emotion_description,
+            speaker_4_happy,
+            speaker_4_sad,
+            speaker_4_angry,
+            speaker_4_afraid,
+            speaker_4_surprised,
+            speaker_4_calm,
+            speaker_5_emotion_mode,
+            speaker_5_emotion_audio,
+            speaker_5_emotion_description,
+            speaker_5_happy,
+            speaker_5_sad,
+            speaker_5_angry,
+            speaker_5_afraid,
+            speaker_5_surprised,
+            speaker_5_calm,
+            speaker_6_emotion_mode,
+            speaker_6_emotion_audio,
+            speaker_6_emotion_description,
+            speaker_6_happy,
+            speaker_6_sad,
+            speaker_6_angry,
+            speaker_6_afraid,
+            speaker_6_surprised,
+            speaker_6_calm,
+            speaker_7_emotion_mode,
+            speaker_7_emotion_audio,
+            speaker_7_emotion_description,
+            speaker_7_happy,
+            speaker_7_sad,
+            speaker_7_angry,
+            speaker_7_afraid,
+            speaker_7_surprised,
+            speaker_7_calm,
+            speaker_8_emotion_mode,
+            speaker_8_emotion_audio,
+            speaker_8_emotion_description,
+            speaker_8_happy,
+            speaker_8_sad,
+            speaker_8_angry,
+            speaker_8_afraid,
+            speaker_8_surprised,
+            speaker_8_calm,
+            speaker_9_emotion_mode,
+            speaker_9_emotion_audio,
+            speaker_9_emotion_description,
+            speaker_9_happy,
+            speaker_9_sad,
+            speaker_9_angry,
+            speaker_9_afraid,
+            speaker_9_surprised,
+            speaker_9_calm,
+            speaker_10_emotion_mode,
+            speaker_10_emotion_audio,
+            speaker_10_emotion_description,
+            speaker_10_happy,
+            speaker_10_sad,
+            speaker_10_angry,
+            speaker_10_afraid,
+            speaker_10_surprised,
+            speaker_10_calm,
+        ]
+
         generate_conversation_btn.click(
             fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, rt1, rt2, rt3, rt4, rt5, rt6, rt7, rt8, rt9, rt10, kv1, kv2, kv3, kv4, kv5, kv6, kv7, kv8, kv9, kv10, ktv1, ktv2, ktv3, ktv4, ktv5, ktv6, ktv7, ktv8, ktv9, ktv10, engine, speaker_settings_state, project_name, autosave_on, autosave_copy, keep_legacy, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5, em6, ea6, ed6, h6, s6_sad, a6, af6, su6, c6, em7, ea7, ed7, h7, s7_sad, a7, af7, su7, c7, em8, ea8, ed8, h8, s8_sad, a8, af8, su8, c8, em9, ea9, ed9, h9, s9_sad, a9, af9, su9, c9, em10, ea10, ed10, h10, s10_sad, a10, af10, su10, c10: handle_generate_conversation_advanced(
                 script,
@@ -22300,150 +22713,14 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     },
                 ],  # emotion_vectors
             ),
-            inputs=[
-                conversation_script,
-                conversation_pause,
-                speaker_transition_pause,
-                audio_format,  # Use the same audio format selector as single voice mode
-                speaker_1_audio,
-                speaker_2_audio,
-                speaker_3_audio,
-                speaker_4_audio,
-                speaker_5_audio,
-                speaker_6_audio,
-                speaker_7_audio,
-                speaker_8_audio,
-                speaker_9_audio,
-                speaker_10_audio,
-                speaker_1_ref_text,
-                speaker_2_ref_text,
-                speaker_3_ref_text,
-                speaker_4_ref_text,
-                speaker_5_ref_text,
-                speaker_6_ref_text,
-                speaker_7_ref_text,
-                speaker_8_ref_text,
-                speaker_9_ref_text,
-                speaker_10_ref_text,
-                speaker_1_kokoro_voice,
-                speaker_2_kokoro_voice,
-                speaker_3_kokoro_voice,
-                speaker_4_kokoro_voice,
-                speaker_5_kokoro_voice,
-                speaker_6_kokoro_voice,
-                speaker_7_kokoro_voice,
-                speaker_8_kokoro_voice,
-                speaker_9_kokoro_voice,
-                speaker_10_kokoro_voice,
-                speaker_1_kitten_voice,
-                speaker_2_kitten_voice,
-                speaker_3_kitten_voice,
-                speaker_4_kitten_voice,
-                speaker_5_kitten_voice,
-                speaker_6_kitten_voice,
-                speaker_7_kitten_voice,
-                speaker_8_kitten_voice,
-                speaker_9_kitten_voice,
-                speaker_10_kitten_voice,
-                tts_engine,  # Use the main TTS engine selector
-                conversation_speaker_settings_state,
-                autosave_project_name,
-                autosave_enabled,
-                autosave_store_audio_copy,
-                keep_legacy_output_copy,
-                # IndexTTS2 emotion controls
-                speaker_1_emotion_mode,
-                speaker_1_emotion_audio,
-                speaker_1_emotion_description,
-                speaker_1_happy,
-                speaker_1_sad,
-                speaker_1_angry,
-                speaker_1_afraid,
-                speaker_1_surprised,
-                speaker_1_calm,
-                speaker_2_emotion_mode,
-                speaker_2_emotion_audio,
-                speaker_2_emotion_description,
-                speaker_2_happy,
-                speaker_2_sad,
-                speaker_2_angry,
-                speaker_2_afraid,
-                speaker_2_surprised,
-                speaker_2_calm,
-                speaker_3_emotion_mode,
-                speaker_3_emotion_audio,
-                speaker_3_emotion_description,
-                speaker_3_happy,
-                speaker_3_sad,
-                speaker_3_angry,
-                speaker_3_afraid,
-                speaker_3_surprised,
-                speaker_3_calm,
-                speaker_4_emotion_mode,
-                speaker_4_emotion_audio,
-                speaker_4_emotion_description,
-                speaker_4_happy,
-                speaker_4_sad,
-                speaker_4_angry,
-                speaker_4_afraid,
-                speaker_4_surprised,
-                speaker_4_calm,
-                speaker_5_emotion_mode,
-                speaker_5_emotion_audio,
-                speaker_5_emotion_description,
-                speaker_5_happy,
-                speaker_5_sad,
-                speaker_5_angry,
-                speaker_5_afraid,
-                speaker_5_surprised,
-                speaker_5_calm,
-                speaker_6_emotion_mode,
-                speaker_6_emotion_audio,
-                speaker_6_emotion_description,
-                speaker_6_happy,
-                speaker_6_sad,
-                speaker_6_angry,
-                speaker_6_afraid,
-                speaker_6_surprised,
-                speaker_6_calm,
-                speaker_7_emotion_mode,
-                speaker_7_emotion_audio,
-                speaker_7_emotion_description,
-                speaker_7_happy,
-                speaker_7_sad,
-                speaker_7_angry,
-                speaker_7_afraid,
-                speaker_7_surprised,
-                speaker_7_calm,
-                speaker_8_emotion_mode,
-                speaker_8_emotion_audio,
-                speaker_8_emotion_description,
-                speaker_8_happy,
-                speaker_8_sad,
-                speaker_8_angry,
-                speaker_8_afraid,
-                speaker_8_surprised,
-                speaker_8_calm,
-                speaker_9_emotion_mode,
-                speaker_9_emotion_audio,
-                speaker_9_emotion_description,
-                speaker_9_happy,
-                speaker_9_sad,
-                speaker_9_angry,
-                speaker_9_afraid,
-                speaker_9_surprised,
-                speaker_9_calm,
-                speaker_10_emotion_mode,
-                speaker_10_emotion_audio,
-                speaker_10_emotion_description,
-                speaker_10_happy,
-                speaker_10_sad,
-                speaker_10_angry,
-                speaker_10_afraid,
-                speaker_10_surprised,
-                speaker_10_calm,
-            ],
+            inputs=conversation_generation_inputs,
             outputs=[audio_output, conversation_info],  # Use same audio output as single voice mode
+        )
+
+        resume_conversation_btn.click(
+            fn=handle_resume_conversation_from_flat_inputs,
+            inputs=conversation_generation_inputs,
+            outputs=[audio_output, conversation_info],
         )
 
         queue_conversation_job_btn.click(
@@ -23539,6 +23816,12 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             outputs=conversation_analysis_outputs,
         ).then(
             fn=switch_engine_tab, inputs=[tts_engine], outputs=[engine_tabs]
+        )
+
+        tts_engine.change(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
+            outputs=[conversation_resume_status],
         )
 
         # eBook conversion event handlers
