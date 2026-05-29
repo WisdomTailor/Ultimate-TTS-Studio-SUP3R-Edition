@@ -1297,6 +1297,12 @@ def generate_conversation_audio_kokoro(
         speakers = get_speaker_names_from_script(conversation_script)
         print(f"[MIC] Found speakers: {speakers}")
 
+        checkpoint_dir = _get_conversation_checkpoint_dir(
+            resolved_project,
+            selected_engine,
+            conversation_script,
+        )
+
         # Map speakers to selected Kokoro voices
         speaker_voice_map = {}
         for i, speaker in enumerate(speakers):
@@ -1317,12 +1323,23 @@ def generate_conversation_audio_kokoro(
                 speaker_voice_map[speaker] = fallback_voice
                 print(f"[SPEAKING] {speaker} -> {fallback_voice} (fallback)")
 
-        conversation_audio_chunks = []
-        conversation_info = []
-        sample_rate = 22050
+        (
+            conversation_audio_chunks,
+            conversation_info,
+            resume_start_index,
+            resumed_sample_rate,
+            resume_message,
+        ) = _resume_conversation_checkpoint(
+            checkpoint_dir,
+            resolved_project,
+            selected_engine,
+            conversation_script,
+            len(conversation),
+        )
+        sample_rate = resumed_sample_rate or 22050
 
         # Generate audio for each conversation line
-        for i, line in enumerate(conversation):
+        for i, line in enumerate(conversation[resume_start_index:], start=resume_start_index):
             speaker = line["speaker"]
             text = line["text"]
 
@@ -1352,9 +1369,20 @@ def generate_conversation_audio_kokoro(
 
                 # Extract audio array from tuple
                 if isinstance(audio_data, tuple):
-                    sample_rate, line_audio = audio_data
+                    current_sample_rate, line_audio = audio_data
                 else:
                     return None, f"ERROR: Invalid audio format for {speaker}"
+
+                if sample_rate is None:
+                    sample_rate = current_sample_rate
+                elif sample_rate != current_sample_rate:
+                    import librosa
+
+                    line_audio = librosa.resample(
+                        line_audio,
+                        orig_sr=current_sample_rate,
+                        target_sr=sample_rate,
+                    )
 
                 conversation_audio_chunks.append(line_audio)
                 conversation_info.append(
@@ -1367,6 +1395,19 @@ def generate_conversation_audio_kokoro(
                     }
                 )
 
+                _save_conversation_checkpoint_segment(
+                    checkpoint_dir,
+                    resolved_project,
+                    selected_engine,
+                    conversation_script,
+                    len(conversation),
+                    i,
+                    speaker,
+                    text[:50] + ("..." if len(text) > 50 else ""),
+                    line_audio,
+                    sample_rate,
+                )
+
                 print(
                     f"SUCCESS: Generated {len(line_audio)} samples for {speaker} using voice {selected_voice}"
                 )
@@ -1375,7 +1416,13 @@ def generate_conversation_audio_kokoro(
                 import traceback
 
                 traceback.print_exc()
-                return None, f"ERROR: Error generating audio for {speaker}: {str(gen_error)}"
+                completed_lines = len(conversation_audio_chunks)
+                return (
+                    None,
+                    "ERROR: Error generating audio for "
+                    + f"{speaker}: {str(gen_error)}\n"
+                    + f"Checkpoint saved for project '{resolved_project}'. Re-run to resume from line {completed_lines + 1}/{len(conversation)}.",
+                )
 
         # Combine all audio with proper timing
         print("[MUSIC] Combining conversation audio with proper timing...")
@@ -1527,6 +1574,10 @@ def generate_conversation_audio_kokoro(
             "script_file": script_path,
         }
         summary["saved_audio_path"] = filepath
+        if resume_message:
+            summary["resume_info"] = resume_message
+
+        _clear_conversation_checkpoint(checkpoint_dir)
 
         print(
             f"SUCCESS: Kokoro conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
@@ -1609,6 +1660,12 @@ def generate_conversation_audio_kitten(
         speakers = get_speaker_names_from_script(conversation_script)
         print(f"[MIC] Found speakers: {speakers}")
 
+        checkpoint_dir = _get_conversation_checkpoint_dir(
+            resolved_project,
+            selected_engine,
+            conversation_script,
+        )
+
         # Map speakers to selected KittenTTS voices
         speaker_voice_map = {}
         for i, speaker in enumerate(speakers):
@@ -1631,12 +1688,23 @@ def generate_conversation_audio_kitten(
                 speaker_voice_map[speaker] = fallback_voice
                 print(f"[CAT] {speaker} -> {fallback_voice} (fallback)")
 
-        conversation_audio_chunks = []
-        conversation_info = []
-        sample_rate = 22050
+        (
+            conversation_audio_chunks,
+            conversation_info,
+            resume_start_index,
+            resumed_sample_rate,
+            resume_message,
+        ) = _resume_conversation_checkpoint(
+            checkpoint_dir,
+            resolved_project,
+            selected_engine,
+            conversation_script,
+            len(conversation),
+        )
+        sample_rate = resumed_sample_rate or 22050
 
         # Generate audio for each conversation line
-        for i, line in enumerate(conversation):
+        for i, line in enumerate(conversation[resume_start_index:], start=resume_start_index):
             speaker = line["speaker"]
             text = line["text"]
 
@@ -1659,9 +1727,20 @@ def generate_conversation_audio_kitten(
 
                 # Extract audio array from tuple
                 if isinstance(audio_data, tuple):
-                    sample_rate, line_audio = audio_data
+                    current_sample_rate, line_audio = audio_data
                 else:
                     return None, f"ERROR: Invalid audio format for {speaker}"
+
+                if sample_rate is None:
+                    sample_rate = current_sample_rate
+                elif sample_rate != current_sample_rate:
+                    import librosa
+
+                    line_audio = librosa.resample(
+                        line_audio,
+                        orig_sr=current_sample_rate,
+                        target_sr=sample_rate,
+                    )
 
                 conversation_audio_chunks.append(line_audio)
                 conversation_info.append(
@@ -1674,6 +1753,19 @@ def generate_conversation_audio_kitten(
                     }
                 )
 
+                _save_conversation_checkpoint_segment(
+                    checkpoint_dir,
+                    resolved_project,
+                    selected_engine,
+                    conversation_script,
+                    len(conversation),
+                    i,
+                    speaker,
+                    text[:50] + ("..." if len(text) > 50 else ""),
+                    line_audio,
+                    sample_rate,
+                )
+
                 print(
                     f"SUCCESS: Generated {len(line_audio)} samples for {speaker} using {kitten_voice}"
                 )
@@ -1682,7 +1774,13 @@ def generate_conversation_audio_kitten(
                 import traceback
 
                 traceback.print_exc()
-                return None, f"ERROR: Error generating audio for {speaker}: {str(gen_error)}"
+                completed_lines = len(conversation_audio_chunks)
+                return (
+                    None,
+                    "ERROR: Error generating audio for "
+                    + f"{speaker}: {str(gen_error)}\n"
+                    + f"Checkpoint saved for project '{resolved_project}'. Re-run to resume from line {completed_lines + 1}/{len(conversation)}.",
+                )
 
         # Combine all audio with proper timing (same logic as other conversation functions)
         print("[MUSIC] Combining conversation audio with proper timing...")
@@ -1767,6 +1865,10 @@ def generate_conversation_audio_kitten(
             "script_file": script_path,
         }
         summary["saved_audio_path"] = filepath
+        if resume_message:
+            summary["resume_info"] = resume_message
+
+        _clear_conversation_checkpoint(checkpoint_dir)
 
         print(
             f"SUCCESS: KittenTTS conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
@@ -1817,6 +1919,12 @@ def generate_conversation_audio_indextts2(
         speakers = get_speaker_names_from_script(conversation_script)
         print(f"[MIC] Found speakers: {speakers}")
 
+        checkpoint_dir = _get_conversation_checkpoint_dir(
+            resolved_project,
+            selected_engine,
+            conversation_script,
+        )
+
         # Map speakers to voice samples and emotion settings
         speaker_voice_map = {}
         speaker_emotion_map = {}
@@ -1840,12 +1948,23 @@ def generate_conversation_audio_indextts2(
             speaker_emotion_map[speaker] = emotion_settings
             print(f"[THEATER] {speaker} emotion mode: {emotion_settings['mode']}")
 
-        conversation_audio_chunks = []
-        conversation_info = []
-        sample_rate = 22050
+        (
+            conversation_audio_chunks,
+            conversation_info,
+            resume_start_index,
+            resumed_sample_rate,
+            resume_message,
+        ) = _resume_conversation_checkpoint(
+            checkpoint_dir,
+            resolved_project,
+            selected_engine,
+            conversation_script,
+            len(conversation),
+        )
+        sample_rate = resumed_sample_rate or 22050
 
         # Generate audio for each conversation line
-        for i, line in enumerate(conversation):
+        for i, line in enumerate(conversation[resume_start_index:], start=resume_start_index):
             speaker = line["speaker"]
             text = line["text"]
 
@@ -1857,8 +1976,12 @@ def generate_conversation_audio_indextts2(
             emotion_settings = speaker_emotion_map.get(speaker, {})
 
             if not ref_audio:
-                print(f"WARNING: No voice sample for {speaker}, skipping line")
-                continue
+                completed_lines = len(conversation_audio_chunks)
+                return (
+                    None,
+                    f"ERROR: No voice sample available for {speaker}.\n"
+                    + f"Checkpoint saved for project '{resolved_project}'. Re-run to resume from line {completed_lines + 1}/{len(conversation)}.",
+                )
 
             # Generate audio using IndexTTS2 with emotion controls
             # Use conservative parameters to avoid tensor dimension issues
@@ -1926,12 +2049,30 @@ def generate_conversation_audio_indextts2(
                                 result = fallback_result
                             else:
                                 print(f"   ERROR: Fallback also failed for {speaker}")
-                                continue
+                                completed_lines = len(conversation_audio_chunks)
+                                return (
+                                    None,
+                                    "ERROR: Error generating audio for "
+                                    + f"{speaker}: {fallback_result[1]}\n"
+                                    + f"Checkpoint saved for project '{resolved_project}'. Re-run to resume from line {completed_lines + 1}/{len(conversation)}.",
+                                )
                         except Exception as fallback_error:
                             print(f"   ERROR: Fallback error for {speaker}: {fallback_error}")
-                            continue
+                            completed_lines = len(conversation_audio_chunks)
+                            return (
+                                None,
+                                "ERROR: Error generating audio for "
+                                + f"{speaker}: {fallback_error}\n"
+                                + f"Checkpoint saved for project '{resolved_project}'. Re-run to resume from line {completed_lines + 1}/{len(conversation)}.",
+                            )
                     else:
-                        continue
+                        completed_lines = len(conversation_audio_chunks)
+                        return (
+                            None,
+                            "ERROR: Error generating audio for "
+                            + f"{speaker}: {result[1]}\n"
+                            + f"Checkpoint saved for project '{resolved_project}'. Re-run to resume from line {completed_lines + 1}/{len(conversation)}.",
+                        )
 
                 # Extract audio data
                 if isinstance(result[0], tuple):
@@ -1954,17 +2095,37 @@ def generate_conversation_audio_indextts2(
                 conversation_info.append(
                     {
                         "speaker": speaker,
-                        "text": text,
+                        "text": text[:50] + ("..." if len(text) > 50 else ""),
                         "duration": len(audio_data) / sample_rate,
+                        "samples": len(audio_data),
                         "emotion_mode": emotion_settings.get("mode", "audio_reference"),
                     }
+                )
+
+                _save_conversation_checkpoint_segment(
+                    checkpoint_dir,
+                    resolved_project,
+                    selected_engine,
+                    conversation_script,
+                    len(conversation),
+                    i,
+                    speaker,
+                    text[:50] + ("..." if len(text) > 50 else ""),
+                    audio_data,
+                    sample_rate,
                 )
 
                 print(f"SUCCESS: Generated {len(audio_data)} samples for {speaker}")
 
             except Exception as e:
                 print(f"ERROR: Error generating audio for {speaker}: {e}")
-                continue
+                completed_lines = len(conversation_audio_chunks)
+                return (
+                    None,
+                    "ERROR: Error generating audio for "
+                    + f"{speaker}: {e}\n"
+                    + f"Checkpoint saved for project '{resolved_project}'. Re-run to resume from line {completed_lines + 1}/{len(conversation)}.",
+                )
 
         if not conversation_audio_chunks:
             return None, "ERROR: No audio generated for any speakers"
@@ -2053,6 +2214,10 @@ def generate_conversation_audio_indextts2(
             "script_file": script_path,
         }
         summary["saved_audio_path"] = filepath
+        if resume_message:
+            summary["resume_info"] = resume_message
+
+        _clear_conversation_checkpoint(checkpoint_dir)
 
         print(
             f"SUCCESS: IndexTTS2 conversation generated: {len(conversation)} lines, {unique_speakers} speakers, {total_duration:.1f}s"
@@ -4438,7 +4603,9 @@ def _get_conversation_checkpoint_dir(
     conversation_script: str,
 ) -> str:
     ensure_app_state_dirs()
-    checkpoint_key = _conversation_checkpoint_key(project_name, selected_engine, conversation_script)
+    checkpoint_key = _conversation_checkpoint_key(
+        project_name, selected_engine, conversation_script
+    )
     return os.path.join(
         APP_STATE_CONVERSATION_CHECKPOINTS_DIR,
         _safe_name(project_name or "conversation"),
@@ -4502,7 +4669,10 @@ def _load_conversation_checkpoint_manifest(
         return {}
     if manifest.get("selected_engine") != selected_engine:
         return {}
-    if manifest.get("script_hash") != hashlib.sha256(str(conversation_script or "").encode("utf-8")).hexdigest():
+    if (
+        manifest.get("script_hash")
+        != hashlib.sha256(str(conversation_script or "").encode("utf-8")).hexdigest()
+    ):
         return {}
     if int(manifest.get("total_lines", 0) or 0) != int(total_lines or 0):
         return {}
@@ -4564,9 +4734,7 @@ def _resume_conversation_checkpoint(
     if resumed_count == 0:
         return [], [], 0, None, None
 
-    resume_message = (
-        f"Resumed from checkpoint with {resumed_count}/{total_lines} conversation lines already completed."
-    )
+    resume_message = f"Resumed from checkpoint with {resumed_count}/{total_lines} conversation lines already completed."
     return conversation_audio_chunks, conversation_info, resumed_count, sample_rate, resume_message
 
 
@@ -4596,7 +4764,9 @@ def _save_conversation_checkpoint_segment(
             "version": 1,
             "project_name": project_name,
             "selected_engine": selected_engine,
-            "script_hash": hashlib.sha256(str(conversation_script or "").encode("utf-8")).hexdigest(),
+            "script_hash": hashlib.sha256(
+                str(conversation_script or "").encode("utf-8")
+            ).hexdigest(),
             "total_lines": int(total_lines),
             "segments": [],
         }
@@ -4619,7 +4789,9 @@ def _save_conversation_checkpoint_segment(
     }
 
     segments = [segment for segment in manifest.get("segments", []) if isinstance(segment, dict)]
-    segments = [segment for segment in segments if int(segment.get("line_index", -1)) != int(line_index)]
+    segments = [
+        segment for segment in segments if int(segment.get("line_index", -1)) != int(line_index)
+    ]
     segments.append(segment_record)
     manifest["segments"] = sorted(segments, key=lambda segment: int(segment.get("line_index", -1)))
     manifest["completed_lines"] = len(manifest["segments"])
@@ -19911,9 +20083,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     if speaker_index < len(kokoro_voices)
                     else default_settings.get("kokoro_voice", "af_heart")
                 )
-                if not str(voice_value or "").strip() and str(
-                    default_settings.get("kokoro_voice", "") or ""
-                ).strip():
+                if (
+                    not str(voice_value or "").strip()
+                    and str(default_settings.get("kokoro_voice", "") or "").strip()
+                ):
                     return f"Kokoro: recovered {default_settings.get('kokoro_voice', '')}"
                 return f"Kokoro: {voice_value or 'unassigned'}"
 
@@ -19923,9 +20096,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     if speaker_index < len(kitten_voices)
                     else "expr-voice-2-f"
                 )
-                if not str(voice_value or "").strip() and str(
-                    default_settings.get("kitten_voice", "") or ""
-                ).strip():
+                if (
+                    not str(voice_value or "").strip()
+                    and str(default_settings.get("kitten_voice", "") or "").strip()
+                ):
                     return f"Kitten: recovered {default_settings.get('kitten_voice', '')}"
                 return f"Kitten: {voice_value or 'unassigned'}"
 
@@ -20075,23 +20249,38 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             recovery_parts: list[str] = []
             if has_sample and not current_voice_sample:
-                recovery_parts.append("Recovered saved speaker assignment will be used at generation time")
+                recovery_parts.append(
+                    "Recovered saved speaker assignment will be used at generation time"
+                )
             if has_ref_text and not str(current_ref_text or "").strip():
-                recovery_parts.append("Saved transcript guidance is available even though the visible field is empty")
-            if selected_engine == "Kokoro TTS" and has_kokoro_voice and not str(
-                current_kokoro_voice or ""
-            ).strip():
-                recovery_parts.append("Recovered Kokoro voice selection will be used at generation time")
-            if selected_engine == "KittenTTS" and bool(str(settings.get("kitten_voice", "") or "").strip()) and not str(
-                current_kitten_voice or ""
-            ).strip():
-                recovery_parts.append("Recovered Kitten voice selection will be used at generation time")
+                recovery_parts.append(
+                    "Saved transcript guidance is available even though the visible field is empty"
+                )
+            if (
+                selected_engine == "Kokoro TTS"
+                and has_kokoro_voice
+                and not str(current_kokoro_voice or "").strip()
+            ):
+                recovery_parts.append(
+                    "Recovered Kokoro voice selection will be used at generation time"
+                )
+            if (
+                selected_engine == "KittenTTS"
+                and bool(str(settings.get("kitten_voice", "") or "").strip())
+                and not str(current_kitten_voice or "").strip()
+            ):
+                recovery_parts.append(
+                    "Recovered Kitten voice selection will be used at generation time"
+                )
 
             if selected_profile:
                 assignment_parts.append(f"Conversation voice bank: **{selected_profile}**")
 
             if recovery_parts:
-                assignment_parts = [*(f"Recovered: {message}" for message in recovery_parts), *assignment_parts]
+                assignment_parts = [
+                    *(f"Recovered: {message}" for message in recovery_parts),
+                    *assignment_parts,
+                ]
 
             return f"**Current assignment for {speaker_name}:** " + " | ".join(assignment_parts)
 
@@ -20303,18 +20492,26 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         selected_speaker_name,
                         speaker_settings,
                         selected_engine,
-                        voice_samples[normalized_selected_index]
-                        if normalized_selected_index < len(voice_samples)
-                        else None,
-                        ref_texts[normalized_selected_index]
-                        if normalized_selected_index < len(ref_texts)
-                        else None,
-                        kokoro_voices[normalized_selected_index]
-                        if normalized_selected_index < len(kokoro_voices)
-                        else None,
-                        kitten_voices[normalized_selected_index]
-                        if normalized_selected_index < len(kitten_voices)
-                        else None,
+                        (
+                            voice_samples[normalized_selected_index]
+                            if normalized_selected_index < len(voice_samples)
+                            else None
+                        ),
+                        (
+                            ref_texts[normalized_selected_index]
+                            if normalized_selected_index < len(ref_texts)
+                            else None
+                        ),
+                        (
+                            kokoro_voices[normalized_selected_index]
+                            if normalized_selected_index < len(kokoro_voices)
+                            else None
+                        ),
+                        (
+                            kitten_voices[normalized_selected_index]
+                            if normalized_selected_index < len(kitten_voices)
+                            else None
+                        ),
                     )
                 ),
                 gr.update(choices=get_voice_preset_choices(), value=""),
@@ -20463,16 +20660,22 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                         selected_speaker_name,
                         speaker_settings,
                         selected_engine,
-                        voice_samples[normalized_index]
-                        if normalized_index < len(voice_samples)
-                        else None,
+                        (
+                            voice_samples[normalized_index]
+                            if normalized_index < len(voice_samples)
+                            else None
+                        ),
                         ref_texts[normalized_index] if normalized_index < len(ref_texts) else None,
-                        kokoro_voices[normalized_index]
-                        if normalized_index < len(kokoro_voices)
-                        else None,
-                        kitten_voices[normalized_index]
-                        if normalized_index < len(kitten_voices)
-                        else None,
+                        (
+                            kokoro_voices[normalized_index]
+                            if normalized_index < len(kokoro_voices)
+                            else None
+                        ),
+                        (
+                            kitten_voices[normalized_index]
+                            if normalized_index < len(kitten_voices)
+                            else None
+                        ),
                     )
                 ),
                 normalized_index,
