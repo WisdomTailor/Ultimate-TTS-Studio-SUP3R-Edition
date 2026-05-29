@@ -4591,9 +4591,7 @@ def _stage_conversation_job_media(
     """Copy queued conversation media inputs into durable app_state storage."""
     ensure_app_state_dirs()
 
-    job_key = hashlib.sha256(f"{time.time_ns()}_{random.random()}".encode("utf-8")).hexdigest()[
-        :12
-    ]
+    job_key = hashlib.sha256(f"{time.time_ns()}_{random.random()}".encode("utf-8")).hexdigest()[:12]
     asset_dir = Path(APP_STATE_JOB_ASSETS_DIR) / job_key
     asset_dir.mkdir(parents=True, exist_ok=True)
 
@@ -4622,6 +4620,45 @@ def _stage_conversation_job_media(
         staged_emotion_audios.append(_stage_path(value, f"emotion_{index:02d}"))
 
     return staged_voice_samples, staged_emotion_audios, errors
+
+
+def _stage_single_speaker_job_args(all_args: list[Any]) -> tuple[list[Any], list[str]]:
+    """Copy queued single-speaker file inputs into durable app_state storage."""
+    ensure_app_state_dirs()
+
+    signature_params = list(inspect.signature(generate_unified_tts).parameters.keys())
+    base_arg_count = len(signature_params)
+    staged_args = list(all_args)
+    errors: list[str] = []
+
+    if len(staged_args) < base_arg_count:
+        return staged_args, ["Queued single-speaker job payload is incomplete."]
+
+    job_key = hashlib.sha256(f"{time.time_ns()}_{random.random()}".encode("utf-8")).hexdigest()[:12]
+    asset_dir = Path(APP_STATE_JOB_ASSETS_DIR) / job_key
+    asset_dir.mkdir(parents=True, exist_ok=True)
+
+    for index, param_name in enumerate(signature_params):
+        if not param_name.endswith("_audio"):
+            continue
+
+        value = staged_args[index]
+        if not _has_value(value):
+            staged_args[index] = None
+            continue
+
+        source_path = Path(str(value))
+        if not source_path.exists():
+            errors.append(f"Queued job input not found on disk: {source_path}")
+            continue
+
+        suffix = source_path.suffix or ".wav"
+        safe_name = re.sub(r"[^A-Za-z0-9_]+", "_", param_name).strip("_") or "audio"
+        target_path = asset_dir / f"{safe_name}{suffix}"
+        shutil.copy2(source_path, target_path)
+        staged_args[index] = str(target_path)
+
+    return staged_args, errors
 
 
 def _conversation_checkpoint_key(
@@ -15025,12 +15062,19 @@ Alice: I went to Japan. It was absolutely incredible!""",
             with gr.Column(
                 elem_id="generate_speech_action", visible=True
             ) as generate_btn_container:
-                generate_btn = gr.Button(
-                    "Generate",
-                    variant="primary",
-                    size="lg",
-                    elem_classes=["generate-btn", "fade-in"],
-                )
+                with gr.Row():
+                    generate_btn = gr.Button(
+                        "Generate",
+                        variant="primary",
+                        size="lg",
+                        elem_classes=["generate-btn", "fade-in"],
+                    )
+                    queue_generate_job_btn = gr.Button(
+                        "Queue Job",
+                        variant="secondary",
+                        size="lg",
+                        elem_classes=["fade-in"],
+                    )
             with gr.Column(
                 elem_id="generate_conversation_action", visible=False
             ) as generate_conversation_btn_container:
@@ -19913,148 +19957,231 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ],
         )
 
+        def handle_queue_single_speaker_job(*all_args):
+            """Queue a single-speaker generation job for ordered background execution."""
+            from job_manager import JobRequest, get_job_manager
+
+            signature_params = list(inspect.signature(generate_unified_tts).parameters.keys())
+            base_count = len(signature_params)
+            if len(all_args) < base_count:
+                rows, detail = handle_job_panel_refresh("")
+                return "ERROR: Internal error: incomplete generation arguments", rows, detail, ""
+
+            base_args = list(all_args[:base_count])
+            extra_args = list(all_args[base_count:])
+            param_idx = {name: index for index, name in enumerate(signature_params)}
+
+            text_input = str(base_args[param_idx["text_input"]] or "")
+            if not text_input.strip():
+                rows, detail = handle_job_panel_refresh("")
+                return "ERROR: No text provided for synthesis", rows, detail, ""
+
+            autosave_project_name = ""
+            if len(extra_args) >= 7 and isinstance(extra_args[2], bool):
+                autosave_project_name = extra_args[3]
+            elif len(extra_args) >= 6 and isinstance(extra_args[2], bool):
+                autosave_project_name = extra_args[3]
+            elif len(extra_args) >= 6:
+                autosave_project_name = extra_args[4]
+            elif len(extra_args) >= 5:
+                autosave_project_name = extra_args[3]
+            elif len(extra_args) >= 3:
+                autosave_project_name = extra_args[2]
+
+            resolved_project, project_error = _validate_required_project_name(autosave_project_name)
+            if project_error:
+                rows, detail = handle_job_panel_refresh("")
+                return project_error, rows, detail, ""
+
+            staged_args, staging_errors = _stage_single_speaker_job_args(list(all_args))
+            if staging_errors:
+                rows, detail = handle_job_panel_refresh("")
+                return (
+                    "\n".join(["ERROR: Failed to stage queued job assets", *staging_errors]),
+                    rows,
+                    detail,
+                    "",
+                )
+
+            if len(extra_args) >= 7 and isinstance(extra_args[2], bool):
+                staged_args[base_count + 3] = resolved_project
+            elif len(extra_args) >= 6 and isinstance(extra_args[2], bool):
+                staged_args[base_count + 3] = resolved_project
+            elif len(extra_args) >= 6:
+                staged_args[base_count + 4] = resolved_project
+            elif len(extra_args) >= 5:
+                staged_args[base_count + 3] = resolved_project
+            elif len(extra_args) >= 3:
+                staged_args[base_count + 2] = resolved_project
+
+            tts_engine_value = str(base_args[param_idx["tts_engine"]] or "Kokoro TTS").strip()
+            audio_format_value = str(base_args[param_idx["audio_format"]] or "wav").strip() or "wav"
+
+            job_request = JobRequest(
+                text=text_input,
+                engine=tts_engine_value,
+                audio_format=audio_format_value,
+                job_type="single_speaker",
+                engine_params={"wrapped_args": staged_args},
+            )
+
+            job_id = get_job_manager().submit(job_request)
+            rows, detail = handle_job_panel_refresh(job_id)
+            status_lines = [
+                f"SUCCESS: Queued single-speaker job {job_id[:12]}... for {tts_engine_value}.",
+                "Open the Jobs tab to monitor, cancel, or retry it.",
+            ]
+            return "\n".join(status_lines), rows, detail, job_id
+
+        single_speaker_generation_inputs = [
+            text,
+            tts_engine,
+            audio_format,
+            chatterbox_ref_audio,
+            chatterbox_exaggeration,
+            chatterbox_temperature,
+            chatterbox_cfg_weight,
+            chatterbox_chunk_size,
+            chatterbox_seed,
+            chatterbox_mtl_ref_audio,
+            chatterbox_mtl_language,
+            chatterbox_mtl_exaggeration,
+            chatterbox_mtl_temperature,
+            chatterbox_mtl_cfg_weight,
+            chatterbox_mtl_repetition_penalty,
+            chatterbox_mtl_min_p,
+            chatterbox_mtl_top_p,
+            chatterbox_mtl_chunk_size,
+            chatterbox_mtl_seed,
+            chatterbox_turbo_ref_audio,
+            chatterbox_turbo_exaggeration,
+            chatterbox_turbo_temperature,
+            chatterbox_turbo_cfg_weight,
+            chatterbox_turbo_repetition_penalty,
+            chatterbox_turbo_min_p,
+            chatterbox_turbo_top_p,
+            chatterbox_turbo_chunk_size,
+            chatterbox_turbo_seed,
+            kokoro_voice,
+            kokoro_speed,
+            fish_ref_audio,
+            fish_ref_text,
+            fish_temperature,
+            fish_top_p,
+            fish_repetition_penalty,
+            fish_max_tokens,
+            fish_seed,
+            indextts_ref_audio,
+            indextts_temperature,
+            indextts_seed,
+            indextts2_ref_audio,
+            indextts2_emotion_mode,
+            indextts2_emotion_audio,
+            indextts2_emotion_description,
+            indextts2_emo_alpha,
+            indextts2_happy,
+            indextts2_angry,
+            indextts2_sad,
+            indextts2_afraid,
+            indextts2_disgusted,
+            indextts2_melancholic,
+            indextts2_surprised,
+            indextts2_calm,
+            indextts2_temperature,
+            indextts2_top_p,
+            indextts2_top_k,
+            indextts2_repetition_penalty,
+            indextts2_max_mel_tokens,
+            indextts2_seed,
+            indextts2_use_random,
+            f5_ref_audio,
+            f5_ref_text,
+            f5_speed,
+            f5_cross_fade,
+            f5_remove_silence,
+            f5_seed,
+            higgs_ref_audio,
+            higgs_ref_text,
+            higgs_voice_preset,
+            higgs_system_prompt,
+            higgs_temperature,
+            higgs_top_p,
+            higgs_top_k,
+            higgs_max_tokens,
+            higgs_ras_win_len,
+            higgs_ras_win_max_num_repeat,
+            kitten_voice,
+            voxcpm_ref_audio,
+            voxcpm_ref_text,
+            voxcpm_cfg_value,
+            voxcpm_inference_timesteps,
+            voxcpm_normalize,
+            voxcpm_denoise,
+            voxcpm_retry_badcase,
+            voxcpm_retry_badcase_max_times,
+            voxcpm_retry_badcase_ratio_threshold,
+            voxcpm_seed,
+            qwen_mode,
+            qwen_voice_description,
+            qwen_ref_audio,
+            qwen_ref_text,
+            qwen_xvector_only,
+            qwen_clone_model_size,
+            qwen_chunk_size,
+            qwen_chunk_gap,
+            qwen_speaker,
+            qwen_custom_model_size,
+            qwen_style_instruct,
+            qwen_language,
+            qwen_seed,
+            llm_transform_enabled,
+            llm_provider,
+            llm_base_url,
+            llm_api_key,
+            llm_model_id,
+            llm_mode,
+            llm_locale,
+            llm_style,
+            llm_max_tag_density,
+            llm_system_prompt,
+            llm_timeout_seconds,
+            llm_temperature,
+            llm_top_p,
+            llm_max_tokens,
+            llm_allow_local_fallback,
+            gain_db,
+            enable_eq,
+            eq_bass,
+            eq_mid,
+            eq_treble,
+            enable_reverb,
+            reverb_room,
+            reverb_damping,
+            reverb_wet,
+            enable_echo,
+            echo_delay,
+            echo_decay,
+            enable_pitch,
+            pitch_semitones,
+            speaker_name_tb,
+            voice_preset_dd,
+            autosave_enabled,
+            autosave_project_name,
+            autosave_store_audio_copy,
+            keep_legacy_output_copy,
+            last_seed_state,
+        ]
+
         # Main generation event handler
         generate_btn.click(
             fn=generate_unified_tts_wrapped,
-            inputs=[
-                text,
-                tts_engine,
-                audio_format,
-                chatterbox_ref_audio,
-                chatterbox_exaggeration,
-                chatterbox_temperature,
-                chatterbox_cfg_weight,
-                chatterbox_chunk_size,
-                chatterbox_seed,
-                chatterbox_mtl_ref_audio,
-                chatterbox_mtl_language,
-                chatterbox_mtl_exaggeration,
-                chatterbox_mtl_temperature,
-                chatterbox_mtl_cfg_weight,
-                chatterbox_mtl_repetition_penalty,
-                chatterbox_mtl_min_p,
-                chatterbox_mtl_top_p,
-                chatterbox_mtl_chunk_size,
-                chatterbox_mtl_seed,
-                chatterbox_turbo_ref_audio,
-                chatterbox_turbo_exaggeration,
-                chatterbox_turbo_temperature,
-                chatterbox_turbo_cfg_weight,
-                chatterbox_turbo_repetition_penalty,
-                chatterbox_turbo_min_p,
-                chatterbox_turbo_top_p,
-                chatterbox_turbo_chunk_size,
-                chatterbox_turbo_seed,
-                kokoro_voice,
-                kokoro_speed,
-                fish_ref_audio,
-                fish_ref_text,
-                fish_temperature,
-                fish_top_p,
-                fish_repetition_penalty,
-                fish_max_tokens,
-                fish_seed,
-                indextts_ref_audio,
-                indextts_temperature,
-                indextts_seed,
-                indextts2_ref_audio,
-                indextts2_emotion_mode,
-                indextts2_emotion_audio,
-                indextts2_emotion_description,
-                indextts2_emo_alpha,
-                indextts2_happy,
-                indextts2_angry,
-                indextts2_sad,
-                indextts2_afraid,
-                indextts2_disgusted,
-                indextts2_melancholic,
-                indextts2_surprised,
-                indextts2_calm,
-                indextts2_temperature,
-                indextts2_top_p,
-                indextts2_top_k,
-                indextts2_repetition_penalty,
-                indextts2_max_mel_tokens,
-                indextts2_seed,
-                indextts2_use_random,
-                f5_ref_audio,
-                f5_ref_text,
-                f5_speed,
-                f5_cross_fade,
-                f5_remove_silence,
-                f5_seed,
-                higgs_ref_audio,
-                higgs_ref_text,
-                higgs_voice_preset,
-                higgs_system_prompt,
-                higgs_temperature,
-                higgs_top_p,
-                higgs_top_k,
-                higgs_max_tokens,
-                higgs_ras_win_len,
-                higgs_ras_win_max_num_repeat,
-                kitten_voice,
-                voxcpm_ref_audio,
-                voxcpm_ref_text,
-                voxcpm_cfg_value,
-                voxcpm_inference_timesteps,
-                voxcpm_normalize,
-                voxcpm_denoise,
-                voxcpm_retry_badcase,
-                voxcpm_retry_badcase_max_times,
-                voxcpm_retry_badcase_ratio_threshold,
-                voxcpm_seed,
-                qwen_mode,
-                qwen_voice_description,
-                qwen_ref_audio,
-                qwen_ref_text,
-                qwen_xvector_only,
-                qwen_clone_model_size,
-                qwen_chunk_size,
-                qwen_chunk_gap,
-                qwen_speaker,
-                qwen_custom_model_size,
-                qwen_style_instruct,
-                qwen_language,
-                qwen_seed,
-                llm_transform_enabled,
-                llm_provider,
-                llm_base_url,
-                llm_api_key,
-                llm_model_id,
-                llm_mode,
-                llm_locale,
-                llm_style,
-                llm_max_tag_density,
-                llm_system_prompt,
-                llm_timeout_seconds,
-                llm_temperature,
-                llm_top_p,
-                llm_max_tokens,
-                llm_allow_local_fallback,
-                gain_db,
-                enable_eq,
-                eq_bass,
-                eq_mid,
-                eq_treble,
-                enable_reverb,
-                reverb_room,
-                reverb_damping,
-                reverb_wet,
-                enable_echo,
-                echo_delay,
-                echo_decay,
-                enable_pitch,
-                pitch_semitones,
-                speaker_name_tb,
-                voice_preset_dd,
-                autosave_enabled,
-                autosave_project_name,
-                autosave_store_audio_copy,
-                keep_legacy_output_copy,
-                last_seed_state,
-            ],
+            inputs=single_speaker_generation_inputs,
             outputs=[audio_output, status_output, last_seed_out, last_seed_state],
+        )
+        queue_generate_job_btn.click(
+            fn=handle_queue_single_speaker_job,
+            inputs=single_speaker_generation_inputs,
+            outputs=[status_output, job_queue_display, job_detail_output, job_id_input],
         )
 
         # Conversation Mode Event Handlers
@@ -21404,13 +21531,20 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 status_lines.extend(f"WARNING: {warning}" for warning in preflight_warnings)
                 return "\n".join(status_lines), rows, detail, ""
 
-            staged_voice_samples, staged_emotion_audios, staging_errors = _stage_conversation_job_media(
-                hydrated_voice_samples,
-                emotion_audios or [],
+            staged_voice_samples, staged_emotion_audios, staging_errors = (
+                _stage_conversation_job_media(
+                    hydrated_voice_samples,
+                    emotion_audios or [],
+                )
             )
             if staging_errors:
                 rows, detail = handle_job_panel_refresh("")
-                return "\n".join(["ERROR: Failed to stage queued job assets", *staging_errors]), rows, detail, ""
+                return (
+                    "\n".join(["ERROR: Failed to stage queued job assets", *staging_errors]),
+                    rows,
+                    detail,
+                    "",
+                )
 
             job_request = JobRequest(
                 text=script_text,

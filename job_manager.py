@@ -79,6 +79,10 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
             from conversation_job_service import generate_conversation_job
 
             result_payload = generate_conversation_job(request_dict)
+        elif job_type == "single_speaker":
+            from single_speaker_job_service import generate_single_speaker_job
+
+            result_payload = generate_single_speaker_job(request_dict)
         else:
             from tts_service import TtsRequest, generate_tts
 
