@@ -2483,6 +2483,7 @@ APP_STATE_SETTINGS_FILE = os.path.join(APP_STATE_DIR, "settings.json")
 APP_STATE_SPEAKER_PROFILES_FILE = Path(APP_STATE_DIR) / "speaker_profiles.json"
 APP_STATE_VOICES_DIR = os.path.join(APP_STATE_DIR, "voices")
 APP_STATE_OUTPUTS_DIR = os.path.join(APP_STATE_DIR, "outputs")
+APP_STATE_JOB_ASSETS_DIR = os.path.join(APP_STATE_DIR, "job_assets")
 APP_STATE_CONVERSATION_CHECKPOINTS_DIR = os.path.join(APP_STATE_DIR, "conversation_checkpoints")
 
 # Legacy preset file (migrated one-way to app_state/presets.json)
@@ -2552,6 +2553,7 @@ def ensure_app_state_dirs():
     os.makedirs(APP_STATE_DIR, exist_ok=True)
     os.makedirs(APP_STATE_VOICES_DIR, exist_ok=True)
     os.makedirs(APP_STATE_OUTPUTS_DIR, exist_ok=True)
+    os.makedirs(APP_STATE_JOB_ASSETS_DIR, exist_ok=True)
     os.makedirs(APP_STATE_CONVERSATION_CHECKPOINTS_DIR, exist_ok=True)
     if not os.path.exists(APP_STATE_SETTINGS_FILE):
         with open(APP_STATE_SETTINGS_FILE, "w", encoding="utf-8") as file:
@@ -4580,6 +4582,46 @@ def _hydrate_conversation_inputs_from_state(
         hydrated_kitten_voices,
         fallback_messages,
     )
+
+
+def _stage_conversation_job_media(
+    voice_samples,
+    emotion_audios,
+) -> tuple[list[Any], list[Any], list[str]]:
+    """Copy queued conversation media inputs into durable app_state storage."""
+    ensure_app_state_dirs()
+
+    job_key = hashlib.sha256(f"{time.time_ns()}_{random.random()}".encode("utf-8")).hexdigest()[
+        :12
+    ]
+    asset_dir = Path(APP_STATE_JOB_ASSETS_DIR) / job_key
+    asset_dir.mkdir(parents=True, exist_ok=True)
+
+    staged_voice_samples: list[Any] = []
+    staged_emotion_audios: list[Any] = []
+    errors: list[str] = []
+
+    def _stage_path(value: Any, prefix: str) -> Any:
+        if not _has_value(value):
+            return None
+
+        source_path = Path(str(value))
+        if not source_path.exists():
+            errors.append(f"Queued job input not found on disk: {source_path}")
+            return value
+
+        suffix = source_path.suffix or ".wav"
+        target_path = asset_dir / f"{prefix}{suffix}"
+        shutil.copy2(source_path, target_path)
+        return str(target_path)
+
+    for index, value in enumerate(list(voice_samples or [])[:10], start=1):
+        staged_voice_samples.append(_stage_path(value, f"voice_{index:02d}"))
+
+    for index, value in enumerate(list(emotion_audios or [])[:10], start=1):
+        staged_emotion_audios.append(_stage_path(value, f"emotion_{index:02d}"))
+
+    return staged_voice_samples, staged_emotion_audios, errors
 
 
 def _conversation_checkpoint_key(
@@ -14864,8 +14906,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     padding: 15px; border-radius: 12px; margin-bottom: 15px;'>
                             <h3 style='margin: 0 0 8px 0; padding: 0; font-size: 1.1em;'>📋 Job Queue</h3>
                             <p style='margin: 0; opacity: 0.8; font-size: 0.9em;'>
-                                Monitor background TTS jobs, view queue status, and manage long-running
-                                synthesis tasks without blocking the main UI.
+                                Monitor queued single-speaker and conversation jobs, view queue status,
+                                and manage long-running synthesis tasks without blocking the main UI.
                             </p>
                         </div>
                         """)
@@ -14992,12 +15034,19 @@ Alice: I went to Japan. It was absolutely incredible!""",
             with gr.Column(
                 elem_id="generate_conversation_action", visible=False
             ) as generate_conversation_btn_container:
-                generate_conversation_btn = gr.Button(
-                    "Generate",
-                    variant="primary",
-                    size="lg",
-                    elem_classes=["generate-btn", "fade-in"],
-                )
+                with gr.Row():
+                    generate_conversation_btn = gr.Button(
+                        "Generate",
+                        variant="primary",
+                        size="lg",
+                        elem_classes=["generate-btn", "fade-in"],
+                    )
+                    queue_conversation_job_btn = gr.Button(
+                        "Queue Job",
+                        variant="secondary",
+                        size="lg",
+                        elem_classes=["fade-in"],
+                    )
 
         conversation_panel_updates = [
             speaker_1_group,
@@ -17060,6 +17109,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             rows = []
             for job in jobs:
                 request = job.request or {}
+                job_type = str(request.get("job_type", "tts") or "tts").strip().lower()
                 created = (
                     _time.strftime("%H:%M:%S", _time.localtime(job.created_at))
                     if job.created_at
@@ -17079,11 +17129,15 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 if len(text) > 60:
                     text = f"{text[:57]}..."
 
+                engine_label = str(request.get("engine", "Unknown"))
+                if job_type == "conversation":
+                    engine_label = f"Conversation / {engine_label}"
+
                 rows.append(
                     [
                         f"{job.id[:12]}..." if len(job.id) > 12 else job.id,
                         status_icons.get(job.status, job.status),
-                        str(request.get("engine", "Unknown")),
+                        engine_label,
                         created,
                         elapsed,
                         text or "—",
@@ -17122,6 +17176,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
             request = info.request or {}
             lines = [f"### Job {info.id[:12]}...", f"**Full ID:** {info.id}"]
             lines.append(f"**Status:** {status_icons.get(info.status, info.status)}")
+            lines.append(
+                f"**Mode:** {str(request.get('job_type', 'tts') or 'tts').replace('_', ' ').title()}"
+            )
             lines.append(f"**Engine:** {request.get('engine', 'Unknown')}")
             lines.append(f"**Format:** {request.get('audio_format', 'wav')}")
 
@@ -17242,6 +17299,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     text=str(request.get("text", "")),
                     engine=str(request.get("engine", "Kokoro TTS")),
                     audio_format=str(request.get("audio_format", "wav")),
+                    job_type=str(request.get("job_type", "tts") or "tts"),
                     engine_params=dict(request.get("engine_params") or {}),
                 )
             )
@@ -21283,6 +21341,112 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 print(f"ERROR: Exception in conversation handler: {error_msg}")
                 return None, error_msg
 
+        def handle_queue_conversation_job(
+            script_text,
+            pause_duration,
+            transition_pause,
+            audio_format,
+            voice_samples,
+            ref_texts,
+            kokoro_voices,
+            kitten_voices,
+            selected_engine,
+            speaker_settings_state,
+            project_name=None,
+            autosave_enabled=True,
+            autosave_store_audio_copy=True,
+            keep_legacy_output_copy=True,
+            emotion_modes=None,
+            emotion_audios=None,
+            emotion_descriptions=None,
+            emotion_vectors=None,
+        ):
+            """Queue a conversation generation job for background execution."""
+            from job_manager import JobRequest, get_job_manager
+
+            if not script_text.strip():
+                rows, detail = handle_job_panel_refresh("")
+                return "ERROR: No conversation script provided", rows, detail, ""
+
+            resolved_project, project_error = _validate_required_project_name(project_name)
+            if project_error:
+                rows, detail = handle_job_panel_refresh("")
+                return project_error, rows, detail, ""
+
+            (
+                hydrated_voice_samples,
+                hydrated_ref_texts,
+                hydrated_kokoro_voices,
+                hydrated_kitten_voices,
+                hydration_warnings,
+            ) = _hydrate_conversation_inputs_from_state(
+                script_text,
+                speaker_settings_state,
+                voice_samples,
+                ref_texts,
+                kokoro_voices,
+                kitten_voices,
+            )
+
+            preflight_errors, preflight_warnings, _ = _conversation_preflight(
+                script_text,
+                selected_engine,
+                hydrated_voice_samples,
+                hydrated_ref_texts,
+                hydrated_kokoro_voices,
+                hydrated_kitten_voices,
+            )
+            if preflight_errors:
+                rows, detail = handle_job_panel_refresh("")
+                status_lines = ["ERROR: Conversation preflight failed"]
+                status_lines.extend(preflight_errors)
+                status_lines.extend(f"WARNING: {warning}" for warning in hydration_warnings)
+                status_lines.extend(f"WARNING: {warning}" for warning in preflight_warnings)
+                return "\n".join(status_lines), rows, detail, ""
+
+            staged_voice_samples, staged_emotion_audios, staging_errors = _stage_conversation_job_media(
+                hydrated_voice_samples,
+                emotion_audios or [],
+            )
+            if staging_errors:
+                rows, detail = handle_job_panel_refresh("")
+                return "\n".join(["ERROR: Failed to stage queued job assets", *staging_errors]), rows, detail, ""
+
+            job_request = JobRequest(
+                text=script_text,
+                engine=selected_engine,
+                audio_format=audio_format,
+                job_type="conversation",
+                engine_params={
+                    "project_name": resolved_project,
+                    "pause_duration": float(pause_duration or 0.8),
+                    "transition_pause": float(transition_pause or 0.3),
+                    "voice_samples": staged_voice_samples,
+                    "ref_texts": hydrated_ref_texts,
+                    "kokoro_voices": hydrated_kokoro_voices,
+                    "kitten_voices": hydrated_kitten_voices,
+                    "autosave_enabled": bool(autosave_enabled),
+                    "autosave_store_audio_copy": bool(autosave_store_audio_copy),
+                    "keep_legacy_output_copy": bool(keep_legacy_output_copy),
+                    "emotion_modes": list(emotion_modes or []),
+                    "emotion_audios": staged_emotion_audios,
+                    "emotion_descriptions": list(emotion_descriptions or []),
+                    "emotion_vectors": list(emotion_vectors or []),
+                    "hydration_warnings": hydration_warnings,
+                    "preflight_warnings": preflight_warnings,
+                },
+            )
+
+            job_id = get_job_manager().submit(job_request)
+            rows, detail = handle_job_panel_refresh(job_id)
+            status_lines = [
+                f"SUCCESS: Queued conversation job {job_id[:12]}... for {selected_engine}.",
+                "Open the Jobs tab to monitor, cancel, or retry it.",
+            ]
+            status_lines.extend(f"WARNING: {warning}" for warning in hydration_warnings)
+            status_lines.extend(f"WARNING: {warning}" for warning in preflight_warnings)
+            return "\n".join(status_lines), rows, detail, job_id
+
         def handle_generate_conversation_simple(
             script_text,
             pause_duration,
@@ -21919,6 +22083,253 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 speaker_10_calm,
             ],
             outputs=[audio_output, conversation_info],  # Use same audio output as single voice mode
+        )
+
+        queue_conversation_job_btn.click(
+            fn=lambda script, pause, trans_pause, audio_fmt, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, rt1, rt2, rt3, rt4, rt5, rt6, rt7, rt8, rt9, rt10, kv1, kv2, kv3, kv4, kv5, kv6, kv7, kv8, kv9, kv10, ktv1, ktv2, ktv3, ktv4, ktv5, ktv6, ktv7, ktv8, ktv9, ktv10, engine, speaker_settings_state, project_name, autosave_on, autosave_copy, keep_legacy, em1, ea1, ed1, h1, s1_sad, a1, af1, su1, c1, em2, ea2, ed2, h2, s2_sad, a2, af2, su2, c2, em3, ea3, ed3, h3, s3_sad, a3, af3, su3, c3, em4, ea4, ed4, h4, s4_sad, a4, af4, su4, c4, em5, ea5, ed5, h5, s5_sad, a5, af5, su5, c5, em6, ea6, ed6, h6, s6_sad, a6, af6, su6, c6, em7, ea7, ed7, h7, s7_sad, a7, af7, su7, c7, em8, ea8, ed8, h8, s8_sad, a8, af8, su8, c8, em9, ea9, ed9, h9, s9_sad, a9, af9, su9, c9, em10, ea10, ed10, h10, s10_sad, a10, af10, su10, c10: handle_queue_conversation_job(
+                script,
+                pause,
+                trans_pause,
+                audio_fmt,
+                [s1, s2, s3, s4, s5, s6, s7, s8, s9, s10],
+                [rt1, rt2, rt3, rt4, rt5, rt6, rt7, rt8, rt9, rt10],
+                [kv1, kv2, kv3, kv4, kv5, kv6, kv7, kv8, kv9, kv10],
+                [ktv1, ktv2, ktv3, ktv4, ktv5, ktv6, ktv7, ktv8, ktv9, ktv10],
+                engine,
+                speaker_settings_state,
+                project_name,
+                autosave_on,
+                autosave_copy,
+                keep_legacy,
+                [em1, em2, em3, em4, em5, em6, em7, em8, em9, em10],
+                [ea1, ea2, ea3, ea4, ea5, ea6, ea7, ea8, ea9, ea10],
+                [ed1, ed2, ed3, ed4, ed5, ed6, ed7, ed8, ed9, ed10],
+                [
+                    {
+                        "happy": h1,
+                        "sad": s1_sad,
+                        "angry": a1,
+                        "afraid": af1,
+                        "surprised": su1,
+                        "calm": c1,
+                    },
+                    {
+                        "happy": h2,
+                        "sad": s2_sad,
+                        "angry": a2,
+                        "afraid": af2,
+                        "surprised": su2,
+                        "calm": c2,
+                    },
+                    {
+                        "happy": h3,
+                        "sad": s3_sad,
+                        "angry": a3,
+                        "afraid": af3,
+                        "surprised": su3,
+                        "calm": c3,
+                    },
+                    {
+                        "happy": h4,
+                        "sad": s4_sad,
+                        "angry": a4,
+                        "afraid": af4,
+                        "surprised": su4,
+                        "calm": c4,
+                    },
+                    {
+                        "happy": h5,
+                        "sad": s5_sad,
+                        "angry": a5,
+                        "afraid": af5,
+                        "surprised": su5,
+                        "calm": c5,
+                    },
+                    {
+                        "happy": h6,
+                        "sad": s6_sad,
+                        "angry": a6,
+                        "afraid": af6,
+                        "surprised": su6,
+                        "calm": c6,
+                    },
+                    {
+                        "happy": h7,
+                        "sad": s7_sad,
+                        "angry": a7,
+                        "afraid": af7,
+                        "surprised": su7,
+                        "calm": c7,
+                    },
+                    {
+                        "happy": h8,
+                        "sad": s8_sad,
+                        "angry": a8,
+                        "afraid": af8,
+                        "surprised": su8,
+                        "calm": c8,
+                    },
+                    {
+                        "happy": h9,
+                        "sad": s9_sad,
+                        "angry": a9,
+                        "afraid": af9,
+                        "surprised": su9,
+                        "calm": c9,
+                    },
+                    {
+                        "happy": h10,
+                        "sad": s10_sad,
+                        "angry": a10,
+                        "afraid": af10,
+                        "surprised": su10,
+                        "calm": c10,
+                    },
+                ],
+            ),
+            inputs=[
+                conversation_script,
+                conversation_pause,
+                speaker_transition_pause,
+                audio_format,
+                speaker_1_audio,
+                speaker_2_audio,
+                speaker_3_audio,
+                speaker_4_audio,
+                speaker_5_audio,
+                speaker_6_audio,
+                speaker_7_audio,
+                speaker_8_audio,
+                speaker_9_audio,
+                speaker_10_audio,
+                speaker_1_ref_text,
+                speaker_2_ref_text,
+                speaker_3_ref_text,
+                speaker_4_ref_text,
+                speaker_5_ref_text,
+                speaker_6_ref_text,
+                speaker_7_ref_text,
+                speaker_8_ref_text,
+                speaker_9_ref_text,
+                speaker_10_ref_text,
+                speaker_1_kokoro_voice,
+                speaker_2_kokoro_voice,
+                speaker_3_kokoro_voice,
+                speaker_4_kokoro_voice,
+                speaker_5_kokoro_voice,
+                speaker_6_kokoro_voice,
+                speaker_7_kokoro_voice,
+                speaker_8_kokoro_voice,
+                speaker_9_kokoro_voice,
+                speaker_10_kokoro_voice,
+                speaker_1_kitten_voice,
+                speaker_2_kitten_voice,
+                speaker_3_kitten_voice,
+                speaker_4_kitten_voice,
+                speaker_5_kitten_voice,
+                speaker_6_kitten_voice,
+                speaker_7_kitten_voice,
+                speaker_8_kitten_voice,
+                speaker_9_kitten_voice,
+                speaker_10_kitten_voice,
+                tts_engine,
+                conversation_speaker_settings_state,
+                autosave_project_name,
+                autosave_enabled,
+                autosave_store_audio_copy,
+                keep_legacy_output_copy,
+                speaker_1_emotion_mode,
+                speaker_1_emotion_audio,
+                speaker_1_emotion_description,
+                speaker_1_happy,
+                speaker_1_sad,
+                speaker_1_angry,
+                speaker_1_afraid,
+                speaker_1_surprised,
+                speaker_1_calm,
+                speaker_2_emotion_mode,
+                speaker_2_emotion_audio,
+                speaker_2_emotion_description,
+                speaker_2_happy,
+                speaker_2_sad,
+                speaker_2_angry,
+                speaker_2_afraid,
+                speaker_2_surprised,
+                speaker_2_calm,
+                speaker_3_emotion_mode,
+                speaker_3_emotion_audio,
+                speaker_3_emotion_description,
+                speaker_3_happy,
+                speaker_3_sad,
+                speaker_3_angry,
+                speaker_3_afraid,
+                speaker_3_surprised,
+                speaker_3_calm,
+                speaker_4_emotion_mode,
+                speaker_4_emotion_audio,
+                speaker_4_emotion_description,
+                speaker_4_happy,
+                speaker_4_sad,
+                speaker_4_angry,
+                speaker_4_afraid,
+                speaker_4_surprised,
+                speaker_4_calm,
+                speaker_5_emotion_mode,
+                speaker_5_emotion_audio,
+                speaker_5_emotion_description,
+                speaker_5_happy,
+                speaker_5_sad,
+                speaker_5_angry,
+                speaker_5_afraid,
+                speaker_5_surprised,
+                speaker_5_calm,
+                speaker_6_emotion_mode,
+                speaker_6_emotion_audio,
+                speaker_6_emotion_description,
+                speaker_6_happy,
+                speaker_6_sad,
+                speaker_6_angry,
+                speaker_6_afraid,
+                speaker_6_surprised,
+                speaker_6_calm,
+                speaker_7_emotion_mode,
+                speaker_7_emotion_audio,
+                speaker_7_emotion_description,
+                speaker_7_happy,
+                speaker_7_sad,
+                speaker_7_angry,
+                speaker_7_afraid,
+                speaker_7_surprised,
+                speaker_7_calm,
+                speaker_8_emotion_mode,
+                speaker_8_emotion_audio,
+                speaker_8_emotion_description,
+                speaker_8_happy,
+                speaker_8_sad,
+                speaker_8_angry,
+                speaker_8_afraid,
+                speaker_8_surprised,
+                speaker_8_calm,
+                speaker_9_emotion_mode,
+                speaker_9_emotion_audio,
+                speaker_9_emotion_description,
+                speaker_9_happy,
+                speaker_9_sad,
+                speaker_9_angry,
+                speaker_9_afraid,
+                speaker_9_surprised,
+                speaker_9_calm,
+                speaker_10_emotion_mode,
+                speaker_10_emotion_audio,
+                speaker_10_emotion_description,
+                speaker_10_happy,
+                speaker_10_sad,
+                speaker_10_angry,
+                speaker_10_afraid,
+                speaker_10_surprised,
+                speaker_10_calm,
+            ],
+            outputs=[conversation_info, job_queue_display, job_detail_output, job_id_input],
         )
 
         # Speaker transcribe button handlers for conversation mode
