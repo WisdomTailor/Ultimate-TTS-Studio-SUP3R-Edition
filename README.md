@@ -1,366 +1,222 @@
-# Ultimate TTS Studio SUP3R Edition
+# Ultimate TTS Studio
 
----
+This directory contains the application runtime for Ultimate TTS Studio.
 
-## ⚠️ Notice: Major App Update
+The main entry point is `launch.py`, which builds the Gradio UI and coordinates:
 
-### 📅 Sept 18, 2025
+- multi-engine text-to-speech generation
+- narration transform and LLM-assisted script polishing
+- conversation formatting and multi-speaker synthesis
+- audiobook conversion workflows
+- history indexing and reload
+- queued job execution
+- optional assistant chat tools
+- optional MCP sidecar integration
 
-This update brings **VibeVoice** and **IndexTTS2** as newly supported TTS engines, expanding the
-variety and flexibility of voice options available.
-<img width="360" height="165" alt="Screenshot 2025-09-18 164743" src="https://github.com/user-attachments/assets/49a6ea70-3028-496b-aec2-01c303f6a777" /><img width="794" height="73" alt="Screenshot 2025-09-18 164736" src="https://github.com/user-attachments/assets/22cacc1b-7dc9-4fa4-913c-4196096fe3d7" />
+If you are using the Pinokio launcher workspace, start with the root `README.md` first.
 
-### 📅 Sept 13, 2025
+## Current UI Surface
 
-This update brings KittenTTS
-<img width="1758" height="377" alt="Screenshot 2025-09-13 231901" src="https://github.com/user-attachments/assets/5a701acf-5639-46dd-9323-b04402e31e2e" />
+The current primary tabs in `launch.py` are:
 
-### 📅 July 29, 2025
+- Text to Synthesize
+- Conversation Mode
+- eBook to Audiobook
+- VibeVoice
+- Assistant
+- History
+- Jobs
 
-This recent update brings Higgs-Audio TTS:
+### Supported Engine Tabs
 
-### 📅 June 23, 2025
+- ChatterboxTTS
+- Chatterbox Multilingual
+- Chatterbox Turbo
+- Kokoro TTS
+- Fish Speech
+- IndexTTS
+- IndexTTS2
+- F5-TTS
+- Higgs Audio
+- VoxCPM
+- KittenTTS
+- Qwen TTS
 
-This recent update brings a few UI improvements focused on clarity and usability:
+Engine availability is dependency-driven. If an optional engine import fails, the app keeps running
+and disables only that engine path.
 
-### 🎛️ TTS UI Refactor
+## Major Runtime Features
 
-- The **TTS engine selector** is now organized into a **tabbed interface**, making it easier to
-  navigate and less overwhelming.
-  ![Screenshot 2025-06-23 204234](https://github.com/user-attachments/assets/2b0382eb-c358-4a1c-85d6-cb99aa4217f8)
+### Single-Speaker Generation
 
-- The **audiobook feature** has been moved into its own tab to **reduce visual clutter** and improve
-  user experience.
-  ![Screenshot 2025-06-23 204240](https://github.com/user-attachments/assets/05a9df2d-2573-418a-9dbe-b82f6c5e8e1b)
+- engine-specific synthesis controls
+- optional narration transform before synthesis
+- audio effects pipeline
+- deterministic seed capture
+- structured autosave metadata
 
----
+### Conversation Mode
 
-### 📅 June 18, 2025
+- script parsing and speaker extraction
+- AI formatting tools for multi-speaker scripts
+- per-speaker engine-specific assignment flows
+- checkpointed resume support via `app_state/conversation_checkpoints/`
 
-We’ve pushed another exciting update packed with new functionality and improvements!
+### eBook To Audiobook
 
-### 🆕 New Additions & Improvements
+- chapter-oriented audiobook generation flow
+- shared output storage and autosave metadata
 
-### 🗣️ TTS Integration Expanded
+### Assistant
 
-- **F5-TTS** has now been added as a **fifth supported engine**, and it works seamlessly across all
-  modes.
-- **Index-TTS** has been added as a supported speech engine.
-- All **TTS engines now work across all modes**, including narration, conversation, and ambient.
+- separate LLM provider settings from narration transform
+- saved provider, model, prompt, and generation defaults
+- API key source indicators in the UI
 
-### 💬 Kokoro Conversation Mode
+### History
 
-- **Kokoro** now fully supports **conversation mode**, offering a more dynamic and interactive
-  experience.
+- indexing of structured generated artifacts
+- record search and filtering
+- reload of prior generation context back into the UI
 
-### ✅ Recommended Setup
+### Jobs
 
-For the **smoothest installation and full feature compatibility**:
+- queue-aware orchestration for long-running generation work
+- persisted job records under `app_state/jobs/`
 
-- Use a **Conda environment**, or
-- Install via **[Pinokio](https://pinokio.co)** for the easiest experience.
+## Persistence And Storage
 
----
+`launch.py` currently uses these app-state locations:
 
-### 📅 June 10, 2025
+- `app_state/settings.json`
+- `app_state/presets.json`
+- `app_state/voices/`
+- `app_state/outputs/`
+- `app_state/job_assets/`
+- `app_state/conversation_checkpoints/`
+- `app_state/conversation_draft.json`
 
-We’re excited to announce a major update to the app!
+Other runtime directories used by the app include:
 
-### 🎧 New Feature: eBook to Audiobook
+- `outputs/`
+- `custom_voices/`
+- `audiobooks/`
+- `cache/`
 
-Bring your favorite eBooks to life with our brand-new **custom voice audiobook** feature. Instantly
-convert any eBook into a personalized listening experience—perfect for learning, multitasking, or
-relaxing on the go.
-![Screenshot 2025-06-10 204108](https://github.com/user-attachments/assets/7aa08f03-4c23-4772-a1cd-6e9967fa8882)
+### LLM Settings Namespaces
 
----
+The app persists separate settings for:
 
-### 📅 June 7, 2025
+- narration transform
+- conversation formatting
+- assistant chat
 
-This update brings key improvements to **performance**, **model management**, and the **user
-interface**. Here's what's new:
+These settings are intentionally namespaced so changing one workflow does not overwrite another.
 
-### 🔧 Model Management
+## Optional MCP Sidecar
 
-- Models are **no longer auto-loaded into GPU memory** at app launch.
-- You can now **manually load and unload models**, giving you more precise control over memory
-  usage.
+`mcp_sidecar.py` exposes an optional SSE-based MCP server in a separate environment. It is not
+required for normal web UI use.
 
-### 🎨 UI Enhancements
+Current MCP tools exposed by the sidecar include:
 
-- A **refreshed interface** is now live.
-- The app is now **optimized for dark mode**. It still works in light mode, but some visuals may not
-  display as intended.
+- `list_engines`
+- `get_engine_info`
+- `list_voices`
+- `list_outputs`
+- `get_app_version`
+- `normalize_text`
+- `list_llm_providers`
+- `transform_text`
+- `structure_conversation`
+- `synthesize`
+- `submit_synthesis_job`
+- `get_job_status`
+- `cancel_job`
 
-### 🐟 Fish Speech Fix
+Related files:
 
-- Fixed a bug where **Fish Speech** did not chunk text correctly, which could cause processing
-  issues.
+- `mcp_sidecar.py`
+- `mcp_security.py`
+- `mcp_verify_summary.py`
+- `requirements_mcp_sidecar.txt`
 
-### 📥 Model Download Behavior
+## Running The App Directly
 
-- **Chatterbox** and **Kokoro** models will **automatically download** the first time you click
-  "Load."
-- **Fish Speech** models must still be **downloaded manually** and are **not included** in the
-  auto-download process.
-
-### 🗣️ New Feature: Custom Kokoro Voices
-
-- **Kokoro** now supports **custom `.pt` voice models**!
-- Use the **Custom Voice Upload** section in the Kokoro interface to upload your own compatible
-  voice files.
-
----
-
-<img width="1801" height="1239" alt="Screenshot 2025-10-29 224206" src="https://github.com/user-attachments/assets/c5b61290-3dc0-4cde-bbf3-7c151714717c" />
-
-# ✨ Ultimate TTS Studio SUP3R Edition ✨
-
-**Ultimate TTS Studio** is a powerful all-in-one text-to-speech studio that brings together
-**ChatterboxTTS**, **Kokoro TTS**, and **Fish Speech** under one interactive Gradio interface.
-
-🎭 Reference Audio Cloning 🗣️ Pre-trained Multi-Language Voices 🐟 Natural TTS with Audio Effects 🎵
-Real-time Voice Synthesis & Export
-
----.
-
-## 🚀 Features
-
-- 🎤 **ChatterboxTTS**: Custom voice cloning using short reference clips.
-- 🗣️ **Kokoro TTS**: High-quality, multilingual pre-trained voices.
-- 🐟 **Fish Speech**: Advanced TTS engine.
-- 🎛️ **Professional Audio Effects**: Reverb, Echo, EQ, Pitch shift, Gain.
-
----
-
-> ## 🚨🚨 **WARNING / IMPORTANT NOTES** 🚨🚨
->
-> ⚠️ **Tested Hardware:** This project has **only** been tested on a **Windows 11** machine with an
-> **RTX 4090** GPU. 💻 Performance or compatibility on other systems is **not guaranteed**.
->
-> 🔊 **Audio Caution:** The **Fish Speech** feature may occasionally produce **extremely loud** or
-> **muffled** audio. 🎧 **Please lower your volume and avoid using headphones** during initial
-> tests.
-
----
-
-## 🛠️ Installation
-
-> ⚠️ **Windows Users — Important Note on `pynini`** If you encounter the following error when
-> installing `pynini`: `ERROR: Failed building wheel for pynini` You can fix this by installing it
-> via conda: Pynini and wetextprocessing is needed for index-tts to work at its best
-> [Espeak-ng](https://github.com/espeak-ng/espeak-ng) is needed for Kokoro to work at its best.
-
-```bash
-# After activating your conda environment (e.g., conda activate index-tts)
-conda install -c conda-forge pynini==2.1.6
-pip install WeTextProcessing --no-deps
-```
-
----
-
-## Option 1
-
-Install via [Pinokio](https://pinokio.co) You can use the Pinokio script here for one-click setup:
-[Pinokio App Installer](https://pinokio-home.netlify.app/item?uri=https://github.com/SUP3RMASS1VE/Ultimate-TTS-Studio-SUP3R-Edition-Pinokio)
-
-### Option 1a: Install via [Dione](https://getdione.app)
-
-You can also use [Dione](https://getdione.app) for an easy one-click installation experience:
-
----
-
-## Option 2
-
-### 🔁 **Auto-Installer Method (Recommended)**
-
-This is the fastest way to get started. It uses a built-in installer script for automatic setup and
-app launching.
-
-> 🛠️ **Before You Begin:** Make sure you have **Miniconda** or **Anaconda** installed on your
-> system. You can download Miniconda here:
-> [https://docs.conda.io/en/latest/miniconda.html](https://docs.conda.io/en/latest/miniconda.html)
-
-#### 1. Clone the Repository
-
-```bash
-git clone https://github.com/SUP3RMASS1VE/Ultimate-TTS-Studio-SUP3R-Edition.git
-cd Ultimate-TTS-Studio-SUP3R-Edition
-```
-
-#### 2. Run the Installer
-
-👉 Double-click `RUN_INSTALLER` in the project folder. This will automatically set up everything for
-you — dependencies, environment, etc.
-
-#### 3. Launch the App
-
-👉 Double-click `RUN_APP` to open the app.
-
-#### 4. Update the App (When Needed)
-
-👉 Double-click `RUN_UPDATE` to update the app to the latest version.
-
----
-
-## Option 3
-
----
-
-## 🧠 Ultimate-TTS-Studio-SUP3R-Edition — Setup Guide (Conda)
-
-Follow these steps to set up your environment for **Ultimate TTS Studio SUP3R Edition** using
-**Conda** and **UV** for fast dependency management.
-
----
-
-### 🔹 1. Clone the Repository
-
-```bash
-git clone https://github.com/SUP3RMASS1VE/Ultimate-TTS-Studio-SUP3R-Edition.git
-cd Ultimate-TTS-Studio-SUP3R-Edition
-```
-
----
-
-### 🔹 2. Create a Conda Environment
-
-```bash
-conda create -n ultimate-tts python=3.10 -y
-```
-
----
-
-### 🔹 3. Activate the Environment
-
-```bash
-conda activate ultimate-tts
-```
-
----
-
-### 🔹 4. (Optional) Install `uv` for Faster Installs
-
-```bash
-pip install uv
-```
-
-> 💡 **Tip:** `uv` dramatically speeds up installation. If you prefer, you can use regular
-> `pip install` instead.
-
----
-
-### 🔹 5. Install Dependencies
-
-#### 🧩 Step 1 — Core Requirements
-
-```bash
-uv pip install -r requirements.txt
-```
-
-#### ⚙️ Step 2 — Specific Packages and CUDA Builds
-
-```bash
-uv pip install voxcpm openai-whisper --no-deps
-uv pip install https://huggingface.co/lldacing/flash-attention-windows-wheel/resolve/main/flash_attn-2.7.4.post1%2Bcu128torch2.7.0cxx11abiFALSE-cp310-cp310-win_amd64.whl
-uv pip install WeTextProcessing --no-deps
-uv pip install triton-windows==3.3.1.post19
-uv pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
-
-```
-
-### ✅ Done
-
-Your environment is now ready to run **Ultimate TTS Studio SUP3R Edition** with CUDA 12.8 support.
-Launch the app and start generating high-quality speech!
-
-💡 If you encounter CUDA or package conflicts, ensure your GPU drivers are updated and that Conda’s
-`python=3.10` matches the wheel compatibility.
-
-💡 If you're not using `uv`, you can just use `pip install` in its place.
-
-## 🧠 First-Time Setup Tips
-
-### 📥 Download Fish Speech Model (one-time)
-
-To use **Fish Speech**, you must download the model checkpoint from Hugging Face. This requires a
-Hugging Face account and access token.
-
-### 🔐 Step-by-Step
-
-1. **Create an account (if needed):** [https://huggingface.co/join](https://huggingface.co/join)
-
-2. **Get your access token:** Visit
-   [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and create a
-   **read token**.
-
-3. **Log in via CLI:**
-
-   ```bash
-   huggingface-cli login
-   ```
-
-   Paste your token when prompted.
-
-4. **(Optional)** Accept the model license: Visit
-   [https://huggingface.co/fishaudio/openaudio-s1-mini](https://huggingface.co/fishaudio/openaudio-s1-mini)
-   and click **"Access repository"** if prompted.
-
-5. **Download the model:**
-
-   ```bash
-   huggingface-cli download fishaudio/openaudio-s1-mini --local-dir checkpoints/openaudio-s1-mini
-   ```
-
----
-
-## ▶️ Run the Studio
+The app can be launched directly from this directory with:
 
 ```bash
 python launch.py
 ```
 
-This will launch a local Gradio interface at: 📍 `http://127.0.0.1:7860`
+The Pinokio launcher currently runs the app inside a conda environment named `tts_env`.
 
----
+For the closest supported setup, mirror the dependency flow from the root launcher scripts:
 
-## 💡 Notes
+```bash
+conda install -c conda-forge pynini==2.1.6 -y
+conda install -y -c conda-forge portaudio
+conda install -y -c conda-forge sox
+uv pip install -r requirements.txt
+uv pip install WeTextProcessing --no-deps
+uv pip install --upgrade --force-reinstall --no-deps --no-cache-dir onnxruntime-gpu==1.22.0
+uv pip install voxcpm openai-whisper --no-deps
+```
 
-- All engines are optional — the app will gracefully disable missing engines.
-- ChatterboxTTS and Fish Speech support reference audio input.
-- Audio effects are applied post-synthesis for professional-quality output.
-- Custom Kokoro voices can be added to `custom_voices/` as `.pt` files.
+Additional platform tooling may still be required:
 
----
+- `espeak-ng` for best Kokoro behavior
+- GPU-compatible PyTorch stack for accelerated inference
+- model downloads required by specific engines
 
-## 📜 License
+## Working On `launch.py`
 
-MIT License © SUP3RMASS1VE
+Do not start editing `launch.py` by search alone.
 
----
+Before reviewing or editing it, read:
 
-## 🙏 Acknowledgments
+- `../Docs/launch-py-index.md`
 
-This project proudly integrates and builds upon the amazing work of:
+That index identifies the current structural map, high-risk coupling points, and the extracted
+modules that now own logic previously embedded in the monolith.
 
-- [Fish Speech by fishaudio](https://github.com/fishaudio/fish-speech) – Natural and expressive TTS
-  engine. 📜 License: [MIT License](https://github.com/fishaudio/fish-speech/blob/main/LICENSE)
+Important extracted modules referenced by the index:
 
-- [Kokoro TTS by hexgrad](https://github.com/hexgrad/kokoro) – High-quality multilingual voice
-  synthesis. 📜 License: [Apache 2.0 License](https://github.com/hexgrad/kokoro/blob/main/LICENSE)
+- `narration_transform.py`
+- `conversation_logic.py`
+- `engine_registry.py`
+- `narration_script.py`
+- `pronunciation.py`
+- `tts_service.py`
+- `job_manager.py`
 
-- [ChatterboxTTS by Resemble AI](https://github.com/resemble-ai/chatterbox) – Custom voice cloning
-  from short reference clips. 📜 License:
-  [Apache 2.0 License](https://github.com/resemble-ai/chatterbox/blob/main/LICENSE)
+## Directory Highlights
 
-- [F5-TTS by SWivid](https://github.com/SWivid/F5-TTS) – Efficient and lightweight TTS model focused
-  on real-time synthesis. 📜 License:
-  [MIT License](https://github.com/SWivid/F5-TTS/blob/main/LICENSE)
+```text
+app/
+|- launch.py
+|- narration_transform.py
+|- conversation_logic.py
+|- engine_registry.py
+|- job_manager.py
+|- mcp_sidecar.py
+|- mcp_security.py
+|- tests/
+|- tools/
+|- app_state/
+`- README.md
+```
 
-- [Index TTS](https://github.com/index-tts/index-tts) – Modular and scalable text-to-speech system
-  with advanced voice capabilities. 📜 License:
-  [Apache 2.0 License](https://github.com/index-tts/index-tts/blob/main/LICENSE)
+## Operational Notes
 
-We deeply thank the authors and contributors to these projects for making this work possible.
+- The app intentionally suppresses many startup warnings to keep the terminal readable.
+- Models are loaded on demand rather than eagerly at startup.
+- Output storage can target project folders or a custom base path.
+- History is driven by structured autosave artifacts, not arbitrary loose files.
+- Conversation generation paths differ by engine family; not all engines share one implementation.
 
----
+## Related Docs
+
+- `../README.md` for launcher behavior
+- `../Docs/launch-py-index.md` for `launch.py` navigation
+- `../Docs/LLM-Narration-Transform-Guide.md` for narration transform behavior and scope
