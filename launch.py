@@ -2887,7 +2887,8 @@ def _get_initial_namespaced_llm_settings(
 
     provider_config = _get_provider_config(provider_name)
     base_url = str(settings.get(base_url_key, "") or "").strip() or provider_config["base_url"]
-    api_key = str(settings.get(api_key_key, "") or "").strip()
+    saved_api_key = str(settings.get(api_key_key, "") or "").strip()
+    api_key, _api_key_source = resolve_llm_api_key(provider_name, saved_api_key)
     model_id = normalize_provider_model_id(
         provider_name,
         str(settings.get(model_id_key, "") or "").strip() or provider_config["default_model"],
@@ -12571,6 +12572,9 @@ def create_gradio_interface():
                                 llm_test_btn = gr.Button(
                                     "🔌 Test LLM Connection", variant="secondary"
                                 )
+                                llm_save_settings_btn = gr.Button(
+                                    "[DISK] Save LLM Settings", variant="secondary"
+                                )
                                 llm_apply_btn = gr.Button(
                                     "✨ Apply Transform to Text Box", variant="primary"
                                 )
@@ -12778,6 +12782,11 @@ def create_gradio_interface():
                                 with gr.Row():
                                     conversation_llm_refresh_models_btn = gr.Button(
                                         "[ARROWS] Refresh Models",
+                                        variant="secondary",
+                                        scale=1,
+                                    )
+                                    conversation_llm_save_btn = gr.Button(
+                                        "[DISK] Save Settings",
                                         variant="secondary",
                                         scale=1,
                                     )
@@ -19560,6 +19569,45 @@ Alice: I went to Japan. It was absolutely incredible!""",
             inputs=[conversation_llm_content_type, conversation_llm_system_prompt],
         )
 
+        def handle_save_shared_llm_settings(
+            provider_name: str,
+            base_url: str,
+            model_id: str,
+            api_key: str,
+            content_type_name: str,
+            system_prompt: str,
+            preset_name: str,
+            conversation_content_type_name: str,
+            conversation_system_prompt: str,
+        ):
+            save_llm_panel_settings(
+                provider_name,
+                base_url,
+                model_id,
+                api_key,
+                content_type_name,
+                system_prompt,
+                preset_name,
+            )
+            save_conversation_llm_prompt_settings(
+                conversation_content_type_name,
+                conversation_system_prompt,
+            )
+
+            resolved_api_key, api_key_source = resolve_llm_api_key(provider_name, api_key)
+            summary = build_conversation_llm_summary(provider_name, model_id)
+            if resolved_api_key:
+                status = (
+                    "SUCCESS: Saved LLM settings to app/app_state/settings.json. "
+                    f"API key source: {api_key_source}."
+                )
+            else:
+                status = (
+                    "SUCCESS: Saved LLM settings to app/app_state/settings.json. "
+                    "No API key resolved yet; enter one in the UI or set the provider environment variable."
+                )
+            return status, status, summary
+
         llm_model_id.change(
             fn=handle_synced_llm_model_change,
             inputs=[llm_provider, llm_model_id],
@@ -19749,6 +19797,26 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[llm_connection_status, conversation_llm_connection_status],
         )
 
+        llm_save_settings_btn.click(
+            fn=handle_save_shared_llm_settings,
+            inputs=[
+                llm_provider,
+                llm_base_url,
+                llm_model_id,
+                llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+                conversation_llm_content_type,
+                conversation_llm_system_prompt,
+            ],
+            outputs=[
+                llm_connection_status,
+                conversation_llm_connection_status,
+                conversation_llm_summary,
+            ],
+        )
+
         conversation_llm_test_btn.click(
             fn=handle_synced_llm_test_connection,
             inputs=[
@@ -19759,6 +19827,26 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_timeout_seconds,
             ],
             outputs=[llm_connection_status, conversation_llm_connection_status],
+        )
+
+        conversation_llm_save_btn.click(
+            fn=handle_save_shared_llm_settings,
+            inputs=[
+                conversation_llm_provider,
+                conversation_llm_base_url,
+                conversation_llm_model_id,
+                conversation_llm_api_key,
+                llm_content_type,
+                llm_system_prompt,
+                llm_preset,
+                conversation_llm_content_type,
+                conversation_llm_system_prompt,
+            ],
+            outputs=[
+                llm_connection_status,
+                conversation_llm_connection_status,
+                conversation_llm_summary,
+            ],
         )
 
         assistant_send_btn.click(
