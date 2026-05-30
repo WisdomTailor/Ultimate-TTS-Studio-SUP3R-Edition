@@ -4370,7 +4370,7 @@ def sanitize_chatterbox_multilingual_chunk(text: str) -> tuple[str, str | None]:
 
     alnum_only = re.sub(r"[^\w]", "", sanitized, flags=re.UNICODE)
     if had_terminal_interruption and alnum_only and len(alnum_only) <= 3 and " " not in sanitized:
-        rewritten = ". ".join(list(alnum_only)) + "."
+        rewritten = f"{alnum_only}."
         return (
             rewritten,
             f"Rewrote short interrupted multilingual fragment '{original[:40]}' as '{rewritten}' for stability.",
