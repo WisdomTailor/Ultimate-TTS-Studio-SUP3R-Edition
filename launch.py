@@ -2485,6 +2485,7 @@ APP_STATE_VOICES_DIR = os.path.join(APP_STATE_DIR, "voices")
 APP_STATE_OUTPUTS_DIR = os.path.join(APP_STATE_DIR, "outputs")
 APP_STATE_JOB_ASSETS_DIR = os.path.join(APP_STATE_DIR, "job_assets")
 APP_STATE_CONVERSATION_CHECKPOINTS_DIR = os.path.join(APP_STATE_DIR, "conversation_checkpoints")
+APP_STATE_CONVERSATION_DRAFT_FILE = os.path.join(APP_STATE_DIR, "conversation_draft.json")
 
 # Legacy preset file (migrated one-way to app_state/presets.json)
 PRESETS_FILE = "voice_presets.json"
@@ -6685,6 +6686,83 @@ def _load_auto_saved_speaker_settings() -> dict:
     return {}
 
 
+def _normalize_conversation_draft_payload(payload: dict | None) -> dict[str, Any]:
+    """Normalize disk-backed conversation draft content."""
+    if not isinstance(payload, dict):
+        return {
+            "script_text": "",
+            "project_name": "",
+            "selected_engine": "",
+            "speaker_settings_state": {},
+        }
+
+    speaker_settings_state = payload.get("speaker_settings_state")
+    normalized_speaker_settings = (
+        copy.deepcopy(speaker_settings_state) if isinstance(speaker_settings_state, dict) else {}
+    )
+    return {
+        "script_text": str(payload.get("script_text", "") or ""),
+        "project_name": str(payload.get("project_name", "") or "").strip(),
+        "selected_engine": str(payload.get("selected_engine", "") or "").strip(),
+        "speaker_settings_state": normalized_speaker_settings,
+    }
+
+
+def save_conversation_draft(payload: dict | None) -> bool:
+    """Persist the current conversation workspace draft to disk."""
+    ensure_app_state_dirs()
+    normalized_payload = _normalize_conversation_draft_payload(payload)
+    normalized_payload["updated_at"] = datetime.now().isoformat()
+    try:
+        with open(APP_STATE_CONVERSATION_DRAFT_FILE, "w", encoding="utf-8") as file:
+            json.dump(normalized_payload, file, indent=2, ensure_ascii=False)
+        return True
+    except Exception as error:
+        logger.warning(f"Failed to save conversation draft: {error}")
+        return False
+
+
+def load_conversation_draft() -> dict[str, Any]:
+    """Load the saved conversation draft from disk, if present."""
+    ensure_app_state_dirs()
+    if not os.path.exists(APP_STATE_CONVERSATION_DRAFT_FILE):
+        return _normalize_conversation_draft_payload(None)
+    try:
+        with open(APP_STATE_CONVERSATION_DRAFT_FILE, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+        return _normalize_conversation_draft_payload(payload)
+    except Exception as error:
+        logger.warning(f"Failed to load conversation draft: {error}")
+        return _normalize_conversation_draft_payload(None)
+
+
+def clear_conversation_draft() -> bool:
+    """Delete the saved conversation draft file if it exists."""
+    try:
+        if os.path.exists(APP_STATE_CONVERSATION_DRAFT_FILE):
+            os.remove(APP_STATE_CONVERSATION_DRAFT_FILE)
+        return True
+    except Exception as error:
+        logger.warning(f"Failed to clear conversation draft: {error}")
+        return False
+
+
+def get_conversation_draft_status_message() -> str:
+    """Return a short status line describing the saved conversation draft state."""
+    draft = load_conversation_draft()
+    script_text = str(draft.get("script_text", "") or "").strip()
+    if not script_text:
+        return "No saved conversation draft."
+
+    selected_engine = str(draft.get("selected_engine", "") or "").strip() or "Unknown engine"
+    project_name = str(draft.get("project_name", "") or "").strip() or "(no project)"
+    line_count = len(parse_conversation_script(script_text))
+    return (
+        f"Saved draft available: {project_name} on {selected_engine} "
+        f"({line_count} lines)."
+    )
+
+
 def get_speaker_profile_choices() -> list[str]:
     """Return list of saved conversation speaker profile names (excluding auto-save)."""
     store = load_speaker_profile_store()
@@ -6854,6 +6932,10 @@ def update_conversation_speaker_setting(
     updated_state.setdefault(speaker_name, {})[key] = value
     if key in {"ref_audio", "fish_ref_text"}:
         updated_state[speaker_name]["assigned_preset"] = ""
+    try:
+        _auto_save_speaker_settings(updated_state)
+    except Exception as error:
+        logger.warning(f"Failed to auto-save updated speaker settings: {error}")
     return updated_state
 
 
@@ -6876,6 +6958,10 @@ def update_conversation_tts_engine(
 
     for speaker_name in normalized_speakers:
         updated_state.setdefault(speaker_name, {})["tts_engine"] = normalized_engine
+    try:
+        _auto_save_speaker_settings(updated_state)
+    except Exception as error:
+        logger.warning(f"Failed to auto-save engine-mirrored speaker settings: {error}")
     return updated_state
 
 
@@ -12778,6 +12864,28 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     variant="secondary",
                                     elem_classes=["fade-in"],
                                 )
+
+                            with gr.Row():
+                                save_conversation_draft_btn = gr.Button(
+                                    "[DISK] Save Draft",
+                                    variant="secondary",
+                                    elem_classes=["fade-in"],
+                                )
+                                restore_conversation_draft_btn = gr.Button(
+                                    "↩️ Restore Draft",
+                                    variant="secondary",
+                                    elem_classes=["fade-in"],
+                                )
+                                reset_conversation_draft_btn = gr.Button(
+                                    "🧹 Reset Draft",
+                                    variant="secondary",
+                                    elem_classes=["fade-in"],
+                                )
+
+                            conversation_draft_status = gr.Markdown(
+                                get_conversation_draft_status_message(),
+                                elem_classes=["fade-in"],
+                            )
 
                             conversation_resume_status = gr.Markdown(
                                 "Resume checkpoint: none detected for the current project, engine, and script.",
@@ -20962,6 +21070,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             kokoro_voices=None,
             kitten_voices=None,
             emotion_modes=None,
+            speaker_settings_state=None,
             selected_speaker_index: int | None = None,
         ):
             if not isinstance(script_text, str) or not script_text.strip():
@@ -20991,7 +21100,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
             ):
                 normalized_selected_index = 0
 
-            speaker_settings = create_default_speaker_settings(speakers)
+            speaker_settings = _clone_conversation_speaker_settings(
+                speaker_settings_state,
+                speakers,
+            )
             roster_choices = _build_conversation_roster_choices(
                 speakers,
                 selected_engine,
@@ -21085,6 +21197,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             kokoro_voices = component_values[20:30]
             kitten_voices = component_values[30:40]
             emotion_modes = component_values[40:50]
+            speaker_settings_state = component_values[50] if len(component_values) > 50 else {}
             return _build_conversation_analysis_response(
                 script_text,
                 selected_engine,
@@ -21093,6 +21206,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 kokoro_voices=kokoro_voices,
                 kitten_voices=kitten_voices,
                 emotion_modes=emotion_modes,
+                speaker_settings_state=speaker_settings_state,
             )
 
         def handle_example_script(selected_engine, *component_values):
@@ -21114,6 +21228,50 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         def handle_clear_script():
             """Reset the conversation tab to its initial empty state."""
             return "", *_conversation_empty_response("No speakers detected")
+
+        def handle_save_conversation_draft(
+            script_text,
+            selected_engine,
+            project_name,
+            speaker_settings_state,
+        ):
+            """Persist the current conversation workspace to disk."""
+            payload = {
+                "script_text": script_text,
+                "project_name": project_name,
+                "selected_engine": selected_engine,
+                "speaker_settings_state": speaker_settings_state,
+            }
+            if save_conversation_draft(payload):
+                return get_conversation_draft_status_message()
+            return "ERROR: Failed to save conversation draft."
+
+        def handle_restore_conversation_draft(current_engine):
+            """Load the saved conversation workspace draft into the current session."""
+            draft = load_conversation_draft()
+            restored_engine = str(draft.get("selected_engine", "") or "").strip() or str(
+                current_engine or ""
+            ).strip()
+            project_name = str(draft.get("project_name", "") or "").strip()
+            return (
+                str(draft.get("script_text", "") or ""),
+                project_name,
+                project_name,
+                restored_engine,
+                draft.get("speaker_settings_state", {}),
+                get_conversation_draft_status_message(),
+            )
+
+        def handle_reset_conversation_draft():
+            """Clear the saved conversation draft and reset the current conversation workspace."""
+            clear_conversation_draft()
+            return (
+                "",
+                "",
+                "",
+                {},
+                "No saved conversation draft.",
+            )
 
         def handle_select_speaker(
             speaker_index,
@@ -22122,9 +22280,62 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             fn=handle_conversation_resume_status,
             inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
             outputs=[conversation_resume_status],
+        ).then(
+            fn=lambda: get_conversation_draft_status_message(),
+            outputs=[conversation_draft_status],
         )
 
         conversation_script.change(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
+            outputs=[conversation_resume_status],
+        )
+
+        save_conversation_draft_btn.click(
+            fn=handle_save_conversation_draft,
+            inputs=[
+                conversation_script,
+                tts_engine,
+                autosave_project_name_prominent,
+                conversation_speaker_settings_state,
+            ],
+            outputs=[conversation_draft_status],
+        )
+
+        restore_conversation_draft_btn.click(
+            fn=handle_restore_conversation_draft,
+            inputs=[tts_engine],
+            outputs=[
+                conversation_script,
+                autosave_project_name,
+                autosave_project_name_prominent,
+                tts_engine,
+                conversation_speaker_settings_state,
+                conversation_draft_status,
+            ],
+        ).then(
+            fn=handle_analyze_script,
+            inputs=conversation_analyze_inputs,
+            outputs=conversation_analysis_outputs,
+        ).then(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
+            outputs=[conversation_resume_status],
+        )
+
+        reset_conversation_draft_btn.click(
+            fn=handle_reset_conversation_draft,
+            outputs=[
+                conversation_script,
+                autosave_project_name,
+                autosave_project_name_prominent,
+                conversation_speaker_settings_state,
+                conversation_draft_status,
+            ],
+        ).then(
+            fn=handle_clear_script,
+            outputs=[conversation_script, *conversation_analysis_outputs],
+        ).then(
             fn=handle_conversation_resume_status,
             inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
             outputs=[conversation_resume_status],
