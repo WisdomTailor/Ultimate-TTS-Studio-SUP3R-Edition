@@ -4358,9 +4358,7 @@ def sanitize_chatterbox_multilingual_chunk(text: str) -> tuple[str, str | None]:
         return "", None
 
     original = sanitized
-    had_terminal_interruption = bool(
-        re.search(r"(?:[-—–]|\.\.\.|…)\s*$", original)
-    )
+    had_terminal_interruption = bool(re.search(r"(?:[-—–]|\.\.\.|…)\s*$", original))
 
     sanitized = sanitized.replace("—", "-").replace("–", "-")
     sanitized = re.sub(r"(?<=\w)-(?=[\s,.;:!?-]*$)", "", sanitized)
@@ -4860,7 +4858,9 @@ def _inspect_conversation_checkpoint(project_name, selected_engine, conversation
     }
 
 
-def _format_conversation_checkpoint_status(project_name, selected_engine, conversation_script) -> str:
+def _format_conversation_checkpoint_status(
+    project_name, selected_engine, conversation_script
+) -> str:
     """Build a user-facing resume status message for conversation mode."""
     checkpoint_state = _inspect_conversation_checkpoint(
         project_name,
@@ -6758,10 +6758,7 @@ def get_conversation_draft_status_message() -> str:
     selected_engine = str(draft.get("selected_engine", "") or "").strip() or "Unknown engine"
     project_name = str(draft.get("project_name", "") or "").strip() or "(no project)"
     line_count = len(parse_conversation_script(script_text))
-    return (
-        f"Saved draft available: {project_name} on {selected_engine} "
-        f"({line_count} lines)."
-    )
+    return f"Saved draft available: {project_name} on {selected_engine} " f"({line_count} lines)."
 
 
 def get_speaker_profile_choices() -> list[str]:
@@ -9003,6 +9000,18 @@ def _resolve_api_key_internal(provider_name: str, api_key: str):
     return resolve_llm_api_key(provider_name, api_key)
 
 
+def describe_llm_api_key_source(provider_name: str, api_key: str) -> str:
+    """Describe where the effective API key came from without exposing the secret."""
+    resolved_key, source = resolve_llm_api_key(provider_name, api_key)
+    if resolved_key:
+        if source == "ui":
+            return "🔑 API key source: saved in the app UI settings"
+        if source.startswith("env:"):
+            return f"🔑 API key source: environment variable `{source[4:]}`"
+    env_vars = ", ".join(get_llm_provider_env_vars(provider_name))
+    return f"🔑 API key source: missing. Expected one of: {env_vars}"
+
+
 def fetch_provider_models(
     provider_name: str,
     base_url: str,
@@ -9139,6 +9148,7 @@ def on_llm_provider_change(provider_name: str):
     cfg = _get_provider_config(provider_name)
     base_url = cfg["base_url"]
     default_model = normalize_provider_model_id(provider_name, cfg["default_model"])
+    resolved_api_key, _api_key_source = resolve_llm_api_key(provider_name, "")
 
     start_status = ""
     if provider_name == "LM Studio OpenAI Server":
@@ -9155,7 +9165,7 @@ def on_llm_provider_change(provider_name: str):
     status_parts = [part for part in [start_status, fetch_status] if part]
     status = " | ".join(status_parts) if status_parts else ""
 
-    return base_url, "", gr.update(choices=models, value=value), status
+    return base_url, resolved_api_key, gr.update(choices=models, value=value), status
 
 
 def refresh_llm_models(provider_name: str, base_url: str, api_key: str):
@@ -9188,15 +9198,18 @@ def build_conversation_llm_summary(provider_name: str, model_id: str) -> str:
 def handle_synced_llm_provider_change(provider_name: str):
     base_url, api_key, model_update, status = on_llm_provider_change(provider_name)
     summary = build_conversation_llm_summary(provider_name, model_update.get("value", ""))
+    key_source = describe_llm_api_key_source(provider_name, api_key)
     return (
         gr.update(value=provider_name),
         gr.update(value=base_url),
         gr.update(value=api_key),
+        gr.update(value=key_source),
         model_update,
         gr.update(value=status),
         gr.update(value=provider_name),
         gr.update(value=base_url),
         gr.update(value=api_key),
+        gr.update(value=key_source),
         model_update,
         gr.update(value=status),
         gr.update(value=summary),
@@ -9240,8 +9253,14 @@ def handle_synced_llm_base_url_change(base_url: str):
     return gr.update(value=base_url), gr.update(value=base_url)
 
 
-def handle_synced_llm_api_key_change(api_key: str):
-    return gr.update(value=api_key), gr.update(value=api_key)
+def handle_synced_llm_api_key_change(provider_name: str, api_key: str):
+    key_source = describe_llm_api_key_source(provider_name, api_key)
+    return (
+        gr.update(value=api_key),
+        gr.update(value=api_key),
+        gr.update(value=key_source),
+        gr.update(value=key_source),
+    )
 
 
 def on_transform_preview(
@@ -12416,6 +12435,14 @@ def create_gradio_interface():
                                     info="Required for cloud providers (Gemini, GitHub, Foundry). Can also be set as an environment variable for security.",
                                 )
 
+                            llm_api_key_source = gr.Markdown(
+                                value=describe_llm_api_key_source(
+                                    current_llm_settings["provider"],
+                                    current_llm_settings["api_key"],
+                                ),
+                                elem_classes=["fade-in"],
+                            )
+
                             with gr.Row():
                                 llm_content_type = gr.Dropdown(
                                     label="Prompt Library",
@@ -12809,6 +12836,14 @@ def create_gradio_interface():
                                             type="password",
                                             placeholder="Optional in UI. Prefer environment variables for cloud providers.",
                                         )
+
+                                conversation_llm_api_key_source = gr.Markdown(
+                                    value=describe_llm_api_key_source(
+                                        current_llm_settings["provider"],
+                                        current_llm_settings["api_key"],
+                                    ),
+                                    elem_classes=["fade-in"],
+                                )
 
                                 with gr.Row():
                                     conversation_llm_content_type = gr.Dropdown(
@@ -14861,6 +14896,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     info="Persisted for the Assistant in app/app_state/settings.json. Gemini accepts GOOGLE_API_KEY or GEMINI_API_KEY.",
                                     elem_classes=["fade-in"],
                                 )
+
+                            assistant_llm_api_key_source = gr.Markdown(
+                                value=describe_llm_api_key_source(
+                                    assistant_llm_settings["provider"],
+                                    assistant_llm_settings["api_key"],
+                                ),
+                                elem_classes=["fade-in"],
+                            )
 
                             assistant_provider_help = gr.Markdown(
                                 value=build_assistant_provider_help_markdown(
@@ -17363,7 +17406,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 indicator = f"🤖 Assistant: Connected ({provider})"
             else:
                 indicator = f"🤖 Assistant: Connection failed ({provider})"
-            return result, indicator
+            return result, indicator, describe_llm_api_key_source(provider, api_key)
 
         def handle_assistant_save_settings(
             provider,
@@ -17395,9 +17438,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 }
             )
             summary = build_conversation_llm_summary(provider, model_id)
+            key_source = describe_llm_api_key_source(provider, api_key)
             return (
                 "SUCCESS: Assistant settings saved (including generation parameters).",
                 get_assistant_status_indicator_text(provider, base_url, model_id),
+                gr.update(value=key_source),
                 gr.update(value=provider),
                 gr.update(value=base_url),
                 gr.update(value=api_key),
@@ -17412,10 +17457,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             default_model = normalize_provider_model_id(provider_name, cfg["default_model"])
             if default_model and default_model not in suggestions:
                 suggestions.insert(0, default_model)
+            resolved_api_key, _api_key_source = resolve_llm_api_key(provider_name, "")
             return (
                 gr.update(value=cfg["base_url"]),
+                gr.update(value=resolved_api_key),
                 gr.update(choices=suggestions, value=default_model),
                 build_assistant_provider_help_markdown(provider_name),
+                gr.update(value=describe_llm_api_key_source(provider_name, resolved_api_key)),
                 get_assistant_status_indicator_text(
                     provider_name=provider_name,
                     base_url=cfg["base_url"],
@@ -19320,11 +19368,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_provider,
                 llm_base_url,
                 llm_api_key,
+                llm_api_key_source,
                 llm_model_id,
                 llm_connection_status,
                 conversation_llm_provider,
                 conversation_llm_base_url,
                 conversation_llm_api_key,
+                conversation_llm_api_key_source,
                 conversation_llm_model_id,
                 conversation_llm_connection_status,
                 conversation_llm_summary,
@@ -19349,11 +19399,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_provider,
                 llm_base_url,
                 llm_api_key,
+                llm_api_key_source,
                 llm_model_id,
                 llm_connection_status,
                 conversation_llm_provider,
                 conversation_llm_base_url,
                 conversation_llm_api_key,
+                conversation_llm_api_key_source,
                 conversation_llm_model_id,
                 conversation_llm_connection_status,
                 conversation_llm_summary,
@@ -19606,7 +19658,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     "SUCCESS: Saved LLM settings to app/app_state/settings.json. "
                     "No API key resolved yet; enter one in the UI or set the provider environment variable."
                 )
-            return status, status, summary
+            key_source = describe_llm_api_key_source(provider_name, api_key)
+            return status, status, summary, key_source, key_source
 
         llm_model_id.change(
             fn=handle_synced_llm_model_change,
@@ -19678,8 +19731,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         llm_api_key.change(
             fn=handle_synced_llm_api_key_change,
-            inputs=[llm_api_key],
-            outputs=[llm_api_key, conversation_llm_api_key],
+            inputs=[llm_provider, llm_api_key],
+            outputs=[
+                llm_api_key,
+                conversation_llm_api_key,
+                llm_api_key_source,
+                conversation_llm_api_key_source,
+            ],
         ).then(
             fn=save_llm_panel_settings,
             inputs=[
@@ -19695,8 +19753,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         conversation_llm_api_key.change(
             fn=handle_synced_llm_api_key_change,
-            inputs=[conversation_llm_api_key],
-            outputs=[llm_api_key, conversation_llm_api_key],
+            inputs=[conversation_llm_provider, conversation_llm_api_key],
+            outputs=[
+                llm_api_key,
+                conversation_llm_api_key,
+                llm_api_key_source,
+                conversation_llm_api_key_source,
+            ],
         ).then(
             fn=save_llm_panel_settings,
             inputs=[
@@ -19814,6 +19877,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_connection_status,
                 conversation_llm_connection_status,
                 conversation_llm_summary,
+                llm_api_key_source,
+                conversation_llm_api_key_source,
             ],
         )
 
@@ -19846,6 +19911,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 llm_connection_status,
                 conversation_llm_connection_status,
                 conversation_llm_summary,
+                llm_api_key_source,
+                conversation_llm_api_key_source,
             ],
         )
 
@@ -19897,7 +19964,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 assistant_llm_api_key,
                 assistant_llm_model_id,
             ],
-            outputs=[assistant_llm_status, assistant_status_indicator],
+            outputs=[
+                assistant_llm_status,
+                assistant_status_indicator,
+                assistant_llm_api_key_source,
+            ],
         )
 
         assistant_llm_refresh_models_btn.click(
@@ -19927,6 +19998,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             outputs=[
                 assistant_llm_status,
                 assistant_status_indicator,
+                assistant_llm_api_key_source,
                 conversation_llm_provider,
                 conversation_llm_base_url,
                 conversation_llm_api_key,
@@ -19947,6 +20019,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
 
         assistant_llm_api_key.change(
+            fn=lambda provider_name, api_key: describe_llm_api_key_source(
+                provider_name, api_key
+            ),
+            inputs=[assistant_llm_provider, assistant_llm_api_key],
+            outputs=[assistant_llm_api_key_source],
+        ).then(
             fn=save_assistant_llm_settings,
             inputs=[
                 assistant_llm_provider,
@@ -19999,8 +20077,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
             inputs=[assistant_llm_provider],
             outputs=[
                 assistant_llm_base_url,
+                assistant_llm_api_key,
                 assistant_llm_model_id,
                 assistant_provider_help,
+                assistant_llm_api_key_source,
                 assistant_status_indicator,
             ],
         ).then(
@@ -21337,9 +21417,10 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         def handle_restore_conversation_draft(current_engine):
             """Load the saved conversation workspace draft into the current session."""
             draft = load_conversation_draft()
-            restored_engine = str(draft.get("selected_engine", "") or "").strip() or str(
-                current_engine or ""
-            ).strip()
+            restored_engine = (
+                str(draft.get("selected_engine", "") or "").strip()
+                or str(current_engine or "").strip()
+            )
             project_name = str(draft.get("project_name", "") or "").strip()
             return (
                 str(draft.get("script_text", "") or ""),
