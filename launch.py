@@ -3225,6 +3225,7 @@ def build_assistant_provider_help_markdown(provider_name: str) -> str:
         f"- Default URL: {cfg.get('base_url', '')}\n"
         f"- Default model: {cfg.get('default_model', '') or '(set this manually)'}\n"
         f"- {key_line}\n"
+        f"- Add the key here and click Save Settings, or set {env_vars} in Windows PowerShell and restart VS Code plus Ultimate TTS Studio.\n"
         "- Saved to disk: provider, base URL, model, system prompt, and assistant API key in app/app_state/settings.json.\n"
         "- Assistant API keys are stored locally in plaintext on this machine."
     )
@@ -9005,11 +9006,17 @@ def describe_llm_api_key_source(provider_name: str, api_key: str) -> str:
     resolved_key, source = resolve_llm_api_key(provider_name, api_key)
     if resolved_key:
         if source == "ui":
-            return "🔑 API key source: saved in the app UI settings"
+            return "🔑 API key source: saved in the app UI settings. You can keep using this, or move the key to an environment variable for safer persistence."
         if source.startswith("env:"):
-            return f"🔑 API key source: environment variable `{source[4:]}`"
+            return (
+                f"🔑 API key source: environment variable `{source[4:]}`. "
+                "If you just changed it, restart VS Code and relaunch Ultimate TTS Studio."
+            )
     env_vars = ", ".join(get_llm_provider_env_vars(provider_name))
-    return f"🔑 API key source: missing. Expected one of: {env_vars}"
+    return (
+        f"🔑 API key source: missing. Paste a key here and save, or set one of: {env_vars}. "
+        "On Windows PowerShell use [System.Environment]::SetEnvironmentVariable(..., \"User\") and then restart VS Code plus Ultimate TTS Studio."
+    )
 
 
 def fetch_provider_models(
@@ -12431,8 +12438,8 @@ def create_gradio_interface():
                                     label="API Key (required for cloud providers)",
                                     value=current_llm_settings["api_key"],
                                     type="password",
-                                    placeholder="Optional in UI. Prefer shell env var for safety: GOOGLE_API_KEY or OPENAI_API_KEY",
-                                    info="Required for cloud providers (Gemini, GitHub, Foundry). Can also be set as an environment variable for security.",
+                                    placeholder="Paste a cloud-provider key here, or use OPENROUTER_API_KEY / other provider env vars",
+                                    info="Cloud providers need a key. Paste it here and click Save LLM Settings, or set the provider environment variable in PowerShell. OpenRouter uses OPENROUTER_API_KEY. Restart VS Code and the app after changing env vars.",
                                 )
 
                             llm_api_key_source = gr.Markdown(
@@ -12834,7 +12841,8 @@ def create_gradio_interface():
                                             label="API Key",
                                             value=current_llm_settings["api_key"],
                                             type="password",
-                                            placeholder="Optional in UI. Prefer environment variables for cloud providers.",
+                                            placeholder="Paste a cloud-provider key here, or use OPENROUTER_API_KEY / other provider env vars",
+                                            info="Paste a key here and click Save LLM Settings, or set the provider environment variable in PowerShell. OpenRouter uses OPENROUTER_API_KEY. Restart VS Code and the app after changing env vars.",
                                         )
 
                                 conversation_llm_api_key_source = gr.Markdown(
@@ -14893,7 +14901,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                     label="🔑 API Key",
                                     type="password",
                                     scale=2,
-                                    info="Persisted for the Assistant in app/app_state/settings.json. Gemini accepts GOOGLE_API_KEY or GEMINI_API_KEY.",
+                                    info="Paste a key here and click Save Settings, or set the provider environment variable in PowerShell. OpenRouter uses OPENROUTER_API_KEY. Restart VS Code and the app after changing env vars. Assistant UI-saved keys are stored locally in app/app_state/settings.json.",
                                     elem_classes=["fade-in"],
                                 )
 
@@ -20019,9 +20027,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         )
 
         assistant_llm_api_key.change(
-            fn=lambda provider_name, api_key: describe_llm_api_key_source(
-                provider_name, api_key
-            ),
+            fn=lambda provider_name, api_key: describe_llm_api_key_source(provider_name, api_key),
             inputs=[assistant_llm_provider, assistant_llm_api_key],
             outputs=[assistant_llm_api_key_source],
         ).then(
