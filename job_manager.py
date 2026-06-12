@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 import uuid
 from dataclasses import asdict, dataclass, field
 from multiprocessing.process import BaseProcess
@@ -77,6 +78,15 @@ def write_job_progress(
         pass
 
 
+def _format_exception_details(exc: Exception) -> str:
+    """Render concise traceback details for persisted job errors."""
+    tb = traceback.format_exc()
+    details = f"{exc}"
+    if tb and "Traceback" in tb:
+        details = f"{details}\n\n{tb}"
+    return details[:4000]
+
+
 def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
     """Run TTS synthesis in a child process and persist the result.
 
@@ -86,6 +96,22 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
         request_dict: Serialized JobRequest payload.
     """
     job_path = Path(jobs_dir) / f"{job_id}.json"
+    progress_state = {"percent": 0.0, "message": ""}
+    heartbeat_stop = threading.Event()
+
+    def _set_progress(percent: float, message: str) -> None:
+        progress_state["percent"] = max(0.0, min(100.0, float(percent)))
+        progress_state["message"] = str(message or "")
+        write_job_progress(job_id, jobs_dir, progress_state["percent"], progress_state["message"])
+
+    def _heartbeat_loop() -> None:
+        while not heartbeat_stop.wait(15):
+            write_job_progress(
+                job_id,
+                jobs_dir,
+                progress_state["percent"],
+                progress_state["message"],
+            )
 
     try:
         module_dir = str(Path(__file__).resolve().parent)
@@ -99,18 +125,25 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
     except Exception:
         pass
 
+    heartbeat_thread = threading.Thread(
+        target=_heartbeat_loop,
+        name=f"job-heartbeat-{job_id[:8]}",
+        daemon=True,
+    )
+    heartbeat_thread.start()
+
     try:
         job_type = str(request_dict.get("job_type", "tts") or "tts").strip().lower()
-        write_job_progress(job_id, jobs_dir, 5, f"Starting {job_type} job")
+        _set_progress(5, f"Starting {job_type} job")
         if job_type == "conversation":
             from conversation_job_service import generate_conversation_job
 
-            write_job_progress(job_id, jobs_dir, 10, "Generating conversation audio")
+            _set_progress(10, "Generating conversation audio")
             result_payload = generate_conversation_job(request_dict)
         elif job_type == "single_speaker":
             from single_speaker_job_service import generate_single_speaker_job
 
-            write_job_progress(job_id, jobs_dir, 10, "Generating single-speaker audio")
+            _set_progress(10, "Generating single-speaker audio")
             result_payload = generate_single_speaker_job(request_dict)
         else:
             from tts_service import TtsRequest, generate_tts
@@ -123,7 +156,7 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
                 audio_format=request_dict.get("audio_format", "wav"),
                 engine_params=engine_params,
             )
-            write_job_progress(job_id, jobs_dir, 10, f"Synthesizing with {req.engine}")
+            _set_progress(10, f"Synthesizing with {req.engine}")
             result = generate_tts(req)
             result_payload: dict[str, Any] = {
                 "job_type": "tts",
@@ -134,7 +167,7 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
                 sample_rate, _audio = result.audio
                 result_payload["sample_rate"] = sample_rate
                 result_payload["audio_format"] = request_dict.get("audio_format", "wav")
-        write_job_progress(job_id, jobs_dir, 90, "Finalizing output")
+        _set_progress(90, "Finalizing output")
 
         job_data = json.loads(job_path.read_text(encoding="utf-8"))
         job_data["status"] = COMPLETED
@@ -148,12 +181,15 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
             job_data = json.loads(job_path.read_text(encoding="utf-8"))
             job_data["status"] = FAILED
             job_data["completed_at"] = time.time()
-            job_data["error"] = str(exc)
+            job_data["error"] = _format_exception_details(exc)
             job_data["progress_percent"] = 0.0
             job_data["progress_message"] = f"Failed: {exc}"
             job_path.write_text(json.dumps(job_data, indent=2), encoding="utf-8")
         except Exception:
             pass
+    finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=1)
 
 
 class JobManager:
@@ -390,7 +426,18 @@ class JobManager:
             if info.status == RUNNING:
                 info.status = FAILED
                 info.completed_at = time.time()
-                info.error = info.error or "Recovered stale running job after restart."
+                if not info.error:
+                    progress_note = ""
+                    if info.progress_percent or info.progress_message:
+                        progress_note = (
+                            f" Last progress: {info.progress_percent:.0f}%"
+                            f" ({info.progress_message or 'no message'})."
+                        )
+                    info.error = (
+                        "Recovered stale running job after restart. "
+                        "The app or worker process stopped while generation was running."
+                        f"{progress_note}"
+                    ).strip()
                 self._save(info)
         self._normalize_pending_queue_orders_locked()
 
