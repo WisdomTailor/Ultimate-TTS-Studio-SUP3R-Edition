@@ -2986,8 +2986,15 @@ def get_assistant_status_indicator_text(
     ).strip()
 
     if effective_provider and effective_base_url and effective_model_id:
-        return f"🤖 Assistant: Configured ({effective_provider})"
-    return "🤖 Assistant: Not configured"
+        return (
+            f"🤖 Assistant: Configured ({effective_provider}) | "
+            f"Requires a running LLM server (e.g., LM Studio) — completely independent of VS Code or MCP."
+        )
+    return (
+        "🤖 Assistant: Not configured | "
+        "Set a Provider, Base URL, and Model in the Assistant tab. "
+        "This is a built-in chat tool that needs its own LLM server — it does NOT use VS Code or MCP."
+    )
 
 
 def get_initial_assistant_status_indicator() -> str:
@@ -9015,7 +9022,7 @@ def describe_llm_api_key_source(provider_name: str, api_key: str) -> str:
     env_vars = ", ".join(get_llm_provider_env_vars(provider_name))
     return (
         f"🔑 API key source: missing. Paste a key here and save, or set one of: {env_vars}. "
-        "On Windows PowerShell use [System.Environment]::SetEnvironmentVariable(..., \"User\") and then restart VS Code plus Ultimate TTS Studio."
+        'On Windows PowerShell use [System.Environment]::SetEnvironmentVariable(..., "User") and then restart VS Code plus Ultimate TTS Studio.'
     )
 
 
@@ -15256,6 +15263,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                             elem_classes=["fade-in"],
                         )
 
+                        job_progress_output = gr.HTML(
+                            value=(
+                                "<div style='padding: 12px 16px; border-radius: 12px; "
+                                "background: rgba(15, 23, 42, 0.04); border: 1px dashed rgba(148,163,184,0.4); "
+                                "margin-bottom: 14px;'>"
+                                "<div style='font-weight: 600; margin-bottom: 6px;'>Progress</div>"
+                                "<div style='opacity: 0.75; font-size: 0.9em;'>No active jobs currently.</div>"
+                                "</div>"
+                            ),
+                            elem_classes=["fade-in"],
+                        )
+
                         job_queue_display = gr.Dataframe(
                             headers=[
                                 "ID",
@@ -15264,10 +15283,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 "Engine",
                                 "Created",
                                 "Elapsed",
-                                "Text Preview",
+                                "Progress",
+                                "Message",
                             ],
-                            datatype=["str", "str", "str", "str", "str", "str", "str"],
-                            value=[["—", "No jobs", "—", "—", "—", "—", "—"]],
+                            datatype=["str", "str", "str", "str", "str", "str", "str", "str"],
+                            value=[["—", "No jobs", "—", "—", "—", "—", "—", "—"]],
                             label="[ARROWS] Active & Recent Jobs",
                             interactive=False,
                             wrap=True,
@@ -17376,6 +17396,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 lines.append("\nActive jobs:")
                 for job in active_jobs[:5]:
                     request = job.request or {}
+                    progress = ""
+                    if job.status == "running" and job.progress_percent:
+                        progress = f" ({job.progress_percent:.0f}%)"
                     created = (
                         _time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(job.created_at))
                         if job.created_at
@@ -17384,7 +17407,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     lines.append(
                         "- "
                         f"{job.id[:12]}... | {job.status.upper()} | "
-                        f"{request.get('job_type', 'tts')} | {request.get('engine', 'Unknown')} | "
+                        f"{request.get('job_type', 'tts')} | {request.get('engine', 'Unknown')}{progress} | "
                         f"created {created}"
                     )
                 return (
@@ -17395,7 +17418,9 @@ Alice: I went to Japan. It was absolutely incredible!""",
             lines.append("\nNo active jobs are currently running.")
             if failed_jobs:
                 latest_failed = failed_jobs[0]
-                failure_reason = str(latest_failed.error or "No error details were recorded.").strip()
+                failure_reason = str(
+                    latest_failed.error or "No error details were recorded."
+                ).strip()
                 lines.append(
                     "Most recent failed job: "
                     f"{latest_failed.id[:12]}... ({str(latest_failed.request.get('engine', 'Unknown'))})"
@@ -17408,6 +17433,52 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             lines.append("There are no queued, running, or failed jobs in the current app session.")
             return "\n".join(lines), "SUCCESS: No active jobs in queue"
+
+        def _build_assistant_job_context_note() -> str:
+            """Build a short proactive job-context note for injection into assistant prompts."""
+            import time as _time
+
+            from job_manager import get_job_manager
+
+            try:
+                manager = get_job_manager()
+            except Exception:
+                return ""
+
+            jobs = manager.list_jobs(limit=10)
+            running = [job for job in jobs if job.status == "running"]
+            failed = [job for job in jobs if job.status == "failed"]
+            if not running and not failed:
+                return ""
+
+            parts: list[str] = []
+            parts.append("[SYSTEM NOTE — Current Job Context]")
+            if running:
+                parts.append(f"There are {len(running)} running job(s):")
+                for job in running:
+                    req = job.request or {}
+                    stalled = ""
+                    if job.progress_updated_at and _time.time() - job.progress_updated_at > 120:
+                        stalled = " (stalled — no progress update in 2+ minutes)"
+                    pct = f"{job.progress_percent:.0f}%" if job.progress_percent else "unknown progress"
+                    parts.append(
+                        f"- {job.id[:12]}... | {req.get('job_type','tts')} | {req.get('engine','Unknown')} | "
+                        f"{pct}{stalled}"
+                    )
+            if failed:
+                parts.append(f"There are {len(failed)} failed job(s):")
+                for job in failed[:3]:
+                    req = job.request or {}
+                    err = str(job.error or "Unknown error")[:200]
+                    parts.append(
+                        f"- {job.id[:12]}... | {req.get('job_type','tts')} | {req.get('engine','Unknown')} | Error: {err}"
+                    )
+            parts.append(
+                "If the user mentions jobs, errors, or asks for help, proactively offer "
+                "troubleshooting steps (e.g., retry the job, check engine settings, verify "
+                "voice sample files exist, or inspect the Jobs tab)."
+            )
+            return "\n".join(parts)
 
         def handle_assistant_send(
             user_message,
@@ -17459,6 +17530,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     content = str(msg)
                 history_messages.append(ChatMessage(role=str(role), content=str(content)))
 
+            effective_system = str(system_prompt or "").strip()
+            job_context = _build_assistant_job_context_note()
+            if job_context:
+                effective_system = (
+                    f"{effective_system}\n\n{job_context}" if effective_system else job_context
+                )
+
             request = AssistantRequest(
                 user_message=normalized_message,
                 conversation_history=tuple(history_messages),
@@ -17466,7 +17544,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 base_url=base_url or "",
                 api_key=api_key or "",
                 model_id=model_id or "",
-                system_prompt=system_prompt or "",
+                system_prompt=effective_system,
                 temperature=assistant_temperature,
                 top_p=assistant_top_p,
                 max_tokens=assistant_max_tokens,
@@ -17589,7 +17667,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             import time as _time
 
             if not jobs:
-                return [["—", "No jobs", "—", "—", "—", "—", "—"]]
+                return [["—", "No jobs", "—", "—", "—", "—", "—", "—"]]
 
             status_icons = {
                 "pending": "⏳ Pending",
@@ -17620,8 +17698,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     elapsed = "—"
 
                 text = str(request.get("text", "")).replace("\n", " ").strip()
-                if len(text) > 60:
-                    text = f"{text[:57]}..."
+                if len(text) > 50:
+                    text = f"{text[:47]}..."
 
                 engine_label = str(request.get("engine", "Unknown"))
                 if job_type == "conversation":
@@ -17634,6 +17712,16 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     queue_label = str(pending_rank)
                     pending_rank += 1
 
+                progress_str = "—"
+                if job.status == "running" and job.progress_percent:
+                    progress_str = f"{job.progress_percent:.0f}%"
+                elif job.status == "completed":
+                    progress_str = "100%"
+                elif job.status == "failed":
+                    progress_str = "Failed"
+
+                message_str = str(job.progress_message or "")[:40] or "—"
+
                 rows.append(
                     [
                         f"{job.id[:12]}..." if len(job.id) > 12 else job.id,
@@ -17642,7 +17730,8 @@ Alice: I went to Japan. It was absolutely incredible!""",
                         engine_label,
                         created,
                         elapsed,
-                        text or "—",
+                        progress_str,
+                        message_str,
                     ]
                 )
 
@@ -17717,6 +17806,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     f"{_time.strftime('%Y-%m-%d %H:%M:%S', _time.localtime(info.completed_at))}"
                 )
 
+            if info.progress_percent or info.progress_message:
+                pct = float(info.progress_percent or 0)
+                msg = str(info.progress_message or "")
+                lines.append(f"**Progress:** {pct:.0f}% {'— ' + msg if msg else ''}")
+
             if info.error:
                 lines.append(f"**Error:** {info.error}")
 
@@ -17734,32 +17828,74 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             return "\n\n".join(lines)
 
+        def _format_job_progress_html(jobs):
+            import time as _time
+
+            running = [job for job in jobs if job.status == "running"]
+            if not running:
+                return (
+                    "<div style='padding: 12px 16px; border-radius: 12px; "
+                    "background: rgba(15, 23, 42, 0.04); border: 1px dashed rgba(148,163,184,0.4); "
+                    "margin-bottom: 14px;'>"
+                    "<div style='font-weight: 600; margin-bottom: 6px;'>Progress</div>"
+                    "<div style='opacity: 0.75; font-size: 0.9em;'>No active jobs currently.</div>"
+                    "</div>"
+                )
+
+            parts = [
+                "<div style='padding: 12px 16px; border-radius: 12px; "
+                "background: rgba(15, 23, 42, 0.06); border: 1px solid rgba(59,130,246,0.25); "
+                "margin-bottom: 14px;'>"
+                "<div style='font-weight: 600; margin-bottom: 10px;'>[ARROWS] Live Progress</div>"
+            ]
+            for job in running:
+                pct = max(0, min(100, float(job.progress_percent or 0)))
+                msg = str(job.progress_message or "Running...")
+                elapsed = ""
+                if job.started_at:
+                    elapsed = f" ({_time.time() - job.started_at:.0f}s)"
+                bar_width = int(pct)
+                parts.append(
+                    f"<div style='margin-bottom: 10px;'>"
+                    f"<div style='display:flex; justify-content:space-between; font-size:0.85em; margin-bottom:4px;'>"
+                    f"<span>{job.id[:12]}...{elapsed}</span><span>{pct:.0f}%</span></div>"
+                    f"<div style='width:100%; height:8px; background:rgba(148,163,184,0.2); border-radius:4px; overflow:hidden;'>"
+                    f"<div style='width:{bar_width}%; height:100%; background:linear-gradient(90deg,#3b82f6,#10b981); border-radius:4px; transition:width 0.5s ease;'></div>"
+                    f"</div>"
+                    f"<div style='font-size:0.8em; opacity:0.8; margin-top:3px;'>{msg}</div>"
+                    f"</div>"
+                )
+            parts.append("</div>")
+            return "".join(parts)
+
         def handle_job_panel_refresh(job_id):
             """Refresh the job queue and optionally update the selected job detail panel."""
             from job_manager import get_job_manager
 
             manager = get_job_manager()
-            rows = _format_job_queue_rows(manager.list_jobs(limit=25))
+            jobs = manager.list_jobs(limit=25)
+            rows = _format_job_queue_rows(jobs)
             summary = _format_job_summary(manager.summarize(), manager.max_concurrent)
+            progress_html = _format_job_progress_html(jobs)
             detail = (
                 handle_job_detail(job_id)
                 if str(job_id or "").strip()
                 else "Select a job to view details."
             )
-            return rows, detail, summary
+            return rows, detail, summary, progress_html
 
         def handle_job_cancel(job_id):
             """Cancel a pending or running job by ID."""
             from job_manager import get_job_manager
 
             if not job_id or not str(job_id).strip():
-                rows, _detail, summary = handle_job_panel_refresh("")
+                rows, _detail, summary, _progress = handle_job_panel_refresh("")
                 return rows, "WARNING: Enter a job ID to cancel.", str(job_id or ""), summary
 
             manager = get_job_manager()
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
-                rows, _detail, summary = handle_job_panel_refresh("")
+                rows, _detail, summary, _progress = handle_job_panel_refresh("")
                 return (
                     rows,
                     f"ERROR: Job not found: {str(job_id).strip()}",
@@ -17770,13 +17906,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             try:
                 cancelled = manager.cancel(matched_job_id)
             except KeyError:
-                rows, _detail, summary = handle_job_panel_refresh("")
+                rows, _detail, summary, _progress = handle_job_panel_refresh("")
                 return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip(), summary
             except Exception as exc:
-                rows, detail, summary = handle_job_panel_refresh(matched_job_id)
+                rows, detail, summary, _progress = handle_job_panel_refresh(matched_job_id)
                 return rows, f"ERROR: Cancel failed: {exc}\n\n{detail}", matched_job_id, summary
 
-            rows, detail, summary = handle_job_panel_refresh(matched_job_id)
+            rows, detail, summary, _progress = handle_job_panel_refresh(matched_job_id)
             if cancelled:
                 return (
                     rows,
@@ -17797,13 +17933,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             from job_manager import JobRequest, get_job_manager
 
             if not job_id or not str(job_id).strip():
-                rows, _detail, summary = handle_job_panel_refresh("")
+                rows, _detail, summary, _progress = handle_job_panel_refresh("")
                 return rows, "WARNING: Enter a job ID to retry.", str(job_id or ""), summary
 
             manager = get_job_manager()
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
-                rows, _detail, summary = handle_job_panel_refresh("")
+                rows, _detail, summary, _progress = handle_job_panel_refresh("")
                 return (
                     rows,
                     f"ERROR: Job not found: {str(job_id).strip()}",
@@ -17814,11 +17950,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
             try:
                 info = manager.get_status(matched_job_id)
             except KeyError:
-                rows, _detail, summary = handle_job_panel_refresh("")
+                rows, _detail, summary, _progress = handle_job_panel_refresh("")
                 return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip(), summary
 
             if info.status in {"pending", "running"}:
-                rows, detail, summary = handle_job_panel_refresh(matched_job_id)
+                rows, detail, summary, _progress = handle_job_panel_refresh(matched_job_id)
                 return (
                     rows,
                     f"WARNING: Job {matched_job_id[:12]}... is still active and cannot be retried yet.\n\n{detail}",
@@ -17837,7 +17973,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 )
             )
 
-            rows, detail, summary = handle_job_panel_refresh(new_job_id)
+            rows, detail, summary, _progress = handle_job_panel_refresh(new_job_id)
             return (
                 rows,
                 f"SUCCESS: Retried job {matched_job_id[:12]}... as {new_job_id[:12]}...\n\n{detail}",
@@ -17850,13 +17986,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             from job_manager import get_job_manager
 
             if not job_id or not str(job_id).strip():
-                rows, _detail, summary = handle_job_panel_refresh("")
+                rows, _detail, summary, _progress = handle_job_panel_refresh("")
                 return rows, "WARNING: Enter a job ID to reorder.", str(job_id or ""), summary
 
             manager = get_job_manager()
             matched_job_id = _resolve_job_id(manager, job_id)
             if not matched_job_id:
-                rows, _detail, summary = handle_job_panel_refresh("")
+                rows, _detail, summary, _progress = handle_job_panel_refresh("")
                 return (
                     rows,
                     f"ERROR: Job not found: {str(job_id).strip()}",
@@ -17867,13 +18003,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
             try:
                 moved, message = manager.move_pending(matched_job_id, direction)
             except KeyError:
-                rows, _detail, summary = handle_job_panel_refresh("")
+                rows, _detail, summary, _progress = handle_job_panel_refresh("")
                 return rows, f"ERROR: Job not found: {matched_job_id}", str(job_id).strip(), summary
             except Exception as exc:
-                rows, detail, summary = handle_job_panel_refresh(matched_job_id)
+                rows, detail, summary, _progress = handle_job_panel_refresh(matched_job_id)
                 return rows, f"ERROR: Reorder failed: {exc}\n\n{detail}", matched_job_id, summary
 
-            rows, detail, summary = handle_job_panel_refresh(matched_job_id)
+            rows, detail, summary, _progress = handle_job_panel_refresh(matched_job_id)
             prefix = "SUCCESS" if moved else "WARNING"
             return rows, f"{prefix}: {message}\n\n{detail}", matched_job_id, summary
 
@@ -20201,7 +20337,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
         demo.load(
             fn=handle_job_panel_refresh,
             inputs=[job_id_input],
-            outputs=[job_queue_display, job_detail_output, job_summary_output],
+            outputs=[job_queue_display, job_detail_output, job_summary_output, job_progress_output],
         )
 
         demo.load(
@@ -20416,13 +20552,13 @@ Alice: I went to Japan. It was absolutely incredible!""",
         job_refresh_btn.click(
             fn=handle_job_panel_refresh,
             inputs=[job_id_input],
-            outputs=[job_queue_display, job_detail_output, job_summary_output],
+            outputs=[job_queue_display, job_detail_output, job_summary_output, job_progress_output],
         )
 
         job_timer.tick(
             fn=handle_job_panel_refresh,
             inputs=[job_id_input],
-            outputs=[job_queue_display, job_detail_output, job_summary_output],
+            outputs=[job_queue_display, job_detail_output, job_summary_output, job_progress_output],
         )
 
         job_auto_refresh.change(
@@ -20677,7 +20813,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             signature_params = list(inspect.signature(generate_unified_tts).parameters.keys())
             base_count = len(signature_params)
             if len(all_args) < base_count:
-                rows, detail, summary = handle_job_panel_refresh("")
+                rows, detail, summary, _progress = handle_job_panel_refresh("")
                 return (
                     "ERROR: Internal error: incomplete generation arguments",
                     rows,
@@ -20692,7 +20828,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             text_input = str(base_args[param_idx["text_input"]] or "")
             if not text_input.strip():
-                rows, detail, summary = handle_job_panel_refresh("")
+                rows, detail, summary, _progress = handle_job_panel_refresh("")
                 return "ERROR: No text provided for synthesis", rows, detail, "", summary
 
             autosave_project_name = ""
@@ -20709,12 +20845,12 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             resolved_project, project_error = _validate_required_project_name(autosave_project_name)
             if project_error:
-                rows, detail, summary = handle_job_panel_refresh("")
+                rows, detail, summary, _progress = handle_job_panel_refresh("")
                 return project_error, rows, detail, "", summary
 
             staged_args, staging_errors = _stage_single_speaker_job_args(list(all_args))
             if staging_errors:
-                rows, detail, summary = handle_job_panel_refresh("")
+                rows, detail, summary, _progress = handle_job_panel_refresh("")
                 return (
                     "\n".join(["ERROR: Failed to stage queued job assets", *staging_errors]),
                     rows,
@@ -20746,7 +20882,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             )
 
             job_id = get_job_manager().submit(job_request)
-            rows, detail, summary = handle_job_panel_refresh(job_id)
+            rows, detail, summary, _progress = handle_job_panel_refresh(job_id)
             status_lines = [
                 f"SUCCESS: Queued single-speaker job {job_id[:12]}... for {tts_engine_value}.",
                 "Open the Jobs tab to monitor, cancel, or retry it.",
@@ -22386,12 +22522,12 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             from job_manager import JobRequest, get_job_manager
 
             if not script_text.strip():
-                rows, detail, summary = handle_job_panel_refresh("")
+                rows, detail, summary, _progress = handle_job_panel_refresh("")
                 return "ERROR: No conversation script provided", rows, detail, "", summary
 
             resolved_project, project_error = _validate_required_project_name(project_name)
             if project_error:
-                rows, detail, summary = handle_job_panel_refresh("")
+                rows, detail, summary, _progress = handle_job_panel_refresh("")
                 return project_error, rows, detail, "", summary
 
             (
@@ -22418,7 +22554,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 hydrated_kitten_voices,
             )
             if preflight_errors:
-                rows, detail, summary = handle_job_panel_refresh("")
+                rows, detail, summary, _progress = handle_job_panel_refresh("")
                 status_lines = ["ERROR: Conversation preflight failed"]
                 status_lines.extend(preflight_errors)
                 status_lines.extend(f"WARNING: {warning}" for warning in hydration_warnings)
@@ -22432,7 +22568,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 )
             )
             if staging_errors:
-                rows, detail, summary = handle_job_panel_refresh("")
+                rows, detail, summary, _progress = handle_job_panel_refresh("")
                 return (
                     "\n".join(["ERROR: Failed to stage queued job assets", *staging_errors]),
                     rows,
@@ -22467,7 +22603,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             )
 
             job_id = get_job_manager().submit(job_request)
-            rows, detail, summary = handle_job_panel_refresh(job_id)
+            rows, detail, summary, _progress = handle_job_panel_refresh(job_id)
             status_lines = [
                 f"SUCCESS: Queued conversation job {job_id[:12]}... for {selected_engine}.",
                 "Open the Jobs tab to monitor, cancel, or retry it.",

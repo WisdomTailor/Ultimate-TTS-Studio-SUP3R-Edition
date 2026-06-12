@@ -50,6 +50,31 @@ class JobInfo:
     queue_order: float = 0.0
     started_at: float = 0.0
     completed_at: float = 0.0
+    progress_percent: float = 0.0
+    progress_message: str = ""
+    progress_updated_at: float = 0.0
+
+
+def write_job_progress(
+    job_id: str,
+    jobs_dir: str | Path,
+    percent: float,
+    message: str = "",
+) -> None:
+    """Write a progress checkpoint to a job's JSON state file.
+
+    Safe to call from worker subprocesses; silently fails if the file
+    is missing or unreadable.
+    """
+    job_path = Path(jobs_dir) / f"{job_id}.json"
+    try:
+        job_data = json.loads(job_path.read_text(encoding="utf-8"))
+        job_data["progress_percent"] = max(0.0, min(100.0, float(percent)))
+        job_data["progress_message"] = str(message or "")[:500]
+        job_data["progress_updated_at"] = time.time()
+        job_path.write_text(json.dumps(job_data, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
@@ -76,13 +101,16 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
 
     try:
         job_type = str(request_dict.get("job_type", "tts") or "tts").strip().lower()
+        write_job_progress(job_id, jobs_dir, 5, f"Starting {job_type} job")
         if job_type == "conversation":
             from conversation_job_service import generate_conversation_job
 
+            write_job_progress(job_id, jobs_dir, 10, "Generating conversation audio")
             result_payload = generate_conversation_job(request_dict)
         elif job_type == "single_speaker":
             from single_speaker_job_service import generate_single_speaker_job
 
+            write_job_progress(job_id, jobs_dir, 10, "Generating single-speaker audio")
             result_payload = generate_single_speaker_job(request_dict)
         else:
             from tts_service import TtsRequest, generate_tts
@@ -95,6 +123,7 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
                 audio_format=request_dict.get("audio_format", "wav"),
                 engine_params=engine_params,
             )
+            write_job_progress(job_id, jobs_dir, 10, f"Synthesizing with {req.engine}")
             result = generate_tts(req)
             result_payload: dict[str, Any] = {
                 "job_type": "tts",
@@ -105,11 +134,14 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
                 sample_rate, _audio = result.audio
                 result_payload["sample_rate"] = sample_rate
                 result_payload["audio_format"] = request_dict.get("audio_format", "wav")
+        write_job_progress(job_id, jobs_dir, 90, "Finalizing output")
 
         job_data = json.loads(job_path.read_text(encoding="utf-8"))
         job_data["status"] = COMPLETED
         job_data["completed_at"] = time.time()
         job_data["result"] = result_payload
+        job_data["progress_percent"] = 100.0
+        job_data["progress_message"] = "Completed"
         job_path.write_text(json.dumps(job_data, indent=2), encoding="utf-8")
     except Exception as exc:
         try:
@@ -117,6 +149,8 @@ def _worker(job_id: str, jobs_dir: str, request_dict: dict[str, Any]) -> None:
             job_data["status"] = FAILED
             job_data["completed_at"] = time.time()
             job_data["error"] = str(exc)
+            job_data["progress_percent"] = 0.0
+            job_data["progress_message"] = f"Failed: {exc}"
             job_path.write_text(json.dumps(job_data, indent=2), encoding="utf-8")
         except Exception:
             pass
@@ -270,7 +304,10 @@ class JobManager:
                 pending_job.queue_order = float(index)
                 self._save(pending_job)
             self._normalize_pending_queue_orders_locked()
-            return True, f"Moved job {job_id[:12]}... to the {normalized_direction} of the pending queue."
+            return (
+                True,
+                f"Moved job {job_id[:12]}... to the {normalized_direction} of the pending queue.",
+            )
 
     def list_jobs(self, limit: int = 50) -> list[JobInfo]:
         """List jobs with active queue entries first and recent terminal jobs after."""
@@ -435,4 +472,5 @@ __all__ = [
     "JobManager",
     "get_job_manager",
     "_worker",
+    "write_job_progress",
 ]
