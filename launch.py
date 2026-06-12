@@ -17460,7 +17460,11 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     stalled = ""
                     if job.progress_updated_at and _time.time() - job.progress_updated_at > 120:
                         stalled = " (stalled — no progress update in 2+ minutes)"
-                    pct = f"{job.progress_percent:.0f}%" if job.progress_percent else "unknown progress"
+                    pct = (
+                        f"{job.progress_percent:.0f}%"
+                        if job.progress_percent
+                        else "unknown progress"
+                    )
                     parts.append(
                         f"- {job.id[:12]}... | {req.get('job_type','tts')} | {req.get('engine','Unknown')} | "
                         f"{pct}{stalled}"
@@ -17493,6 +17497,46 @@ Alice: I went to Japan. It was absolutely incredible!""",
             max_tokens_val,
         ):
             """Send a message to the assistant and update the chatbot."""
+
+            def _history_to_tuples(history):
+                tuples_history = []
+                pending_user = None
+                for item in history or []:
+                    if isinstance(item, (list, tuple)) and len(item) == 2:
+                        tuples_history.append([str(item[0] or ""), str(item[1] or "")])
+                        continue
+                    if isinstance(item, dict):
+                        role = str(item.get("role", "user"))
+                        content = str(item.get("content", ""))
+                        if role == "user":
+                            pending_user = content
+                        elif role == "assistant":
+                            tuples_history.append([pending_user or "", content])
+                            pending_user = None
+                return tuples_history
+
+            def _history_to_messages(history):
+                from assistant_service import ChatMessage
+
+                messages = []
+                for item in history or []:
+                    if isinstance(item, (list, tuple)) and len(item) == 2:
+                        user_text = str(item[0] or "")
+                        assistant_text = str(item[1] or "")
+                        if user_text:
+                            messages.append(ChatMessage(role="user", content=user_text))
+                        if assistant_text:
+                            messages.append(ChatMessage(role="assistant", content=assistant_text))
+                        continue
+                    if isinstance(item, dict):
+                        role = str(item.get("role", "user"))
+                        content = str(item.get("content", ""))
+                    else:
+                        role = "user"
+                        content = str(item)
+                    messages.append(ChatMessage(role=role, content=content))
+                return messages
+
             if not user_message or not str(user_message).strip():
                 return chat_history, "", "WARNING: Please enter a message"
 
@@ -17508,27 +17552,18 @@ Alice: I went to Japan. It was absolutely incredible!""",
                     )
                     status = f"ERROR: Unable to read local jobs: {error}"
 
-                new_history = list(chat_history or [])
-                new_history.append({"role": "user", "content": normalized_message})
-                new_history.append({"role": "assistant", "content": reply})
+                new_history = _history_to_tuples(chat_history)
+                new_history.append([normalized_message, str(reply or "")])
                 return new_history, "", status
 
-            from assistant_service import AssistantRequest, ChatMessage, chat as assistant_chat
+            from assistant_service import AssistantRequest, chat as assistant_chat
 
             assistant_temperature = float(temperature_val if temperature_val is not None else 0.7)
             assistant_top_p = float(top_p_val if top_p_val is not None else 0.9)
             assistant_max_tokens = int(max_tokens_val if max_tokens_val is not None else 4096)
             assistant_timeout = max(60, (assistant_max_tokens // 1024) * 15)
 
-            history_messages = []
-            for msg in chat_history or []:
-                if isinstance(msg, dict):
-                    role = msg.get("role", "user")
-                    content = msg.get("content", "")
-                else:
-                    role = "user"
-                    content = str(msg)
-                history_messages.append(ChatMessage(role=str(role), content=str(content)))
+            history_messages = _history_to_messages(chat_history)
 
             effective_system = str(system_prompt or "").strip()
             job_context = _build_assistant_job_context_note()
@@ -17553,15 +17588,14 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
             response = assistant_chat(request)
 
-            new_history = list(chat_history or [])
-            new_history.append({"role": "user", "content": normalized_message})
+            new_history = _history_to_tuples(chat_history)
 
             if response.error:
                 error_msg = f"ERROR: {response.error}"
-                new_history.append({"role": "assistant", "content": error_msg})
+                new_history.append([normalized_message, error_msg])
                 status = f"ERROR: Error: {response.error}"
             else:
-                new_history.append({"role": "assistant", "content": response.content})
+                new_history.append([normalized_message, str(response.content or "")])
                 status = (
                     "SUCCESS: Response received "
                     f"({response.elapsed_seconds}s) — "
