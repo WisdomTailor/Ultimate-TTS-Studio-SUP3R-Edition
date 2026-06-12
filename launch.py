@@ -17330,6 +17330,85 @@ Alice: I went to Japan. It was absolutely incredible!""",
 
         # ── Assistant handlers ────────────────────────────────────────────
 
+        def _assistant_requests_job_status(user_message: str) -> bool:
+            text = str(user_message or "").strip().lower()
+            if not text:
+                return False
+
+            trigger_phrases = (
+                "job status",
+                "status of job",
+                "status of jobs",
+                "current job",
+                "current jobs",
+                "running job",
+                "running jobs",
+                "active job",
+                "active jobs",
+                "queue status",
+                "job queue",
+                "job progress",
+            )
+            return any(phrase in text for phrase in trigger_phrases)
+
+        def _build_assistant_job_status_response() -> tuple[str, str]:
+            import time as _time
+
+            from job_manager import get_job_manager
+
+            manager = get_job_manager()
+            summary = manager.summarize()
+            jobs = manager.list_jobs(limit=25)
+
+            running_jobs = [job for job in jobs if job.status == "running"]
+            pending_jobs = [job for job in jobs if job.status == "pending"]
+            failed_jobs = [job for job in jobs if job.status == "failed"]
+
+            lines = ["### Job Queue Status"]
+            lines.append(f"- Running: {len(running_jobs)}")
+            lines.append(f"- Pending: {len(pending_jobs)}")
+            lines.append(f"- Failed: {int(summary.get('failed', 0) or 0)}")
+            lines.append(f"- Completed: {int(summary.get('completed', 0) or 0)}")
+            lines.append(f"- Cancelled: {int(summary.get('cancelled', 0) or 0)}")
+
+            active_jobs = [*running_jobs, *pending_jobs]
+            if active_jobs:
+                lines.append("\nActive jobs:")
+                for job in active_jobs[:5]:
+                    request = job.request or {}
+                    created = (
+                        _time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(job.created_at))
+                        if job.created_at
+                        else "Unknown"
+                    )
+                    lines.append(
+                        "- "
+                        f"{job.id[:12]}... | {job.status.upper()} | "
+                        f"{request.get('job_type', 'tts')} | {request.get('engine', 'Unknown')} | "
+                        f"created {created}"
+                    )
+                return (
+                    "\n".join(lines),
+                    f"SUCCESS: Job status updated ({len(running_jobs)} running, {len(pending_jobs)} pending)",
+                )
+
+            lines.append("\nNo active jobs are currently running.")
+            if failed_jobs:
+                latest_failed = failed_jobs[0]
+                failure_reason = str(latest_failed.error or "No error details were recorded.").strip()
+                lines.append(
+                    "Most recent failed job: "
+                    f"{latest_failed.id[:12]}... ({str(latest_failed.request.get('engine', 'Unknown'))})"
+                )
+                lines.append(f"Failure reason: {failure_reason}")
+                return (
+                    "\n".join(lines),
+                    "WARNING: No active jobs. Latest job state is failed.",
+                )
+
+            lines.append("There are no queued, running, or failed jobs in the current app session.")
+            return "\n".join(lines), "SUCCESS: No active jobs in queue"
+
         def handle_assistant_send(
             user_message,
             chat_history,
@@ -17345,6 +17424,23 @@ Alice: I went to Japan. It was absolutely incredible!""",
             """Send a message to the assistant and update the chatbot."""
             if not user_message or not str(user_message).strip():
                 return chat_history, "", "WARNING: Please enter a message"
+
+            normalized_message = str(user_message).strip()
+            if _assistant_requests_job_status(normalized_message):
+                try:
+                    reply, status = _build_assistant_job_status_response()
+                except Exception as error:
+                    reply = (
+                        "I couldn't read the local job queue just now. "
+                        "Open the Jobs tab and click Refresh to validate current state.\n\n"
+                        f"Details: {error}"
+                    )
+                    status = f"ERROR: Unable to read local jobs: {error}"
+
+                new_history = list(chat_history or [])
+                new_history.append({"role": "user", "content": normalized_message})
+                new_history.append({"role": "assistant", "content": reply})
+                return new_history, "", status
 
             from assistant_service import AssistantRequest, ChatMessage, chat as assistant_chat
 
@@ -17364,7 +17460,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 history_messages.append(ChatMessage(role=str(role), content=str(content)))
 
             request = AssistantRequest(
-                user_message=str(user_message).strip(),
+                user_message=normalized_message,
                 conversation_history=tuple(history_messages),
                 provider_name=provider or "LM Studio OpenAI Server",
                 base_url=base_url or "",
@@ -17380,7 +17476,7 @@ Alice: I went to Japan. It was absolutely incredible!""",
             response = assistant_chat(request)
 
             new_history = list(chat_history or [])
-            new_history.append({"role": "user", "content": str(user_message).strip()})
+            new_history.append({"role": "user", "content": normalized_message})
 
             if response.error:
                 error_msg = f"ERROR: {response.error}"
