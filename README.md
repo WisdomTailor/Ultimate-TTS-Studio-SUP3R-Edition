@@ -83,6 +83,8 @@ and disables only that engine path.
 
 - queue-aware orchestration for long-running generation work
 - persisted job records under `app_state/jobs/`
+- live progress checkpoints written by the worker subprocesses
+- stale running jobs are marked failed with their last known progress after restart
 
 ## Persistence And Storage
 

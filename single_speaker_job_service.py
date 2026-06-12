@@ -22,7 +22,9 @@ def generate_single_speaker_job(request_dict: dict[str, Any]) -> dict[str, Any]:
     if not wrapped_args:
         raise ValueError("Queued single-speaker job is missing wrapped arguments")
 
-    generation_output, status_text, seed_label, used_seed = generate_unified_tts_wrapped(*wrapped_args)
+    generation_output, status_text, seed_label, used_seed = generate_unified_tts_wrapped(
+        *wrapped_args
+    )
     if generation_output is None:
         raise RuntimeError(str(status_text or "Single-speaker generation failed"))
 

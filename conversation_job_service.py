@@ -163,12 +163,7 @@ def generate_conversation_job(request_dict: dict[str, Any]) -> dict[str, Any]:
     if autosave_paths and autosave_paths.get("audio_path"):
         output_path = str(autosave_paths["audio_path"])
 
-    if (
-        autosave_enabled
-        and saved_audio_path
-        and autosave_paths
-        and not keep_legacy_output_copy
-    ):
+    if autosave_enabled and saved_audio_path and autosave_paths and not keep_legacy_output_copy:
         saved_audio_abs = os.path.abspath(saved_audio_path)
         autosave_audio_abs = os.path.abspath(autosave_paths.get("audio_path", ""))
         if saved_audio_abs != autosave_audio_abs and os.path.exists(saved_audio_abs):
@@ -183,17 +178,21 @@ def generate_conversation_job(request_dict: dict[str, Any]) -> dict[str, Any]:
     if resume_info:
         summary_text = f"INFO: {resume_info}\n\n{summary_text}"
     if hydration_warnings:
-        summary_text = "\n".join([
-            *(f"WARNING: {warning}" for warning in hydration_warnings),
-            "",
-            summary_text,
-        ])
+        summary_text = "\n".join(
+            [
+                *(f"WARNING: {warning}" for warning in hydration_warnings),
+                "",
+                summary_text,
+            ]
+        )
     if preflight_warnings:
-        summary_text = "\n".join([
-            *(f"WARNING: {warning}" for warning in preflight_warnings),
-            "",
-            summary_text,
-        ])
+        summary_text = "\n".join(
+            [
+                *(f"WARNING: {warning}" for warning in preflight_warnings),
+                "",
+                summary_text,
+            ]
+        )
     if history_status_lines:
         summary_text = summary_text + "\n\n" + "\n".join(history_status_lines)
 

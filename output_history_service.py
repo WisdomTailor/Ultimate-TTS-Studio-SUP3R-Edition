@@ -19,7 +19,6 @@ if str(PARENT_DIR) not in sys.path:
 
 from app.output_history_store import OutputHistoryRecord, OutputHistoryStore
 
-
 logger = logging.getLogger(__name__)
 
 TIMESTAMP_PATTERN = re.compile(r"(?P<timestamp>\d{8}_\d{6})$")
