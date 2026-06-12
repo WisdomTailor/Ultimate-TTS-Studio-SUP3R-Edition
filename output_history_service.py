@@ -33,10 +33,20 @@ LEGACY_IMPORT_SCRIPT_PLACEHOLDER = "Recovered legacy output where source text wa
 HISTORY_PREVIEW_CURRENT_SCRIPT = "current_script"
 HISTORY_PREVIEW_METADATA_JSON = "metadata_json"
 VOICE_NARRATOR_METADATA_KEYS = (
-    "speaker",
-    "speaker_profile",
     "voice_preset",
     "voice",
+    "speaker_profile",
+    "speaker",
+)
+
+VOICE_PRESET_METADATA_KEYS = (
+    "preset",
+    "voice_preset",
+    "voice",
+    "speaker_profile",
+    "assigned_voice",
+    "kokoro_voice",
+    "kitten_voice",
 )
 
 
@@ -484,6 +494,60 @@ def _coerce_string_list(values: Any) -> list[str]:
     return normalized
 
 
+def _append_unique_metadata_text(values: list[str], seen: set[str], value: Any) -> None:
+    text = _clean_metadata_text(value)
+    if not text:
+        return
+    lowered = text.lower()
+    if lowered in seen:
+        return
+    seen.add(lowered)
+    values.append(text)
+
+
+def _extract_voice_presets(metadata: dict[str, Any]) -> list[str]:
+    presets: list[str] = []
+    seen: set[str] = set()
+
+    for key in VOICE_PRESET_METADATA_KEYS:
+        value = metadata.get(key)
+        if key == "preset" and is_history_preset_missing(_clean_metadata_text(value)):
+            continue
+        _append_unique_metadata_text(presets, seen, value)
+
+    speaker_assignments = metadata.get("speaker_assignments")
+    if isinstance(speaker_assignments, list):
+        for assignment in speaker_assignments:
+            if not isinstance(assignment, dict):
+                continue
+            for key in VOICE_PRESET_METADATA_KEYS:
+                _append_unique_metadata_text(presets, seen, assignment.get(key))
+            reference_name = str(assignment.get("reference_audio_name") or "").strip()
+            if reference_name:
+                stem = Path(reference_name).stem.strip()
+                _append_unique_metadata_text(presets, seen, stem or reference_name)
+
+    speaker_settings = metadata.get("speaker_settings")
+    if isinstance(speaker_settings, dict):
+        for setting in speaker_settings.values():
+            if not isinstance(setting, dict):
+                continue
+            for key in VOICE_PRESET_METADATA_KEYS:
+                _append_unique_metadata_text(presets, seen, setting.get(key))
+
+    for container_key in ("cast_characters", "characters", "voice_assignments"):
+        container = metadata.get(container_key)
+        if not isinstance(container, list):
+            continue
+        for item in container:
+            if not isinstance(item, dict):
+                continue
+            for key in VOICE_PRESET_METADATA_KEYS:
+                _append_unique_metadata_text(presets, seen, item.get(key))
+
+    return presets
+
+
 def _extract_conversation_speakers(metadata: dict[str, Any]) -> list[str]:
     speakers = _coerce_string_list(metadata.get("speakers"))
     if speakers:
@@ -526,6 +590,13 @@ def _build_job_payload(
     metadata: dict[str, Any],
     paths: OutputHistoryPaths,
 ) -> dict[str, Any]:
+    conversation_speakers = _extract_conversation_speakers(metadata)
+    voice_presets = _extract_voice_presets(metadata)
+    speaker_value = (
+        ", ".join(voice_presets)
+        if voice_presets
+        else resolve_voice_narrator(metadata, fallback=_summarize_speakers(conversation_speakers))
+    )
     return {
         "project": project,
         "mode": metadata.get("mode") or "single",
@@ -534,11 +605,11 @@ def _build_job_payload(
         "datetime_iso": datetime_iso,
         "engine": metadata.get("engine"),
         "seed": _safe_int(metadata.get("seed")),
-        "speaker": metadata.get("speaker"),
+        "speaker": speaker_value,
         "speaker_count": _safe_int(
             metadata.get("speaker_count") or metadata.get("unique_speakers")
         ),
-        "speakers": _coerce_string_list(metadata.get("speakers")),
+        "speakers": _coerce_string_list(metadata.get("speakers")) or conversation_speakers,
         "total_lines": _safe_int(metadata.get("total_lines")),
         "audio_format": metadata.get("audio_format"),
         "paths": {
@@ -636,8 +707,9 @@ def build_record_from_meta(meta_path: str | Path) -> OutputHistoryRecord:
     mode = str(metadata.get("mode") or "single").strip().lower() or "single"
     preset = str(metadata.get("preset") or _infer_preset(run_base, project, timestamp) or "")
     speakers = _extract_conversation_speakers(metadata) if mode == "conversation" else []
-    speaker = resolve_voice_narrator(metadata)
-    if mode == "conversation":
+    voice_presets = _extract_voice_presets(metadata)
+    speaker = ", ".join(voice_presets) if voice_presets else resolve_voice_narrator(metadata)
+    if mode == "conversation" and not voice_presets:
         speaker = speaker or _summarize_speakers(speakers)
     raw_llm_transform = metadata.get("llm_transform")
     llm_transform = raw_llm_transform if isinstance(raw_llm_transform, dict) else {}
