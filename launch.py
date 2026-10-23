@@ -485,6 +485,8 @@ from narration_transform import (
     LLM_PROVIDER_MODEL_SUGGESTIONS,
     LLM_OUTCOME_PRESETS,
     DEFAULT_LLM_OUTCOME_PRESET,
+    LLM_TRANSFORM_MAX_CHUNK_CHARS,
+    LLM_TRANSFORM_MAX_OUTPUT_TOKENS,
     _MODE_BEHAVIORAL_REMINDERS,
     _STYLE_DESCRIPTIONS,
     _DEFAULT_PROVIDER_CONFIG,
@@ -22019,7 +22021,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
             # Reasoning models burn part of the budget on chain-of-thought, so
             # give them extra headroom instead of truncating to empty content.
             estimated_max_tokens = estimate_transform_max_tokens(
-                chunk_text, model_id=clean_model_id, floor=2048, ceiling=8192
+                chunk_text, model_id=clean_model_id, floor=2048, ceiling=LLM_TRANSFORM_MAX_OUTPUT_TOKENS
             )
 
             raw_response = call_openai_compatible_chat(
@@ -22058,7 +22060,7 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 system_prompt or ""
             ).strip() or get_content_type_system_prompt(selected_content_type)
             script_text = str(script_text or "")
-            chunk_specs = chunk_text_for_transform(script_text, max_chunk_chars=2200)
+            chunk_specs = chunk_text_for_transform(script_text, max_chunk_chars=LLM_TRANSFORM_MAX_CHUNK_CHARS)
             if not chunk_specs:
                 chunk_specs = [type("ConversationChunk", (), {"text": script_text})()]
 

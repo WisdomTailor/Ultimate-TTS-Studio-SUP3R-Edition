@@ -789,6 +789,9 @@ LLM_OUTCOME_PRESETS: dict[str, dict[str, float | int]] = {
 
 DEFAULT_LLM_OUTCOME_PRESET = "Balanced"
 
+LLM_TRANSFORM_MAX_CHUNK_CHARS = 64000
+LLM_TRANSFORM_MAX_OUTPUT_TOKENS = 65536
+
 
 def _get_provider_config(provider_name: str) -> dict:
     return LLM_PROVIDER_CONFIGS.get(provider_name, _DEFAULT_PROVIDER_CONFIG)
@@ -1123,23 +1126,6 @@ def _build_llm_system_prompt(
     return f"{effective_system_prompt}\n\n## ENGINE-SPECIFIC OPTIMIZATION\n{engine_addendum}"
 
 
-def _resolve_transform_max_chunk_chars(
-    max_chunk_chars: int,
-    engine_name: str = "",
-    engine: str = "",
-) -> int:
-    resolved_engine_name = _resolve_transform_engine_name(engine_name=engine_name, engine=engine)
-    if not resolved_engine_name or max_chunk_chars <= 0:
-        return max_chunk_chars
-
-    from engine_script_profiles import get_engine_max_chunk_chars
-
-    engine_max_chunk_chars = get_engine_max_chunk_chars(resolved_engine_name)
-    if engine_max_chunk_chars <= 0:
-        return max_chunk_chars
-    return min(max_chunk_chars, engine_max_chunk_chars)
-
-
 def _build_llm_transform_user_prompt(
     source_text: str,
     mode: str,
@@ -1241,7 +1227,9 @@ def _split_paragraph_for_transform(paragraph: str, max_chunk_chars: int) -> list
     return chunks
 
 
-def chunk_text_for_transform(source_text: str, max_chunk_chars: int = 3000) -> list[TransformChunk]:
+def chunk_text_for_transform(
+    source_text: str, max_chunk_chars: int = LLM_TRANSFORM_MAX_CHUNK_CHARS
+) -> list[TransformChunk]:
     """Split narration text into bounded chunks for LLM transforms.
 
     Args:
@@ -1402,6 +1390,15 @@ def estimate_transform_max_tokens(
         base_ceiling = max(base_ceiling, 16384)
 
     return min(base_ceiling, max(base_floor, estimated))
+
+
+def _resolve_transform_max_tokens(max_tokens: int, chunk_text: str, model_id: str) -> int:
+    """Scale the output budget to the largest chunk so the reply is not truncated."""
+    requested = int(max_tokens or 0)
+    needed = estimate_transform_max_tokens(
+        chunk_text, model_id=model_id, floor=2048, ceiling=LLM_TRANSFORM_MAX_OUTPUT_TOKENS
+    )
+    return max(requested, needed)
 
 
 def call_openai_compatible_chat(
@@ -1851,7 +1848,7 @@ def apply_llm_narration_transform(
     max_tokens: int = 1024,
     allow_local_fallback: bool = True,
     engine_name: str = "",
-    max_chunk_chars: int = 3000,
+    max_chunk_chars: int = LLM_TRANSFORM_MAX_CHUNK_CHARS,
     engine: str = "",
 ) -> tuple[str, str]:
     if not isinstance(source_text, str) or not source_text.strip():
@@ -1886,10 +1883,7 @@ def apply_llm_narration_transform(
         system_prompt=system_prompt,
         engine_name=resolved_engine_name,
     )
-    effective_max_chunk_chars = _resolve_transform_max_chunk_chars(
-        max_chunk_chars=max_chunk_chars,
-        engine_name=resolved_engine_name,
-    )
+    effective_max_chunk_chars = max_chunk_chars
     chunk_specs = chunk_text_for_transform(
         deterministic_text,
         max_chunk_chars=effective_max_chunk_chars,
@@ -1897,7 +1891,14 @@ def apply_llm_narration_transform(
     if not chunk_specs:
         chunk_specs = [TransformChunk(text=deterministic_text)]
 
-    if len(deterministic_text) > 3000 and len(chunk_specs) > 1:
+    largest_chunk = max(chunk_specs, key=lambda spec: len(spec.text)).text
+    effective_max_tokens = _resolve_transform_max_tokens(
+        max_tokens=max_tokens,
+        chunk_text=largest_chunk,
+        model_id=model_id,
+    )
+
+    if len(chunk_specs) > 1:
         logger.warning(
             "LLM narration transform input is %s chars; chunking into %s requests "
             "with max_chunk_chars=%s",
@@ -1922,7 +1923,7 @@ def apply_llm_narration_transform(
                 temperature=temperature,
                 top_p=top_p,
                 repeat_penalty=repeat_penalty,
-                max_tokens=max_tokens,
+                max_tokens=effective_max_tokens,
                 extra_headers=cfg["headers"],
                 auth_style=cfg["auth_style"],
                 engine=resolved_engine_name,
@@ -1944,7 +1945,7 @@ def apply_llm_narration_transform(
                     temperature=temperature,
                     top_p=top_p,
                     repeat_penalty=repeat_penalty,
-                    max_tokens=max_tokens,
+                    max_tokens=effective_max_tokens,
                     extra_headers=cfg["headers"],
                     auth_style=cfg["auth_style"],
                     engine=resolved_engine_name,
