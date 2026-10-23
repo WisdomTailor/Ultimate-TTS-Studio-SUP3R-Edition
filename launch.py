@@ -506,6 +506,7 @@ from narration_transform import (
     save_prompt_to_library,
     try_start_lm_studio,
     call_openai_compatible_chat,
+    estimate_transform_max_tokens,
     test_llm_connection,
     apply_llm_narration_transform,
     apply_llm_transform_to_textbox,
@@ -2537,7 +2538,11 @@ DEPRECATED_PROVIDER_MODEL_ALIASES = {
         "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
         "gemini-2.5-pro-preview-05-06": "gemini-2.5-pro",
-    }
+    },
+    # OpenRouter retired this ID; requests now return HTTP 404.
+    "OpenRouter (OpenAI-compatible)": {
+        "openrouter/owl-alpha": "openai/gpt-4o-mini",
+    },
 }
 
 
@@ -8915,8 +8920,11 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
         "gpt-4.1-nano",
     ],
     "OpenRouter (OpenAI-compatible)": [
-        "openrouter/owl-alpha",
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1-mini",
         "nousresearch/hermes-4-405b",
+        "meta-llama/llama-3.3-70b-instruct",
+        "deepseek/deepseek-chat-v3-0324",
     ],
     "Ollama (OpenAI-compatible)": [
         "qwen3:30b-a3b",
@@ -22007,12 +22015,17 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         ) -> str:
             provider_config = _get_provider_config(provider_name)
             resolved_api_key, _api_key_source = resolve_llm_api_key(provider_name, api_key)
-            estimated_max_tokens = min(8192, max(2048, len(str(chunk_text)) // 2 + 1024))
+            clean_model_id = str(model_id or "").strip()
+            # Reasoning models burn part of the budget on chain-of-thought, so
+            # give them extra headroom instead of truncating to empty content.
+            estimated_max_tokens = estimate_transform_max_tokens(
+                chunk_text, model_id=clean_model_id, floor=2048, ceiling=8192
+            )
 
             raw_response = call_openai_compatible_chat(
                 base_url=str(base_url or "").strip(),
                 api_key=resolved_api_key,
-                model_id=str(model_id or "").strip(),
+                model_id=clean_model_id,
                 system_prompt=system_prompt,
                 user_prompt=str(chunk_text or ""),
                 timeout_seconds=int(timeout_seconds),

@@ -721,8 +721,11 @@ LLM_PROVIDER_MODEL_SUGGESTIONS = {
         "gpt-4.1-nano",
     ],
     "OpenRouter (OpenAI-compatible)": [
-        "openrouter/owl-alpha",
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1-mini",
         "nousresearch/hermes-4-405b",
+        "meta-llama/llama-3.3-70b-instruct",
+        "deepseek/deepseek-chat-v3-0324",
     ],
     "Ollama (OpenAI-compatible)": [
         "qwen3:30b-a3b",
@@ -747,7 +750,11 @@ DEPRECATED_PROVIDER_MODEL_ALIASES: dict[str, dict[str, str]] = {
         "gemini-2.0-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-flash-preview-05-20": "gemini-2.5-flash",
         "gemini-2.5-pro-preview-05-06": "gemini-2.5-pro",
-    }
+    },
+    # OpenRouter retired this ID; requests now return HTTP 404.
+    "OpenRouter (OpenAI-compatible)": {
+        "openrouter/owl-alpha": "openai/gpt-4o-mini",
+    },
 }
 
 _DEFAULT_PROVIDER_CONFIG = {
@@ -845,6 +852,46 @@ def resolve_llm_api_key(provider_name: str, api_key: str) -> tuple[str, str]:
             return env_value.strip(), f"env:{env_name}"
 
     return "", "missing"
+
+
+class LLMHTTPError(ValueError):
+    """Raised when an OpenAI-compatible endpoint answers with a non-2xx status.
+
+    Subclasses ``ValueError`` so existing ``except ValueError`` handlers keep
+    working, while callers that need to distinguish 401 (bad key) from 404
+    (retired model) from 402 (no credits) can inspect ``status_code``.
+    """
+
+    def __init__(self, status_code: int, reason: str = "", detail: str = "") -> None:
+        self.status_code = int(status_code)
+        self.reason = str(reason or "").strip()
+        self.detail = str(detail or "").strip()
+        message = f"HTTP {self.status_code} {self.reason}".strip()
+        if self.detail:
+            message = f"{message}: {self.detail}"
+        super().__init__(message)
+
+
+def _describe_llm_http_status(status_code: int) -> str:
+    """Human-readable meaning for the HTTP statuses LLM providers actually return."""
+    try:
+        code = int(status_code)
+    except (TypeError, ValueError):
+        return "request rejected"
+
+    if code in (401, 403):
+        return "authentication failed — the API key was rejected"
+    if code == 402:
+        return "payment required — the account has no credits left"
+    if code == 404:
+        return "not found — the model ID is retired, renamed, or misspelled"
+    if code == 408:
+        return "request timed out"
+    if code == 429:
+        return "rate limited — too many requests"
+    if 500 <= code < 600:
+        return "provider server error"
+    return "request rejected"
 
 
 def _extract_http_error_message(raw_error_body: str) -> str:
@@ -1300,6 +1347,63 @@ def _run_llm_transform_chunk(
     return _clean_llm_transform_output(raw_output, engine=engine)
 
 
+def _looks_like_reasoning_model(model_id: str) -> bool:
+    """Heuristic: does this model ID belong to a reasoning-style model?
+
+    Reasoning models spend part of the ``max_tokens`` budget on chain-of-thought
+    before emitting ``content``, so callers need extra headroom or they get
+    ``finish_reason=length`` with empty content.
+    """
+    normalized = str(model_id or "").strip().lower()
+    if not normalized:
+        return False
+
+    reasoning_markers = (
+        "reasoning",
+        "-thinking",
+        ":thinking",
+        "think",
+        "o1",
+        "o3",
+        "o4",
+        "r1",
+        "qwq",
+        "deepseek-r",
+        "hy4",
+        "gpt-5",
+    )
+    return any(marker in normalized for marker in reasoning_markers)
+
+
+def estimate_transform_max_tokens(
+    source_text: str,
+    model_id: str = "",
+    floor: int = 2048,
+    ceiling: int = 8192,
+) -> int:
+    """Estimate a ``max_tokens`` budget with headroom for reasoning models.
+
+    Base estimate is ``len(text) // 2 + 1024`` (roughly 2 chars per token plus
+    slack). Reasoning models get a 2x multiplier and a higher ceiling because
+    their chain-of-thought consumes the budget before any content is emitted.
+    """
+    try:
+        base_floor = max(0, int(floor))
+    except (TypeError, ValueError):
+        base_floor = 2048
+    try:
+        base_ceiling = max(base_floor, int(ceiling))
+    except (TypeError, ValueError):
+        base_ceiling = max(base_floor, 8192)
+
+    estimated = (len(str(source_text or "")) // 2) + 1024
+    if _looks_like_reasoning_model(model_id):
+        estimated = int(estimated * 2)
+        base_ceiling = max(base_ceiling, 16384)
+
+    return min(base_ceiling, max(base_floor, estimated))
+
+
 def call_openai_compatible_chat(
     base_url: str,
     api_key: str,
@@ -1379,19 +1483,71 @@ def call_openai_compatible_chat(
     except urllib.error.HTTPError as error:
         raw_error = error.read().decode("utf-8", errors="replace")
         detail = _extract_http_error_message(raw_error)
-        if detail:
-            raise ValueError(f"HTTP {error.code} {error.reason}: {detail}") from error
-        raise ValueError(f"HTTP {error.code} {error.reason}") from error
+        raise LLMHTTPError(error.code, error.reason, detail) from error
 
     choices = data.get("choices") or []
     if not choices:
         raise ValueError("No choices returned by LLM endpoint")
 
     message = choices[0].get("message") or {}
-    content = message.get("content", "")
-    if not isinstance(content, str) or not content.strip():
+    content = _extract_llm_message_text(message)
+    if not content:
+        finish_reason = str(choices[0].get("finish_reason") or "").strip()
+        if finish_reason == "length":
+            raise ValueError(
+                "LLM response content is empty — the reply was truncated by the "
+                f"max_tokens budget ({max_tokens}). Raise max_tokens and retry."
+            )
         raise ValueError("LLM response content is empty")
-    return content.strip()
+    return content
+
+
+def _extract_llm_message_text(message: dict) -> str:
+    """Pull usable text out of a chat completion message.
+
+    Reasoning models (e.g. ``tencent/hy4-preview``) frequently return
+    ``content: null`` and place the entire answer in ``reasoning`` (or
+    ``reasoning_content`` on some gateways). Falling back to those fields keeps
+    AI Format / narration transform working instead of failing with
+    "LLM response content is empty".
+    """
+    if not isinstance(message, dict):
+        return ""
+
+    candidates: list[str] = []
+
+    content = message.get("content")
+    if isinstance(content, str):
+        candidates.append(content)
+    elif isinstance(content, list):
+        # Some providers return content as a list of typed parts.
+        for part in content:
+            if isinstance(part, str):
+                candidates.append(part)
+            elif isinstance(part, dict):
+                text_part = part.get("text")
+                if isinstance(text_part, str):
+                    candidates.append(text_part)
+
+    for reasoning_key in ("reasoning", "reasoning_content", "reasoning_details"):
+        reasoning_value = message.get(reasoning_key)
+        if isinstance(reasoning_value, str):
+            candidates.append(reasoning_value)
+        elif isinstance(reasoning_value, list):
+            for part in reasoning_value:
+                if isinstance(part, str):
+                    candidates.append(part)
+                elif isinstance(part, dict):
+                    text_part = part.get("text") or part.get("summary")
+                    if isinstance(text_part, str):
+                        candidates.append(text_part)
+
+    for candidate in candidates:
+        cleaned = strip_think_tags(candidate).strip()
+        if cleaned:
+            return cleaned
+
+    return ""
 
 
 def _normalize_voice_casting_speaker_names(speaker_names: list[str]) -> list[str]:
@@ -1644,6 +1800,28 @@ def test_llm_connection(
             f"API key source: {key_source}\n"
             f"Sample response: {response_text[:120]}"
         )
+    except LLMHTTPError as error:
+        hint = get_llm_shell_key_setup_hint(provider_name)
+        status_meaning = _describe_llm_http_status(error.status_code)
+        lines = [
+            f"❌ LLM connection failed — HTTP {error.status_code} ({status_meaning})",
+            f"Provider: {provider_name}",
+            f"URL: {base_url}",
+            f"Model: {model_id}",
+        ]
+        if error.detail:
+            lines.append(f"Provider error: {error.detail}")
+        if error.status_code == 404:
+            lines.append(
+                "This model ID is not available on this provider. Click "
+                "'Refresh model list' and pick a model from the live catalog."
+            )
+        elif error.status_code in (401, 403):
+            lines.append("Check the API key value and that it is active for this provider.")
+        elif error.status_code == 402:
+            lines.append("Add credits to the provider account, or switch to a funded model.")
+        lines.append(hint)
+        return "\n".join(lines)
     except urllib.error.HTTPError as error:
         hint = get_llm_shell_key_setup_hint(provider_name)
         return f"❌ LLM HTTP error: {error.code} {error.reason}\n{hint}"
