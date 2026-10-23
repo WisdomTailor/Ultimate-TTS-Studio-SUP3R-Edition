@@ -72,22 +72,27 @@ VOICE_CASTING_SYSTEM_PROMPT = """You are a professional voice casting director a
 For each character provide ALL of the following fields:
 
 - Description: Narrative role, personality, speaking style, and any story context that shapes their voice or presence.
-- Physical Profile: Gender (male / female / non-binary), estimated age, race / ethnicity (e.g. Black, Caucasian, East Asian, South Asian, Hispanic, Middle Eastern, Indigenous, Mixed-race, etc.), skin tone, height/build, hair colour and style, eye colour, and any notable features (scars, tattoos, distinguishing marks). Be specific and visual — this information is used both for voice selection and for producing accurate character illustrations.
-- Voice Profile: A 4-7 word descriptor capturing tone, pitch, and texture (e.g. "Deep, gravelly baritone with Southern warmth" or "Crisp, high soprano — clipped British consonants").
+- Physical Profile: A text-to-image-ready visual description that ALWAYS begins with age and gender, followed by a comma-separated list of physical traits: race / ethnicity, skin tone, height/build, hair colour and style, eye colour, facial features, notable features (scars, tattoos, distinguishing marks), and clothing or era cues where inferable. Write it as one vivid, comma-separated phrase suitable for feeding directly into an image-generation prompt. Example: "A 45-year-old male detective, Black, tall and lean, short grey-flecked hair, sharp brown eyes, weathered skin, a faint scar over his left eyebrow, wearing a rumpled beige trench coat."
+- Voice Profile: A 4-7 word descriptor capturing tone, pitch, texture, and accent (e.g. "Deep, gravelly baritone with Southern warmth" or "Crisp, high soprano — clipped British consonants").
 
 Rules:
-- Infer details from character names, narrative conventions, and any context clues available.
+- Reproduce each character name EXACTLY as given — do not rename, abbreviate, merge, or add titles or honorifics.
+- Always state age (a specific number or range) and gender (male / female / non-binary) explicitly at the start of the Physical Profile.
+- Infer details from character names, narrative conventions, and any context clues available. Prefer explicit script context over name-based assumptions, and do not rely on name-based racial or ethnic stereotypes.
 - If a detail is genuinely unknowable from the name alone, make a confident creative choice that fits the story genre implied by the full cast list.
 - Never leave a field blank. Always provide a specific value — use "Likely" or "Possibly" as a prefix only when the inference is weak.
 - Do not hedge with "N/A" or "Unknown".
+- Give every cast member a DISTINCT Voice Profile — do not reuse the same voice descriptor across characters.
 
-Format every character as:
+Output format (strict):
+Place each character name on its own line, followed by exactly three single-line fields. Do NOT use bullets, numbering, bold, backticks, or other markdown.
+
 CHARACTER_NAME:
-    Description: [narrative description — 2-3 sentences]
-    Physical Profile: [gender, age, race/ethnicity, build, hair, eyes, notable features]
-    Voice Profile: [4-7 word voice descriptor]
+    Description: [narrative description — 2-3 sentences, on one line]
+    Physical Profile: [age, gender, then a comma-separated text-to-image visual description, on one line]
+    Voice Profile: [4-7 word voice descriptor, on one line]
 
-Return only the formatted list. No preamble, no commentary."""
+Do not include any reasoning, <think> blocks, preamble, or commentary. Begin immediately with the first character name. Return only the formatted list."""
 
 CONTENT_TYPE_PRESETS: dict[str, dict[str, str | None]] = {
     "General (Default)": {
@@ -1414,6 +1419,7 @@ def call_openai_compatible_chat(
     max_tokens: int = 1024,
     extra_headers: dict[str, str] | None = None,
     auth_style: str = "bearer",
+    disable_reasoning: bool = False,
 ) -> str:
     if not base_url or not model_id:
         raise ValueError("Base URL and model ID are required")
@@ -1437,6 +1443,8 @@ def call_openai_compatible_chat(
     }
     if float(repeat_penalty) > 0:
         payload["repetition_penalty"] = float(repeat_penalty)
+    if disable_reasoning and "openrouter.ai" in (base_url or "").lower():
+        payload["reasoning"] = {"enabled": False}
 
     headers = {"Content-Type": "application/json"}
     if extra_headers:
@@ -1488,14 +1496,20 @@ def call_openai_compatible_chat(
 
     message = choices[0].get("message") or {}
     content = _extract_llm_message_text(message)
+    finish_reason = str(choices[0].get("finish_reason") or "").strip()
     if not content:
-        finish_reason = str(choices[0].get("finish_reason") or "").strip()
         if finish_reason == "length":
             raise ValueError(
                 "LLM response content is empty — the reply was truncated by the "
                 f"max_tokens budget ({max_tokens}). Raise max_tokens and retry."
             )
         raise ValueError("LLM response content is empty")
+    if finish_reason == "length":
+        logger.warning(
+            "LLM response was truncated by max_tokens (%s) with finish_reason=length; "
+            "content may be incomplete",
+            max_tokens,
+        )
     return content
 
 
@@ -1579,15 +1593,21 @@ def _normalize_voice_casting_block(block_lines: list[str]) -> tuple[str, str, st
             current_field = ""
             continue
 
-        description_match = re.match(r"^Description:\s*(.+)$", stripped_line, re.IGNORECASE)
+        label_line = (
+            re.sub(r"^(?:[-*+]\s*|\d+[.)]\s*)", "", stripped_line)
+            .replace("**", "")
+            .strip()
+        )
+
+        description_match = re.match(r"^Description\s*:\s*(.+)$", label_line, re.IGNORECASE)
         if description_match:
             description_parts = [description_match.group(1).strip()]
             current_field = "description"
             continue
 
         physical_profile_match = re.match(
-            r"^Physical\s*Profile:\s*(.+)$",
-            stripped_line,
+            r"^Physical\s*Profile\s*:\s*(.+)$",
+            label_line,
             re.IGNORECASE,
         )
         if physical_profile_match:
@@ -1596,8 +1616,8 @@ def _normalize_voice_casting_block(block_lines: list[str]) -> tuple[str, str, st
             continue
 
         voice_profile_match = re.match(
-            r"^Voice\s*Profile:\s*(.+)$",
-            stripped_line,
+            r"^Voice\s*Profile\s*:\s*(.+)$",
+            label_line,
             re.IGNORECASE,
         )
         if voice_profile_match:
@@ -1734,6 +1754,10 @@ def generate_voice_casting(
         ]
     )
 
+    casting_max_tokens = max(2048, 512 * len(clean_speaker_names))
+    if _looks_like_reasoning_model(clean_model_id):
+        casting_max_tokens = min(LLM_TRANSFORM_MAX_OUTPUT_TOKENS, casting_max_tokens * 2)
+
     try:
         raw_output = call_openai_compatible_chat(
             base_url=clean_base_url,
@@ -1744,11 +1768,13 @@ def generate_voice_casting(
             timeout_seconds=int(timeout_seconds or 60),
             temperature=0.7,
             top_p=0.9,
-            max_tokens=2048,
+            max_tokens=casting_max_tokens,
             extra_headers=extra_headers,
             auth_style=auth_style,
+            disable_reasoning=_looks_like_reasoning_model(clean_model_id),
         )
         raw_output = strip_think_tags(raw_output)
+        logger.info("Voice casting raw output (%d chars): %s", len(raw_output), raw_output)
         return _format_voice_casting_result(raw_output, clean_speaker_names), ""
     except urllib.error.HTTPError as error:
         return "", f"LLM HTTP error: {error.code} {error.reason}"
