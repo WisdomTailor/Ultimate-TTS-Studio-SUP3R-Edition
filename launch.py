@@ -4858,6 +4858,7 @@ def _adopt_matching_conversation_checkpoint(
             str(conversation_script or "").encode("utf-8")
         ).hexdigest()
         candidate["total_lines"] = int(total_lines)
+        candidate["script_text"] = str(conversation_script or "")
         with open(
             _get_conversation_checkpoint_manifest_path(checkpoint_dir), "w", encoding="utf-8"
         ) as file:
@@ -4975,13 +4976,132 @@ def _format_conversation_checkpoint_status(
         conversation_script,
     )
     if not checkpoint_state:
-        return "Resume checkpoint: none detected for the current project, engine, and script."
+        return _explain_missing_conversation_checkpoint(
+            project_name, selected_engine, conversation_script
+        )
 
     return (
-        "Resume available: "
+        "✅ Resume available: "
         f"{checkpoint_state['completed_lines']}/{checkpoint_state['total_lines']} lines already exist for "
         f"{checkpoint_state['project_name']} on {checkpoint_state['selected_engine']}. "
-        f"Next line: {checkpoint_state['next_line']}."
+        f"Click **Resume** to continue from line {checkpoint_state['next_line']} "
+        "(re-select any voice samples first)."
+    )
+
+
+def _list_conversation_checkpoints() -> list[dict[str, Any]]:
+    """Return unfinished checkpoints on disk, newest first."""
+    found: list[dict[str, Any]] = []
+    root = APP_STATE_CONVERSATION_CHECKPOINTS_DIR
+    if not os.path.isdir(root):
+        return found
+    for dirpath, _dirs, files in os.walk(root):
+        if "manifest.json" not in files:
+            continue
+        manifest_path = os.path.join(dirpath, "manifest.json")
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as file:
+                manifest = json.load(file)
+        except Exception:
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        segments = sorted(
+            [s for s in manifest.get("segments", []) if isinstance(s, dict)],
+            key=lambda s: int(s.get("line_index", -1)),
+        )
+        done = 0
+        for expected_index, segment in enumerate(segments):
+            audio_path = str(segment.get("audio_path", "") or "")
+            if int(segment.get("line_index", -1)) != expected_index or not os.path.exists(
+                audio_path
+            ):
+                break
+            done += 1
+        total = int(manifest.get("total_lines", 0) or 0)
+        if done <= 0 or done >= total:
+            continue
+        found.append(
+            {
+                "dir": dirpath,
+                "project_name": str(manifest.get("project_name", "") or ""),
+                "selected_engine": str(manifest.get("selected_engine", "") or ""),
+                "done": done,
+                "total": total,
+                "segments": segments[:done],
+                "script_text": manifest.get("script_text"),
+                "mtime": os.path.getmtime(manifest_path),
+            }
+        )
+    found.sort(key=lambda row: row["mtime"], reverse=True)
+    return found
+
+
+def get_conversation_checkpoint_choices() -> list[tuple[str, str]]:
+    """Dropdown (label, value) pairs for resumable conversation checkpoints."""
+    choices = []
+    for row in _list_conversation_checkpoints():
+        stamp = datetime.fromtimestamp(row["mtime"]).strftime("%d %b %H:%M")
+        label = (
+            f"{row['project_name']} · {row['selected_engine']} · "
+            f"{row['done']}/{row['total']} lines · {stamp}"
+        )
+        choices.append((label, row["dir"]))
+    return choices
+
+
+def _explain_missing_conversation_checkpoint(
+    project_name, selected_engine, conversation_script
+) -> str:
+    """Say plainly why no checkpoint matched the current inputs."""
+    base = "Resume checkpoint: none detected for the current project, engine, and script."
+    saved = _list_conversation_checkpoints()
+    if not saved:
+        return base
+    pick_hint = " Or pick a saved run under **Interrupted runs** below."
+    if not str(conversation_script or "").strip():
+        return f"{base} Load or paste your script first.{pick_hint}"
+
+    resolved, project_error = _validate_required_project_name(project_name)
+    if project_error:
+        return f"{base} **Enter the Project Name** used for the original run.{pick_hint}"
+
+    same_project = [r for r in saved if r["project_name"] == resolved]
+    if not same_project:
+        names = ", ".join(sorted({f"'{r['project_name']}'" for r in saved})[:5])
+        return f"{base} Nothing is saved under project '{resolved}'. Saved projects: {names}.{pick_hint}"
+
+    same_engine = [r for r in same_project if r["selected_engine"] == selected_engine]
+    if not same_engine:
+        engines = ", ".join(sorted({r["selected_engine"] for r in same_project}))
+        return (
+            f"{base} A checkpoint for '{resolved}' exists, but for engine {engines}. "
+            f"Select that engine.{pick_hint}"
+        )
+
+    best = max(same_engine, key=lambda r: r["done"])
+    try:
+        script_rows = parse_conversation_script(conversation_script)[0] or []
+    except Exception:
+        script_rows = []
+    for index, segment in enumerate(best["segments"]):
+        preview = str(segment.get("text", "") or "")
+        prefix = (preview[:-3] if preview.endswith("...") else preview).rstrip()
+        row = script_rows[index] if index < len(script_rows) else None
+        if (
+            row is None
+            or str(row.get("speaker", "")).strip().lower()
+            != str(segment.get("speaker", "")).strip().lower()
+            or not str(row.get("text", "")).startswith(prefix)
+        ):
+            return (
+                f"{base} A checkpoint with {best['done']}/{best['total']} lines exists, but your "
+                f"script differs from it at line {index + 1}. Restore the original script "
+                f"(use **Interrupted runs** below)."
+            )
+    return (
+        f"{base} A checkpoint with {best['done']}/{best['total']} lines exists but the script "
+        f"now has {len(script_rows)} lines. Restore the original script via **Interrupted runs**."
     )
 
 
@@ -5065,6 +5185,7 @@ def _save_conversation_checkpoint_segment(
                 str(conversation_script or "").encode("utf-8")
             ).hexdigest(),
             "total_lines": int(total_lines),
+            "script_text": str(conversation_script or ""),
             "segments": [],
         }
 
@@ -13052,6 +13173,30 @@ Alice: I went to Japan. It was absolutely incredible!""",
                                 "Resume checkpoint: none detected for the current project, engine, and script.",
                                 elem_classes=["fade-in"],
                             )
+
+                            with gr.Accordion(
+                                "♻️ Interrupted runs (resume a previous job)",
+                                open=False,
+                                elem_classes=["fade-in"],
+                            ):
+                                gr.Markdown(
+                                    "1. Pick the run below and click **Load selected run**.\n"
+                                    "2. Re-select any character voices.\n"
+                                    "3. Click **Resume** to finish only the missing lines."
+                                )
+                                conversation_checkpoint_dd = gr.Dropdown(
+                                    label="Interrupted runs",
+                                    choices=get_conversation_checkpoint_choices(),
+                                    value=None,
+                                    interactive=True,
+                                )
+                                with gr.Row():
+                                    conversation_checkpoint_refresh_btn = gr.Button(
+                                        "🔄 Refresh list", variant="secondary"
+                                    )
+                                    conversation_checkpoint_load_btn = gr.Button(
+                                        "📂 Load selected run", variant="primary"
+                                    )
 
                             with gr.Group(
                                 visible=False, elem_classes=["fade-in"]
@@ -22567,6 +22712,42 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                 script_text,
             )
 
+        def handle_refresh_conversation_checkpoints():
+            return gr.update(choices=get_conversation_checkpoint_choices())
+
+        def handle_load_conversation_checkpoint(checkpoint_dir, current_script):
+            """Fill project, engine and (when stored) script from a saved checkpoint."""
+            row = next(
+                (r for r in _list_conversation_checkpoints() if r["dir"] == checkpoint_dir),
+                None,
+            )
+            if not row:
+                return (
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    "Select an interrupted run first.",
+                )
+            script = row.get("script_text")
+            note = (
+                f"Loaded '{row['project_name']}' ({row['done']}/{row['total']} lines done). "
+                "Re-select voices, then click **Resume**."
+            )
+            if not script:
+                note = (
+                    f"Selected '{row['project_name']}' ({row['done']}/{row['total']} lines done). "
+                    "This older checkpoint did not store its script, so paste the original "
+                    "script, then click **Resume**."
+                )
+            return (
+                gr.update(value=script) if script else gr.update(),
+                gr.update(value=row["project_name"]),
+                gr.update(value=row["project_name"]),
+                gr.update(value=row["selected_engine"]),
+                note,
+            )
+
         def handle_resume_conversation_advanced(
             script_text,
             pause_duration,
@@ -22927,6 +23108,27 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
         autosave_project_name.change(
             fn=handle_conversation_resume_status,
             inputs=[conversation_script, tts_engine, autosave_project_name],
+            outputs=[conversation_resume_status],
+        )
+
+        conversation_checkpoint_refresh_btn.click(
+            fn=handle_refresh_conversation_checkpoints,
+            outputs=[conversation_checkpoint_dd],
+        )
+
+        conversation_checkpoint_load_btn.click(
+            fn=handle_load_conversation_checkpoint,
+            inputs=[conversation_checkpoint_dd, conversation_script],
+            outputs=[
+                conversation_script,
+                autosave_project_name,
+                autosave_project_name_prominent,
+                tts_engine,
+                conversation_resume_status,
+            ],
+        ).then(
+            fn=handle_conversation_resume_status,
+            inputs=[conversation_script, tts_engine, autosave_project_name_prominent],
             outputs=[conversation_resume_status],
         )
 
