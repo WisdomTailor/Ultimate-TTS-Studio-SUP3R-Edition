@@ -6986,7 +6986,11 @@ def get_conversation_draft_status_message() -> str:
     selected_engine = str(draft.get("selected_engine", "") or "").strip() or "Unknown engine"
     project_name = str(draft.get("project_name", "") or "").strip() or "(no project)"
     line_count = len(parse_conversation_script(script_text)[0] or [])
-    return f"Saved draft available: {project_name} on {selected_engine} " f"({line_count} lines)."
+    return (
+        f"Saved draft available: {project_name} on {selected_engine} ({line_count} lines). "
+        "To bring it back, click **↩️ Restore Draft**; then use **Resume** to finish any "
+        "interrupted audio."
+    )
 
 
 def get_speaker_profile_choices() -> list[str]:
