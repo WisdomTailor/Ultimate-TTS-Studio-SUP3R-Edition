@@ -10336,7 +10336,6 @@ def create_gradio_interface():
     gr_themes = getattr(gr, "themes")
 
     with gr.Blocks(
-        delete_cache=(3600, 3600),
         title="✨ ULTIMATE TTS STUDIO PRO ✨",
         theme=gr_themes.Soft(
             primary_hue="purple",
