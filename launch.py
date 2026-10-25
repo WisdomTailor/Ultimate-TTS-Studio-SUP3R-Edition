@@ -4033,6 +4033,9 @@ def unload_indextts():
         return error_msg
 
 
+CONVERSATION_INLINE_PLAYER_MAX_SECONDS = 600
+
+
 def clear_gradio_temp_files():
     """Clear Gradio temporary files from the temp directory."""
     try:
@@ -10333,6 +10336,7 @@ def create_gradio_interface():
     gr_themes = getattr(gr, "themes")
 
     with gr.Blocks(
+        delete_cache=(3600, 3600),
         title="✨ ULTIMATE TTS STUDIO PRO ✨",
         theme=gr_themes.Soft(
             primary_hue="purple",
@@ -22422,7 +22426,24 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     summary_text = summary_text + "\n\n" + "\n".join(history_status_lines)
 
                 print(f"SUCCESS: Conversation generated successfully")
-                return audio_data, summary_text
+
+                # Returning the in-memory array makes Gradio re-encode and the browser decode
+                # the whole mix, which freezes the tab on long conversations. Prefer the saved
+                # file, and skip the inline player entirely for very long audio.
+                player_value = audio_data
+                if saved_audio_path and os.path.exists(saved_audio_path):
+                    total_seconds = float(summary.get("total_duration", 0) or 0)
+                    if total_seconds > CONVERSATION_INLINE_PLAYER_MAX_SECONDS:
+                        player_value = None
+                        summary_text = (
+                            f"INFO: Audio is {total_seconds / 60:.0f} min long, so the inline "
+                            "player is disabled to keep the UI responsive. "
+                            f"Open the saved file: {os.path.abspath(saved_audio_path)}\n\n"
+                            + summary_text
+                        )
+                    else:
+                        player_value = saved_audio_path
+                return player_value, summary_text
 
             except Exception as e:
                 import traceback
@@ -25737,6 +25758,9 @@ def _warn_on_shared_env_mcp_f5_pydantic_conflict(mcp_server_enabled: bool) -> No
 
 if __name__ == "__main__":
     print("[ROCKET] Starting Unified TTS Pro...")
+
+    # Clear leftover Gradio temp files from previous sessions
+    clear_gradio_temp_files()
 
     # Create and launch the interface
     with suppress_specific_warnings():
