@@ -15393,10 +15393,10 @@ Alice: I went to Japan. It was absolutely incredible!""",
                 last_seed_state = gr.State(value=None)
 
                 # Conversation info output (visible for conversation mode)
-                conversation_info = gr.Textbox(
+                conversation_info = gr.Markdown(
                     label="Conversation Summary",
-                    lines=8,
-                    interactive=False,
+                    line_breaks=True,
+                    container=True,
                     elem_classes=["fade-in"],
                     elem_id="conversation_summary_panel",
                     visible=False,
@@ -22435,10 +22435,28 @@ Alice: Definitely visit Kyoto and try authentic ramen!"""
                     total_seconds = float(summary.get("total_duration", 0) or 0)
                     if total_seconds > CONVERSATION_INLINE_PLAYER_MAX_SECONDS:
                         player_value = None
+                        display_path = os.path.abspath(saved_audio_path).replace("\\", "/")
+                        encoded_path = urllib.parse.quote(display_path, safe=":/")
+                        file_url = f"/gradio_api/file={encoded_path}"
+                        markdown_path = display_path
+                        for character in (
+                            "\\",
+                            "`",
+                            "*",
+                            "_",
+                            "{",
+                            "}",
+                            "[",
+                            "]",
+                            "(",
+                            ")",
+                            "!",
+                        ):
+                            markdown_path = markdown_path.replace(character, f"\\{character}")
                         summary_text = (
                             f"INFO: Audio is {total_seconds / 60:.0f} min long, so the inline "
                             "player is disabled to keep the UI responsive. "
-                            f"Open the saved file: {os.path.abspath(saved_audio_path)}\n\n"
+                            f"Open or download the saved file: [{markdown_path}]({file_url})\n\n"
                             + summary_text
                         )
                     else:
