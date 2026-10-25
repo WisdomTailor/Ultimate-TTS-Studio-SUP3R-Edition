@@ -4403,7 +4403,7 @@ def sanitize_chatterbox_multilingual_chunk(text: str) -> tuple[str, str | None]:
 def _find_multilingual_risky_fragments(script_text: str) -> list[str]:
     """Identify short interrupted fragments that will be rewritten for multilingual stability."""
     risky_fragments: list[str] = []
-    for line_number, line in enumerate(parse_conversation_script(script_text), start=1):
+    for line_number, line in enumerate(parse_conversation_script(script_text)[0] or [], start=1):
         original_text = str(line.get("text") or "").strip()
         if not original_text:
             continue
@@ -4783,6 +4783,91 @@ def _load_conversation_checkpoint_audio(audio_path: str) -> tuple[int | None, np
         return None, None
 
 
+def _adopt_matching_conversation_checkpoint(
+    checkpoint_dir: str,
+    project_name: str,
+    selected_engine: str,
+    conversation_script: str,
+    total_lines: int,
+) -> bool:
+    """Re-key an existing checkpoint whose completed lines match this script.
+
+    Checkpoints are keyed by exact project/script text, so a small script edit or a
+    renamed project hides finished work. Adopt a checkpoint (same engine) when every
+    saved segment matches the current script's speaker and text at the same index.
+    """
+    root = APP_STATE_CONVERSATION_CHECKPOINTS_DIR
+    if not os.path.isdir(root) or os.path.exists(checkpoint_dir):
+        return False
+
+    try:
+        script_lines = parse_conversation_script(conversation_script)[0] or []
+    except Exception:
+        return False
+    if not script_lines:
+        return False
+
+    best: tuple[int, str, dict[str, Any]] | None = None
+    for dirpath, _dirs, files in os.walk(root):
+        if "manifest.json" not in files:
+            continue
+        try:
+            with open(os.path.join(dirpath, "manifest.json"), "r", encoding="utf-8") as file:
+                candidate = json.load(file)
+        except Exception:
+            continue
+        if not isinstance(candidate, dict) or candidate.get("selected_engine") != selected_engine:
+            continue
+        segments = sorted(
+            [s for s in candidate.get("segments", []) if isinstance(s, dict)],
+            key=lambda s: int(s.get("line_index", -1)),
+        )
+        if not segments or len(segments) >= len(script_lines):
+            continue
+        matched = True
+        for expected_index, segment in enumerate(segments):
+            if int(segment.get("line_index", -1)) != expected_index:
+                matched = False
+                break
+            speaker, text = script_lines[expected_index]["speaker"], script_lines[expected_index]["text"]
+            preview = str(segment.get("text", "") or "")
+            prefix = (preview[:-3] if preview.endswith("...") else preview).rstrip()
+            if (
+                str(segment.get("speaker", "")).strip().lower() != str(speaker).strip().lower()
+                or not str(text).startswith(prefix)
+                or not os.path.exists(str(segment.get("audio_path", "") or ""))
+            ):
+                matched = False
+                break
+        if matched and (best is None or len(segments) > best[0]):
+            best = (len(segments), dirpath, candidate)
+
+    if best is None:
+        return False
+
+    _count, source_dir, candidate = best
+    try:
+        os.makedirs(os.path.dirname(checkpoint_dir), exist_ok=True)
+        shutil.copytree(source_dir, checkpoint_dir)
+        for segment in candidate.get("segments", []):
+            old_path = str(segment.get("audio_path", "") or "")
+            segment["audio_path"] = os.path.join(checkpoint_dir, os.path.basename(old_path))
+        candidate["project_name"] = project_name
+        candidate["selected_engine"] = selected_engine
+        candidate["script_hash"] = hashlib.sha256(
+            str(conversation_script or "").encode("utf-8")
+        ).hexdigest()
+        candidate["total_lines"] = int(total_lines)
+        with open(
+            _get_conversation_checkpoint_manifest_path(checkpoint_dir), "w", encoding="utf-8"
+        ) as file:
+            json.dump(candidate, file, indent=2, ensure_ascii=False)
+    except Exception:
+        shutil.rmtree(checkpoint_dir, ignore_errors=True)
+        return False
+    return True
+
+
 def _load_conversation_checkpoint_manifest(
     checkpoint_dir: str,
     project_name: str,
@@ -4791,6 +4876,10 @@ def _load_conversation_checkpoint_manifest(
     total_lines: int,
 ) -> dict[str, Any]:
     manifest_path = _get_conversation_checkpoint_manifest_path(checkpoint_dir)
+    if not os.path.exists(manifest_path):
+        _adopt_matching_conversation_checkpoint(
+            checkpoint_dir, project_name, selected_engine, conversation_script, total_lines
+        )
     if not os.path.exists(manifest_path):
         return {}
 
@@ -4835,7 +4924,7 @@ def _inspect_conversation_checkpoint(project_name, selected_engine, conversation
     if project_error:
         return None
 
-    conversation_lines = parse_conversation_script(conversation_script)
+    conversation_lines = parse_conversation_script(conversation_script)[0] or []
     total_lines = len(conversation_lines)
     if total_lines <= 0:
         return None
@@ -6775,7 +6864,7 @@ def get_conversation_draft_status_message() -> str:
 
     selected_engine = str(draft.get("selected_engine", "") or "").strip() or "Unknown engine"
     project_name = str(draft.get("project_name", "") or "").strip() or "(no project)"
-    line_count = len(parse_conversation_script(script_text))
+    line_count = len(parse_conversation_script(script_text)[0] or [])
     return f"Saved draft available: {project_name} on {selected_engine} " f"({line_count} lines)."
 
 
