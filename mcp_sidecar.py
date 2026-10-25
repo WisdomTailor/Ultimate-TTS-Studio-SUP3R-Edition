@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import argparse
 from importlib import metadata as importlib_metadata
 from importlib import util as importlib_util
@@ -119,7 +117,7 @@ def _extract_token_from_context(ctx: Context | None) -> str:
         return ""
 
 
-def _guard_tool(tool_name: str, ctx: Context | None = None) -> None:
+def _guard_tool(tool_name: str, ctx: Context = None) -> None:
     """Apply bearer-token auth and tool rate limiting via MCP security."""
     token = _extract_token_from_context(ctx)
     identity = ""
@@ -185,7 +183,7 @@ def create_mcp_server() -> FastMCP:
         return get_engine_info(engine_name)
 
     @server.tool(name="list_voices")
-    def mcp_list_voices(engine_name: str = "", ctx: Context | None = None) -> list[dict[str, Any]]:
+    def mcp_list_voices(engine_name: str = "", ctx: Context = None) -> list[dict[str, Any]]:
         _guard_tool("list_voices", ctx)
         return list_voices(engine_name if engine_name else None)
 
@@ -233,7 +231,7 @@ def create_mcp_server() -> FastMCP:
         top_p: str = "0.9",
         max_tokens: str = "1024",
         timeout_seconds: str = "60",
-        ctx: Context | None = None,
+        ctx: Context = None,
     ) -> dict[str, str]:
         _guard_tool("transform_text", ctx)
         resolved_provider, resolved_base_url, resolved_model_id = _resolve_provider(
@@ -268,7 +266,7 @@ def create_mcp_server() -> FastMCP:
     @server.tool(name="structure_conversation")
     def mcp_structure_conversation(
         script_text: str,
-        ctx: Context | None = None,
+        ctx: Context = None,
     ) -> dict[str, Any]:
         _guard_tool("structure_conversation", ctx)
         lines, error = parse_conversation_script(script_text)
@@ -291,7 +289,7 @@ def create_mcp_server() -> FastMCP:
         speed: str = "1.0",
         temperature: str = "0.7",
         ref_audio: str = "",
-        ctx: Context | None = None,
+        ctx: Context = None,
     ) -> dict[str, str]:
         _guard_tool("synthesize", ctx)
         engine_params: dict[str, object] = {}
@@ -335,7 +333,7 @@ def create_mcp_server() -> FastMCP:
         speed: str = "1.0",
         temperature: str = "0.7",
         ref_audio: str = "",
-        ctx: Context | None = None,
+        ctx: Context = None,
     ) -> dict[str, str]:
         _guard_tool("submit_synthesis_job", ctx)
         engine_params: dict[str, object] = {}
@@ -362,7 +360,7 @@ def create_mcp_server() -> FastMCP:
         return {"job_id": job_id, "status": "pending"}
 
     @server.tool(name="get_job_status")
-    def mcp_get_job_status(job_id: str, ctx: Context | None = None) -> dict[str, str]:
+    def mcp_get_job_status(job_id: str, ctx: Context = None) -> dict[str, str]:
         _guard_tool("get_job_status", ctx)
         try:
             info = get_job_manager().get_status(job_id)
@@ -391,7 +389,7 @@ def create_mcp_server() -> FastMCP:
         return response
 
     @server.tool(name="cancel_job")
-    def mcp_cancel_job(job_id: str, ctx: Context | None = None) -> dict[str, str]:
+    def mcp_cancel_job(job_id: str, ctx: Context = None) -> dict[str, str]:
         _guard_tool("cancel_job", ctx)
         try:
             cancelled = get_job_manager().cancel(job_id)
