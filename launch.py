@@ -4985,7 +4985,8 @@ def _format_conversation_checkpoint_status(
         f"{checkpoint_state['completed_lines']}/{checkpoint_state['total_lines']} lines already exist for "
         f"{checkpoint_state['project_name']} on {checkpoint_state['selected_engine']}. "
         f"Click **Resume** to continue from line {checkpoint_state['next_line']} "
-        "(re-select any voice samples first)."
+        "(re-select any voice samples first). The Resume button is in the action row at the "
+        "bottom of the page, next to Generate and Queue Job."
     )
 
 
